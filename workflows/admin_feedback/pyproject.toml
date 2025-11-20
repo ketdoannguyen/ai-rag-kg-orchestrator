@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "workflow-admin-feedback"
+version = "0.1.0"
+description = "Admin feedback workflow"
+requires-python = ">=3.11"
+dependencies = [
+    "postgres-client",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["admin_feedback*"]
+
+

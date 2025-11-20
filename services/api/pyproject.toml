@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "api-service"
+version = "0.1.0"
+description = "FastAPI service exposing workflows"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "postgres-client",
+    "llm-gateway-client",
+    "workflow-ingest-file",
+    "workflow-query-chat",
+    "workflow-admin-cms",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["api*"]
+
+

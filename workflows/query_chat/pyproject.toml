@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "workflow-query-chat"
+version = "0.1.0"
+description = "Chat query workflow"
+requires-python = ">=3.11"
+dependencies = [
+    "postgres-client",
+    "llm-gateway-client",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["query_chat*"]
+
+

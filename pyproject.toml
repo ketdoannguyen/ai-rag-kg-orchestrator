@@ -1,0 +1,111 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-rag-kg-orchestrator"
+version = "0.1.0"
+description = "Hyper-modular RAG + knowledge graph orchestration workspace"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    { name = "solid" }
+]
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic",
+    "pydantic-settings",
+    "openai>=2.8.0",
+    "marker-pdf>=1.6.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio",
+    "pytest-mock",
+    "ruff",
+    "mypy",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio",
+    "pytest-mock",
+    "ruff",
+    "mypy",
+]
+
+[tool.setuptools]
+packages = []
+
+[tool.uv.workspace]
+members = [
+    ".",
+    # Libs (Layer 1)
+    "libs/postgres_client",
+    "libs/neo4j_client",
+    "libs/llm_gateway_client",
+    "libs/storage_client",
+
+    # Workflows (Layer 2)
+    "workflows/ingest_file",
+    "workflows/ingest_web",
+    "workflows/ingest_facebook",
+    "workflows/query_chat",
+    "workflows/admin_cms",
+    "workflows/admin_feedback",
+
+    # Services (Layer 3)
+    "services/api",
+    "services/worker",
+]
+
+[tool.uv.sources]
+postgres-client = { workspace = true }
+neo4j-client = { workspace = true }
+llm-gateway-client = { workspace = true }
+storage-client = { workspace = true }
+workflow-ingest-file = { workspace = true }
+workflow-ingest-web = { workspace = true }
+workflow-ingest-facebook = { workspace = true }
+workflow-query-chat = { workspace = true }
+workflow-admin-cms = { workspace = true }
+workflow-admin-feedback = { workspace = true }
+api-service = { workspace = true }
+worker-service = { workspace = true }
+
+[tool.ruff]
+line-length = 99
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "F", "E", "W", "I", "N", "UP", "B", "A", "C4", "T20", "SIM", "PTH", "ARG",
+    "RUF", "PLC", "PLE", "PLR", "PLW"
+]
+ignore = [
+    "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",
+    "D203", "D212", "D415", "E501", "B905"
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = "--import-mode=prepend"
+asyncio_mode = "auto"
+
+[tool.isort]
+profile = "black"
+force_single_line = true
+lines_after_imports = 2
+lines_between_types = 1
+
+
+
