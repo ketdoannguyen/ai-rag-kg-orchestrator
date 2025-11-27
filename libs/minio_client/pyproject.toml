@@ -3,16 +3,17 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "storage-client"
-version = "0.1.0"
+name = "minio-client"
+version = "0.2.0"
 description = "Object storage client"
 requires-python = ">=3.11"
 dependencies = [
     "minio",
+    "loguru>=0.7",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["storage_client*"]
+include = ["minio_client*"]
 
 

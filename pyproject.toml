@@ -19,6 +19,7 @@ dependencies = [
     "pydantic-settings",
     "openai>=2.8.0",
     "marker-pdf>=1.6.1",
+    "crawl4ai>=0.7.7",
 ]
 
 [project.optional-dependencies]
@@ -49,15 +50,7 @@ members = [
     "libs/postgres_client",
     "libs/neo4j_client",
     "libs/llm_gateway_client",
-    "libs/storage_client",
-
-    # Workflows (Layer 2)
-    "workflows/ingest_file",
-    "workflows/ingest_web",
-    "workflows/ingest_facebook",
-    "workflows/query_chat",
-    "workflows/admin_cms",
-    "workflows/admin_feedback",
+    "libs/minio_client",
 
     # Services (Layer 3)
     "services/api",
@@ -68,13 +61,7 @@ members = [
 postgres-client = { workspace = true }
 neo4j-client = { workspace = true }
 llm-gateway-client = { workspace = true }
-storage-client = { workspace = true }
-workflow-ingest-file = { workspace = true }
-workflow-ingest-web = { workspace = true }
-workflow-ingest-facebook = { workspace = true }
-workflow-query-chat = { workspace = true }
-workflow-admin-cms = { workspace = true }
-workflow-admin-feedback = { workspace = true }
+minio-client = { workspace = true }
 api-service = { workspace = true }
 worker-service = { workspace = true }
 
