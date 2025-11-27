@@ -3,33 +3,37 @@ version: "3.9"
 services:
   postgres:
     image: postgres:15
-    environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: rag
+    env_file:
+      - .env.dev
     ports:
       - "5432:5432"
+    volumes:
+      - ../docker/data/postgres:/var/lib/postgresql/data
 
   neo4j:
     image: neo4j:5
-    environment:
-      NEO4J_AUTH: neo4j/password
+    env_file:
+      - .env.dev
     ports:
       - "7687:7687"
       - "7474:7474"
+    volumes:
+      - ../docker/data/neo4j:/data
 
   redis:
     image: redis:7
     ports:
       - "6379:6379"
+    volumes:
+      - ../docker/data/redis:/data
 
   minio:
     image: minio/minio
     command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: minio123
+    env_file:
+      - .env.dev
     ports:
       - "9000:9000"
       - "9001:9001"
-
+    volumes:
+      - ../docker/data/minio:/data

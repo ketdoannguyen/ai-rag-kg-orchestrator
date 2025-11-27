@@ -6,8 +6,8 @@ services:
       context: .
       dockerfile: services/api/Dockerfile
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000
-    environment:
-      - PYTHONPATH=/app/src
+    env_file:
+      - .env.dev
     ports:
       - "8000:8000"
     depends_on:
@@ -18,6 +18,5 @@ services:
       context: .
       dockerfile: services/worker/Dockerfile
     command: celery -A worker.celery_app worker --loglevel=info
-    environment:
-      - PYTHONPATH=/app/src
-
+    env_file:
+      - .env.dev

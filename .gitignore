@@ -117,6 +117,7 @@ data/ingest_web/*
 # Docker
 docker-compose.override.yml
 .dockerignore
+docker/data/*
 
 # Database
 *.db
@@ -165,4 +166,3 @@ credentials.json
 *.ckpt
 models/
 checkpoints/
-

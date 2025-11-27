@@ -1,3 +1,6 @@
+COMPOSE ?= docker compose -f docker/docker-compose.yml
+COMPOSE_SERVICES ?= docker compose -f docker/docker-compose.services.yml
+
 lint:
 	ruff check .
 
@@ -16,9 +19,31 @@ clean:
 	echo "✅ Cleanup complete"
 
 up:
-	docker compose up -d
+	$(COMPOSE) up -d
+
+down:
+	$(COMPOSE) down
+
+restart:
+	$(COMPOSE) restart
+
+logs:
+	$(COMPOSE) logs -f
+
+ps:
+	$(COMPOSE) ps
+
+build:
+	$(COMPOSE) build
 
 up-services:
-	docker compose -f docker-compose.services.yml up -d
+	$(COMPOSE_SERVICES) up -d
 
+down-services:
+	$(COMPOSE_SERVICES) down
 
+logs-services:
+	$(COMPOSE_SERVICES) logs -f
+
+build-services:
+	$(COMPOSE_SERVICES) build
