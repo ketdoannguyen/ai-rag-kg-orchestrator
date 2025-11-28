@@ -1,5 +1,3 @@
-# pyright: reportMissingImports=false
-
 from __future__ import annotations
 
 import base64
@@ -8,24 +6,13 @@ import json
 import os
 import uuid
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
 from marker.converters.pdf import PdfConverter
 from marker.logger import configure_logging
 from marker.models import create_model_dict
 from marker.output import text_from_rendered
 from marker.settings import settings as marker_settings
-
-
-class MarkerClientError(RuntimeError):
-    """Raised when local Marker SDK calls fail."""
-
-
-class MarkerResult(TypedDict):
-    """Internal representation we pass back to the workflow layer."""
-
-    request_id: str
-    payload: dict[str, Any]
 
 
 class MarkerClient:
@@ -82,7 +69,7 @@ class MarkerClient:
                 renderer="marker.renderers.json.JSONRenderer",
             )
         except Exception as exc:  # pragma: no cover
-            raise MarkerClientError(f"Unable to initialise Marker converter: {exc}") from exc
+            raise RuntimeError(f"Unable to initialise Marker converter: {exc}") from exc
 
     def _encode_images(self, images: dict[str, Any]) -> list[dict[str, str]]:
         payload: list[dict[str, str]] = []
@@ -101,7 +88,8 @@ class MarkerClient:
     def convert_pdf(
         self,
         file_path: Path,
-    ) -> MarkerResult:
+    ) -> dict[str, Any]:
+        """Convert PDF to structured content using Marker SDK."""
         file_path = file_path.expanduser().resolve()
         if not file_path.exists():
             raise FileNotFoundError(f"Source file does not exist: {file_path}")
@@ -111,7 +99,7 @@ class MarkerClient:
             rendered = converter(str(file_path))
             json_text, _, images = text_from_rendered(rendered)
         except Exception as exc:  # pragma: no cover
-            raise MarkerClientError(f"Marker conversion failed: {exc}") from exc
+            raise RuntimeError(f"Marker conversion failed: {exc}") from exc
 
         payload: dict[str, Any] = {
             "json": json.loads(json_text),
