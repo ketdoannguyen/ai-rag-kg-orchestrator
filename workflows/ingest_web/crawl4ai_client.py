@@ -49,4 +49,3 @@ class Crawl4AIClient:
             except Exception:
                 pass
             self._crawler = None
-

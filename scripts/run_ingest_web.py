@@ -12,7 +12,7 @@ from loguru import logger
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from ingest_web import start_ingest
+from workflows.ingest_web import start_ingest
 
 
 def main() -> None:
@@ -37,7 +37,10 @@ def main() -> None:
 
     try:
         logger.info(f"Starting web ingestion for {len(args.urls)} URL(s)")
-        result = start_ingest(urls=args.urls, enable_ocr=args.enable_ocr)
+        result = start_ingest(
+            payload=args.urls,
+            enable_ocr=args.enable_ocr,
+        )
 
         # Print result
         print("\n" + "=" * 80)
@@ -63,7 +66,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
-

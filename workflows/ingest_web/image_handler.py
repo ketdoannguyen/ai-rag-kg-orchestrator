@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import mimetypes
 from pathlib import Path
@@ -8,7 +9,7 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 from loguru import logger
-from storage_client import StorageClient
+from minio_client import StorageClient
 
 
 class ImageHandler:
@@ -18,7 +19,7 @@ class ImageHandler:
         self._storage = storage
         self._bucket = bucket
 
-    def download_and_upload_image(
+    async def download_and_upload_image(
         self, image_url: str, base_url: str, job_id: str
     ) -> dict[str, Any] | None:
         """Download image from URL and upload to MinIO."""
@@ -27,8 +28,10 @@ class ImageHandler:
             if not image_url.startswith(("http://", "https://")):
                 image_url = urljoin(base_url, image_url)
 
-            # Download image
-            response = requests.get(image_url, timeout=30, stream=True)
+            # Download image in a worker thread because requests is blocking.
+            response = await asyncio.to_thread(
+                requests.get, image_url, timeout=30, stream=True
+            )
             response.raise_for_status()
 
             # Determine content type
@@ -55,7 +58,7 @@ class ImageHandler:
             image_data = response.content
             object_name = f"web/{job_id}/images/{unique_filename}"
 
-            self._storage.upload_bytes(
+            await self._storage.upload_bytes(
                 bucket_name=self._bucket,
                 object_name=object_name,
                 data=image_data,
@@ -83,7 +86,3 @@ class ImageHandler:
         pattern = r"!\[.*?\]\((.*?)\)"
         matches = re.findall(pattern, markdown)
         return [url.strip() for url in matches if url.strip()]
-
-
-
-
