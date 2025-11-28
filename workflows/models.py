@@ -48,6 +48,7 @@ class Paragraph(BaseModel):
     content_type: ContentType = ContentType.PARAGRAPH
     text: str = Field(..., description="Text content of the paragraph")
     page: int | None = Field(None, description="Page number where this paragraph is located")
+    bbox: list[int] = Field(default_factory=list, description="Bounding box [x1, y1, x2, y2]")
 
 
 class Image(BaseModel):
@@ -65,6 +66,7 @@ class Image(BaseModel):
         None, description="Text extracted from image via OCR (if available)"
     )
     page: int | None = Field(None, description="Page number where this image is located")
+    bbox: list[int] = Field(default_factory=list, description="Bounding box [x1, y1, x2, y2]")
 
 
 class Table(BaseModel):
@@ -79,6 +81,7 @@ class Table(BaseModel):
         None, description="Text representation of table (markdown or plain text)"
     )
     page: int | None = Field(None, description="Page number where this table is located")
+    bbox: list[int] = Field(default_factory=list, description="Bounding box [x1, y1, x2, y2]")
 
 
 class Section(BaseModel):
@@ -97,6 +100,7 @@ class Section(BaseModel):
     source: Source | None = Field(
         None, description="Source reference (only at root level, not in nested sections)"
     )
+    bbox: list[int] = Field(default_factory=list, description="Bounding box [x1, y1, x2, y2]")
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary with proper serialization."""
