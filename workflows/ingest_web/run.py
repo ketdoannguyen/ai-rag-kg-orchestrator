@@ -12,7 +12,8 @@ from loguru import logger
 from minio_client import StorageClient
 
 from workflows.dependencies import get_minio_client
-from workflows.models import SourceType
+from postgres_client.models import SourceType
+from postgres_client import set_parent_ids, set_positions
 from .content_extractor import ContentExtractor
 from .crawl4ai_client import Crawl4AIClient
 from .image_handler import ImageHandler
@@ -233,7 +234,10 @@ class WebIngestionWorkflow:
             url=url,
             metadata=metadata,
         )
-        structured_json = root_section.to_dict()
+        # Set parent_id and position for all nodes in the tree before serializing
+        set_parent_ids(root_section)
+        set_positions(root_section)
+        structured_json = root_section.model_dump(mode="json", exclude_none=False)
 
         minio_objects = await self._persist_outputs(
             url=url,

@@ -3,7 +3,11 @@
 import json
 from typing import List
 
-from workflows.models import Paragraph
+from postgres_client.models import ParagraphNode
+from postgres_client.models.attributes_metadata import (
+    ParagraphAttributes,
+    ParagraphMetadata,
+)
 
 
 def load_json_file(file_path: str) -> dict:
@@ -53,7 +57,7 @@ def extract_json_from_response(content: str) -> str:
     return content.strip()
 
 
-def calculate_merged_bbox(paragraphs: List[Paragraph]) -> List[int]:
+def calculate_merged_bbox(paragraphs: List[ParagraphNode]) -> List[int]:
     """
     Calculate union bounding box from multiple paragraphs.
 
@@ -64,9 +68,9 @@ def calculate_merged_bbox(paragraphs: List[Paragraph]) -> List[int]:
         Merged bbox [x1, y1, x2, y2] or empty list if invalid
     """
     valid_bboxes = [
-        p.bbox for p in paragraphs
-        if p.bbox and len(p.bbox) == 4
-        and all(isinstance(x, (int, float)) for x in p.bbox)
+        p.metadata.bbox for p in paragraphs
+        if p.metadata.bbox and len(p.metadata.bbox) == 4
+        and all(isinstance(x, (int, float)) for x in p.metadata.bbox)
     ]
 
     if not valid_bboxes:
@@ -82,17 +86,17 @@ def calculate_merged_bbox(paragraphs: List[Paragraph]) -> List[int]:
 
 def create_refined_paragraphs(
     segments: List[dict],
-    buffer: List[Paragraph]
-) -> List[Paragraph]:
+    buffer: List[ParagraphNode]
+) -> List[ParagraphNode]:
     """
-    Create refined Paragraph objects from LLM response segments.
+    Create refined ParagraphNode objects from LLM response segments.
 
     Args:
         segments: List of segment dicts from LLM response
         buffer: Original paragraph buffer
 
     Returns:
-        List of refined Paragraph objects
+        List of refined ParagraphNode objects
     """
     refined_paragraphs = []
 
@@ -121,12 +125,14 @@ def create_refined_paragraphs(
         merged_bbox = calculate_merged_bbox(relevant_paragraphs)
 
         # Use page from first paragraph
-        page = relevant_paragraphs[0].page
+        page = relevant_paragraphs[0].metadata.page
 
-        refined_paragraphs.append(Paragraph(
-            text=text,
+        refined_paragraphs.append(ParagraphNode(
+            attributes=ParagraphAttributes(text=text),
+            metadata=ParagraphMetadata(
             page=page,
             bbox=merged_bbox
+            )
         ))
 
     return refined_paragraphs

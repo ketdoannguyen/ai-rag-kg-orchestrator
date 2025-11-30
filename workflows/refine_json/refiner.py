@@ -8,7 +8,14 @@ from typing import List, Optional, Tuple
 
 from config.settings import settings
 from loguru import logger
-from workflows.models import Image, Paragraph, Section, Table
+from postgres_client.models import (
+    ImageNode,
+    ParagraphNode,
+    StructureNode,
+    TableNode,
+    KnowledgeNode,
+)
+from postgres_client import parse_node_from_dict, set_parent_ids, set_positions
 
 from llm_gateway_client import AIGatewayClient
 from llm_gateway_client.models import GatewayChatTurn, GatewayInvokeRequest
@@ -78,7 +85,8 @@ class TextbookRefiner:
         try:
             # Load input file asynchronously
             data = await asyncio.to_thread(load_json_file, input_path)
-            root = Section.model_validate(data)
+            # Parse recursively to get correct node types
+            root = parse_node_from_dict(data)
         except FileNotFoundError as e:
             logger.error("Input file not found", extra={"input_path": input_path, "error": str(e)})
             return RefineJsonOutput(
@@ -102,7 +110,7 @@ class TextbookRefiner:
             )
 
         # Refine content
-        stats = await self._refine_node(root, [root.title], llm_timeout)
+        stats = await self._refine_node(root, [root.attributes.title], llm_timeout)
 
         # Save output
         result = await self._save_json(root, output_path)
@@ -110,7 +118,7 @@ class TextbookRefiner:
         result.paragraphs_refined = stats.get("paragraphs_refined", 0)
         return result
 
-    async def _save_json(self, root: Section, output_path: str) -> RefineJsonOutput:
+    async def _save_json(self, root: StructureNode, output_path: str) -> RefineJsonOutput:
         """
         Save refined JSON to local file and MinIO.
 
@@ -122,6 +130,10 @@ class TextbookRefiner:
             RefineJsonOutput with save results
         """
         try:
+            # Set parent_id and position for all nodes in the tree before saving
+            set_parent_ids(root)
+            set_positions(root)
+            
             # Save locally asynchronously
             json_content = root.model_dump_json(indent=2, exclude_none=True)
             await asyncio.to_thread(write_file, output_path, json_content)
@@ -166,38 +178,63 @@ class TextbookRefiner:
                 error=f"Failed to save: {e}"
             )
 
-    def _collect_section_children(self, node: Section) -> Tuple[List[Paragraph], List[Tuple[int, Section | Image | Table]]]:
+    def _collect_section_children(self, node: StructureNode) -> Tuple[List[ParagraphNode], List[Tuple[int, KnowledgeNode]]]:
         """
         Collect all direct Paragraphs and track positions of non-Paragraph children.
 
         Args:
-            node: Section node to collect from
+            node: StructureNode node to collect from
 
         Returns:
             Tuple of (paragraphs, other_children_with_positions) where positions are original indices
         """
-        paragraphs: List[Paragraph] = []
-        other_children: List[Tuple[int, Section | Image | Table]] = []
+        paragraphs: List[ParagraphNode] = []
+        other_children: List[Tuple[int, KnowledgeNode]] = []
 
         for idx, child in enumerate(node.children):
-            if isinstance(child, Paragraph):
+            # Check if child is actually a ParagraphNode (not just a dict or wrong type)
+            if isinstance(child, ParagraphNode):
                 paragraphs.append(child)
-            else:
+            elif isinstance(child, (StructureNode, ImageNode, TableNode)):
                 other_children.append((idx, child))
+            else:
+                # Log unexpected type
+                logger.warning(
+                    f"Unexpected child type in node: {type(child)}",
+                    extra={
+                        "child_type": str(type(child)),
+                        "child_semantic_level": getattr(child, "semantic_level", None),
+                        "child_dict": child if isinstance(child, dict) else None
+                    }
+                )
+                # Try to parse it if it's a dict
+                if isinstance(child, dict):
+                    try:
+                        parsed_child = parse_node_from_dict(child)
+                        if isinstance(parsed_child, ParagraphNode):
+                            paragraphs.append(parsed_child)
+                        else:
+                            other_children.append((idx, parsed_child))
+                    except Exception as e:
+                        logger.error(f"Failed to parse child: {e}", extra={"child": child})
+                        # Add as-is to avoid breaking the process
+                        other_children.append((idx, child))
+                else:
+                    other_children.append((idx, child))
 
         return paragraphs, other_children
 
     async def _refine_node(
         self, 
-        node: Section, 
+        node: StructureNode, 
         breadcrumb: List[str], 
         llm_timeout: float
     ) -> dict:
         """
-        Recursively refine a Section node by collecting all its Paragraphs and refining them together.
+        Recursively refine a StructureNode node by collecting all its Paragraphs and refining them together.
 
         Args:
-            node: Section node to refine
+            node: StructureNode node to refine
             breadcrumb: Breadcrumb path for context
             llm_timeout: Timeout for LLM calls
 
@@ -209,6 +246,17 @@ class TextbookRefiner:
 
         # Collect all direct Paragraphs and track positions of other children
         paragraphs, other_children_with_pos = self._collect_section_children(node)
+        
+        # Debug logging
+        context_str = " > ".join(breadcrumb)
+        logger.debug(
+            f"Refining node: {context_str}",
+            extra={
+                "paragraphs_count": len(paragraphs),
+                "other_children_count": len(other_children_with_pos),
+                "total_children": len(node.children)
+            }
+        )
 
         # Refine all Paragraphs of this Section together
         refined_paragraphs = paragraphs
@@ -218,10 +266,10 @@ class TextbookRefiner:
             paragraphs_were_refined = refined_paragraphs != paragraphs
 
         # Process all child Sections concurrently
-        sections_to_refine: List[Tuple[Section, List[str]]] = []
+        sections_to_refine: List[Tuple[StructureNode, List[str]]] = []
         for _, child in other_children_with_pos:
-            if isinstance(child, Section):
-                child_breadcrumb = breadcrumb + [child.title]
+            if isinstance(child, StructureNode):
+                child_breadcrumb = breadcrumb + [child.attributes.title]
                 sections_to_refine.append((child, child_breadcrumb))
 
         # Refine all child Sections concurrently
@@ -245,7 +293,7 @@ class TextbookRefiner:
 
         # Rebuild children: place all refined paragraphs first, then other children in original order
         # This is simpler and ensures all paragraphs are refined together
-        new_children: List[Section | Paragraph | Image | Table] = []
+        new_children: List[KnowledgeNode] = []
         
         # Add all refined paragraphs first
         new_children.extend(refined_paragraphs)
@@ -263,15 +311,15 @@ class TextbookRefiner:
 
     async def _refine_paragraphs(
         self, 
-        paragraphs: List[Paragraph], 
+        paragraphs: List[ParagraphNode], 
         breadcrumb: List[str],
         llm_timeout: float
-    ) -> List[Paragraph]:
+    ) -> List[ParagraphNode]:
         """
-        Refine all paragraphs of a Section together using LLM.
+        Refine all paragraphs of a StructureNode together using LLM.
 
         Args:
-            paragraphs: List of paragraphs to refine (all from same Section)
+            paragraphs: List of paragraphs to refine (all from same StructureNode)
             breadcrumb: Context breadcrumb path
             llm_timeout: Timeout for LLM call
 

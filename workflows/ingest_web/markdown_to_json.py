@@ -5,7 +5,21 @@ from __future__ import annotations
 import re
 from typing import Any, Match
 
-from workflows.models import Paragraph, Section, Source, SourceType
+from postgres_client.models import (
+    ParagraphNode,
+    SourceType,
+    StructureNode,
+    TopicNode,
+    SubtopicNode,
+    SemanticLevel,
+)
+from postgres_client.models.attributes_metadata import (
+    ParagraphAttributes,
+    ParagraphMetadata,
+    StructureAttributes,
+    StructureMetadata,
+)
+from postgres_client import clean_title_from_code, extract_code_from_context
 
 from .semantic_splitter import SemanticParagraphSplitter
 
@@ -37,7 +51,7 @@ class MarkdownToJSONConverter:
         file_path: str | None = None,
         title: str | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> Section:
+    ) -> StructureNode:
         """Convert markdown to Section with hierarchical structure."""
         lines = markdown.split("\n")
         metadata = metadata or {}
@@ -46,21 +60,14 @@ class MarkdownToJSONConverter:
         if not title:
             title = self._extract_title(lines) or "Untitled Document"
 
-        # Create source reference
-        source = Source(
-            source_type=source_type,
-            url=url,
-            file_path=file_path,
-            metadata=metadata,
-        )
-
         # Build hierarchical structure
-        root_children: list[Section | Paragraph] = []
-        section_stack: list[tuple[int, Section]] = []  # Stack of (markdown_level, section)
+        root_children: list[StructureNode | ParagraphNode] = []
+        section_stack: list[tuple[int, StructureNode]] = []  # Stack of (markdown_level, section)
 
         current_paragraph_lines: list[str] = []
+        processed_lines: list[str] = []  # Track processed lines for context
 
-        for line in lines:
+        for line_idx, line in enumerate(lines):
             line = line.strip()
             if not line:
                 continue
@@ -89,8 +96,26 @@ class MarkdownToJSONConverter:
                 # Calculate actual hierarchical level based on stack depth
                 actual_level = len(section_stack) + 1
 
+                # Extract code from header text or previous lines
+                # Check previous lines (up to 3 lines back) for code
+                previous_lines = processed_lines[-3:] if len(processed_lines) > 0 else []
+                extracted_code = extract_code_from_context(
+                    current_text=header_text,
+                    previous_items=previous_lines
+                )
+
                 # Create new section (without source - only root has source)
-                new_section = self._create_section(header_text, actual_level)
+                # If code is present, clean the title to remove the code prefix
+                final_title = header_text
+                if extracted_code:
+                    final_title = clean_title_from_code(header_text, extracted_code)
+                
+                attrs = StructureAttributes(title=final_title)
+                if extracted_code and not attrs.code:
+                    # Manually set code if extracted from context
+                    attrs.code = extracted_code
+                
+                new_section = self._create_section_with_attrs(final_title, actual_level, attrs)
 
                 # Add to parent or root
                 if section_stack:
@@ -103,9 +128,14 @@ class MarkdownToJSONConverter:
 
                 # Push new section with its markdown level
                 section_stack.append((markdown_level, new_section))
+                
+                # Track processed line
+                processed_lines.append(line)
             else:
                 # Regular content line - add to current paragraph
                 current_paragraph_lines.append(line)
+                # Track processed line for context
+                processed_lines.append(line)
 
         # Save last paragraph if exists
         if current_paragraph_lines:
@@ -113,12 +143,18 @@ class MarkdownToJSONConverter:
             if paragraphs:
                 self._add_to_current_section(paragraphs, section_stack, root_children)
 
-        # Create root section
-        root_section = Section(
-            title=title,
-            level=1,
+        # Create root section with source metadata
+        root_metadata = StructureMetadata(
+            url=url,
+            file_path=file_path,
+            **metadata if metadata else {},
+        )
+        root_section = StructureNode(
+            semantic_level=SemanticLevel.CORPUS,
+            physical_level=1,
+            attributes=StructureAttributes(title=title),
+            metadata=root_metadata,
             children=root_children,
-            source=source,
         )
 
         return root_section
@@ -153,16 +189,28 @@ class MarkdownToJSONConverter:
 
         return None
 
-    def _create_section(self, title: str, level: int) -> Section:
-        """Create a new Section."""
+    def _create_section_with_attrs(self, title: str, level: int, attrs: StructureAttributes) -> StructureNode:
+        """Create a new Section with provided attributes."""
         actual_level = min(level, 10)  # Cap at 10
 
-        return Section(
-            title=title,
-            level=actual_level,
+        # Determine semantic level based on physical level
+        if actual_level <= 2:
+            semantic_level = SemanticLevel.TOPIC
+            node_class = TopicNode
+        elif actual_level <= 4:
+            semantic_level = SemanticLevel.SUBTOPIC
+            node_class = SubtopicNode
+        else:
+            semantic_level = SemanticLevel.SUBTOPIC
+            node_class = SubtopicNode
+
+        return node_class(
+            semantic_level=semantic_level,
+            physical_level=actual_level,
+            attributes=attrs,
         )
 
-    def _create_paragraph(self, text: str, page: int | None = None) -> list[Paragraph] | None:
+    def _create_paragraph(self, text: str, page: int | None = None) -> list[ParagraphNode] | None:
         """Create Paragraph(s) from text, splitting if too long."""
         # Clean up text
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
@@ -180,17 +228,33 @@ class MarkdownToJSONConverter:
             cleaned_sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
             if len(cleaned_sentences) > 1:
                 # Return multiple paragraphs (one per sentence)
-                return [Paragraph(text=sentence, page=page) for sentence in cleaned_sentences]
+                return [
+                    ParagraphNode(
+                        attributes=ParagraphAttributes(text=sentence),
+                        metadata=ParagraphMetadata(page=page)
+                    )
+                    for sentence in cleaned_sentences
+                ]
             elif len(cleaned_sentences) == 1:
                 # Single sentence, return as one paragraph
-                return [Paragraph(text=cleaned_sentences[0], page=page)]
+                return [
+                    ParagraphNode(
+                        attributes=ParagraphAttributes(text=cleaned_sentences[0]),
+                        metadata=ParagraphMetadata(page=page)
+                    )
+                ]
 
         # Return single paragraph (if splitting disabled)
-        return [Paragraph(text=text, page=page)]
+        return [
+            ParagraphNode(
+                attributes=ParagraphAttributes(text=text),
+                metadata=ParagraphMetadata(page=page)
+            )
+        ]
 
     def _adjust_section_stack(
-        self, stack: list[tuple[int, Section]], new_markdown_level: int
-    ) -> list[tuple[int, Section]]:
+        self, stack: list[tuple[int, StructureNode]], new_markdown_level: int
+    ) -> list[tuple[int, StructureNode]]:
         """Adjust section stack based on new header markdown level."""
         # Pop sections until we find a parent with lower markdown level
         while stack and stack[-1][0] >= new_markdown_level:
@@ -199,9 +263,9 @@ class MarkdownToJSONConverter:
 
     def _add_to_current_section(
         self,
-        paragraphs: list[Paragraph] | None,
-        section_stack: list[tuple[int, Section]],
-        root_children: list[Section | Paragraph],
+        paragraphs: list[ParagraphNode] | None,
+        section_stack: list[tuple[int, StructureNode]],
+        root_children: list[StructureNode | ParagraphNode],
     ) -> None:
         """Add paragraph(s) to current section or root."""
         if not paragraphs:
