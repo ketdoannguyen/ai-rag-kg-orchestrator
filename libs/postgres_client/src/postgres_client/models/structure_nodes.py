@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import Field, model_validator
 
 from .attributes_metadata import StructureAttributes, StructureMetadata
-from .base import KnowledgeNode
+from .knowledge import KnowledgeNode
 from .enums import SemanticLevel
 
 

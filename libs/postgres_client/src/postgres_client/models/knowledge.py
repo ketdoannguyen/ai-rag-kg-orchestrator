@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .enums import SemanticLevel
 
@@ -82,11 +82,31 @@ class KnowledgeNode(BaseModel):
         description="Nested nodes (paragraphs, images, tables, etc.)",
     )
 
-    class Config:
-        """Pydantic configuration."""
-
-        use_enum_values = True
-        json_encoders = {
+    model_config = ConfigDict(
+        use_enum_values=True,
+        json_encoders={
             uuid.UUID: str
         }
+    )
+
+    def to_orm(self):
+        """
+        Convert Pydantic model to ORM instance.
+        
+        This method uses the converter utility to ensure consistency.
+        When Pydantic model structure changes, update utils/knowledge_node_converter.py.
+        """
+        from ..utils.knowledge_node_converter import pydantic_to_orm
+        return pydantic_to_orm(self)
+
+    @classmethod
+    def from_orm(cls, orm_instance):
+        """
+        Create Pydantic model from ORM instance.
+        
+        This method uses the converter utility to ensure consistency.
+        When Pydantic model structure changes, update utils/knowledge_node_converter.py.
+        """
+        from ..utils.knowledge_node_converter import orm_to_pydantic
+        return orm_to_pydantic(orm_instance)
 

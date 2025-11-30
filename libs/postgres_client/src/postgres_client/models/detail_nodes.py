@@ -14,7 +14,7 @@ from .attributes_metadata import (
     TableAttributes,
     TableMetadata,
 )
-from .base import KnowledgeNode
+from .knowledge import KnowledgeNode
 from .enums import SemanticLevel
 
 

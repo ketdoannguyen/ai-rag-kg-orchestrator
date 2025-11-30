@@ -29,6 +29,12 @@ from .code_extraction import (
     extract_code_from_title,
 )
 
+# Import KnowledgeNode converter utilities
+from .knowledge_node_converter import (
+    orm_to_pydantic,
+    pydantic_to_orm,
+)
+
 
 def _get_metadata_class(node: KnowledgeNode):
     """Get the appropriate metadata class for a node type."""
@@ -230,6 +236,9 @@ __all__ = [
     "extract_code_from_title",
     "extract_code_from_context",
     "clean_title_from_code",
+    # ORM converter utilities
+    "orm_to_pydantic",
+    "pydantic_to_orm",
 ]
 
 

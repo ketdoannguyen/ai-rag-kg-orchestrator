@@ -9,9 +9,13 @@ description = "Postgres client for the RAG KG workspace"
 requires-python = ">=3.11"
 dependencies = [
     "sqlalchemy",
+    "alembic",
+    "asyncpg", # Driver async cho Postgres
     "psycopg[binary]",
     "pgvector",
     "pydantic",
+    "loguru",
+    "psycopg2-binary>=2.9.11",
 ]
 
 [tool.setuptools.packages.find]

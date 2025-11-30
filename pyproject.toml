@@ -20,6 +20,8 @@ dependencies = [
     "openai>=2.8.0",
     "marker-pdf>=1.6.1",
     "crawl4ai>=0.7.7",
+    "alembic>=1.17.2",
+    "pgvector>=0.4.1",
 ]
 
 [project.optional-dependencies]
