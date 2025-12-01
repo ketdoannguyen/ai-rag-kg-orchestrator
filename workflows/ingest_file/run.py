@@ -13,6 +13,7 @@ from config.settings import settings
 from loguru import logger
 from typing import TYPE_CHECKING
 from workflows.dependencies import get_minio_client
+from workflows.shared.storage_utils import ensure_bucket_with_retry, upload_file
 from .marker_client import MarkerClient
 from .models import (
     FileIngestionInput,
@@ -87,7 +88,7 @@ class FileIngestionWorkflow:
         self._logger = logger.bind(job_id=None)
 
         self._workspace_root.mkdir(parents=True, exist_ok=True)
-        await self._ensure_bucket_with_retry()
+        await ensure_bucket_with_retry(self._storage, self._bucket)
 
         job_id = datetime.utcnow().strftime("%H-%M-%S")
         self._logger = logger.bind(job_id=job_id)
@@ -140,17 +141,6 @@ class FileIngestionWorkflow:
                 error=str(exc),
             )
 
-    async def _ensure_bucket_with_retry(self) -> None:
-        """Ensure bucket exists with retry logic."""
-        for attempt in range(3):
-            try:
-                await self._storage.ensure_bucket(self._bucket)
-                return
-            except Exception as exc:
-                self._logger.warning(f"Bucket ensure failed (attempt {attempt + 1}): {exc}")
-                if attempt < 2:
-                    await asyncio.sleep(2.0 * (attempt + 1))
-        self._logger.warning("Proceeding without confirming bucket availability")
 
     async def _persist_source(
         self, file_path: Path, job_dir: Path, job_id: str
@@ -159,7 +149,9 @@ class FileIngestionWorkflow:
         copied_path = job_dir / file_path.name
         await asyncio.to_thread(shutil.copy2, file_path, copied_path)
 
-        minio_object = await self._upload_file(
+        minio_object = await upload_file(
+            storage=self._storage,
+            bucket=self._bucket,
             local_path=copied_path,
             object_name=f"{self._object_root}/source/{copied_path.name}",
             content_type="application/pdf",
@@ -195,7 +187,9 @@ class FileIngestionWorkflow:
         )
         raw_payload_meta = MarkerFileMetadata(
             local_path=str(raw_payload_path),
-            minio_object=await self._upload_file(
+            minio_object=await upload_file(
+                storage=self._storage,
+                bucket=self._bucket,
                 local_path=raw_payload_path,
                 object_name=f"{self._object_root}/output/{job_id}/marker_raw.json",
                 content_type="application/json",
@@ -223,7 +217,9 @@ class FileIngestionWorkflow:
             )
             json_meta = MarkerFileMetadata(
                 local_path=str(json_path),
-                minio_object=await self._upload_file(
+                minio_object=await upload_file(
+                    storage=self._storage,
+                    bucket=self._bucket,
                     local_path=json_path,
                     object_name=f"{self._object_root}/output/{job_id}/marker.json",
                     content_type="application/json",
@@ -240,7 +236,9 @@ class FileIngestionWorkflow:
             )
             markdown_meta = MarkerFileMetadata(
                 local_path=str(markdown_path),
-                minio_object=await self._upload_file(
+                minio_object=await upload_file(
+                    storage=self._storage,
+                    bucket=self._bucket,
                     local_path=markdown_path,
                     object_name=f"{self._object_root}/output/{job_id}/marker.md",
                     content_type="text/markdown",
@@ -293,7 +291,9 @@ class FileIngestionWorkflow:
             image_path = images_dir / filename
             await asyncio.to_thread(image_path.write_bytes, image_info["data"])
 
-            minio_object = await self._upload_file(
+            minio_object = await upload_file(
+                storage=self._storage,
+                bucket=self._bucket,
                 local_path=image_path,
                 object_name=f"{self._object_root}/output/{job_id}/images/{filename}",
                 content_type=image_info["content_type"],
@@ -342,12 +342,3 @@ class FileIngestionWorkflow:
 
         return {"filename": filename, "content_type": content_type, "data": binary}
 
-    async def _upload_file(self, *, local_path: Path, object_name: str, content_type: str) -> str:
-        local_path = local_path.expanduser().resolve()
-        await self._storage.upload_file(
-            bucket_name=self._bucket,
-            object_name=object_name,
-            file_path=local_path,
-            content_type=content_type,
-        )
-        return object_name

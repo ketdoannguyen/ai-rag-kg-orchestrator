@@ -12,6 +12,7 @@ from loguru import logger
 from minio_client import StorageClient
 
 from workflows.dependencies import get_minio_client
+from workflows.shared.storage_utils import ensure_bucket_with_retry, upload_bytes
 from postgres_client.models import SourceType
 from postgres_client import set_parent_ids, set_positions
 from .content_extractor import ContentExtractor
@@ -87,7 +88,7 @@ class WebIngestionWorkflow:
 
     async def run(self, payload: WebIngestionInput) -> WebIngestionBatchResult:
         """Run the ingestion workflow for multiple URLs."""
-        await self._ensure_bucket_with_retry()
+        await ensure_bucket_with_retry(self._storage, self._bucket)
 
         crawler = Crawl4AIClient()
         content_extractor = ContentExtractor()
@@ -291,15 +292,6 @@ class WebIngestionWorkflow:
         pairs = await asyncio.gather(*(process(image_url) for image_url in image_urls))
         return {original: replacement for original, replacement in pairs}
 
-    async def _ensure_bucket_with_retry(self) -> None:
-        for attempt in range(3):
-            try:
-                await self._storage.ensure_bucket(self._bucket)
-                return
-            except Exception as exc:
-                self._logger.warning(f"Bucket ensure failed (attempt {attempt + 1}): {exc}")
-                await asyncio.sleep(RETRY_DELAY_SECONDS * (attempt + 1))
-        self._logger.warning("Proceeding without confirming bucket availability")
 
     def _build_object_name(self, safe_name: str, extension: str) -> str:
         return f"web/{self._date_prefix}/{self._job_id}/{safe_name}.{extension}"
@@ -313,13 +305,13 @@ class WebIngestionWorkflow:
         extension: str,
     ) -> str:
         object_name = self._build_object_name(safe_name, extension)
-        await self._storage.upload_bytes(
-            bucket_name=self._bucket,
+        return await upload_bytes(
+            storage=self._storage,
+            bucket=self._bucket,
+            data=content,
             object_name=object_name,
-            data=content.encode("utf-8"),
             content_type=content_type,
         )
-        return object_name
 
     async def _persist_outputs(
         self,

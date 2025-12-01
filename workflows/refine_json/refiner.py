@@ -21,14 +21,15 @@ from llm_gateway_client import AIGatewayClient
 from llm_gateway_client.models import GatewayChatTurn, GatewayInvokeRequest
 from minio_client import StorageClient
 from workflows.dependencies import get_minio_client
+from workflows.shared.storage_utils import upload_file
 from services.prompts.refinement import build_content_merge_prompt, get_system_prompt
 
-from .helpers import (
-    create_refined_paragraphs,
+from workflows.shared.file_utils import (
     extract_json_from_response,
     load_json_file,
     write_file,
 )
+from .helpers import create_refined_paragraphs
 from .models import RefineJsonOutput
 
 
@@ -148,13 +149,13 @@ class TextbookRefiner:
             if self.storage:
                 try:
                     object_name = f"{self._object_root}/refined.json"
-                    await self.storage.upload_file(
-                        bucket_name=self.bucket,
+                    minio_object = await upload_file(
+                        storage=self.storage,
+                        bucket=self.bucket,
+                        local_path=Path(output_path),
                         object_name=object_name,
-                        file_path=Path(output_path),
                         content_type="application/json"
                     )
-                    minio_object = object_name
                     logger.info(
                         "Uploaded refined JSON to MinIO",
                         extra={"object_name": object_name, "bucket": self.bucket}

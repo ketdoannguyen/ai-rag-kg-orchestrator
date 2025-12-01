@@ -6,7 +6,7 @@ This workflow refines processed textbook JSON content by intelligently merging f
 
 ```
 ┌─────────────────┐      ┌──────────────────┐      ┌─────────────────┐
-│ Processed JSON  │ ───>  │ Collect Section │ ───> │ Refine All      │
+│ Processed JSON  │ ───> │ Collect Section │ ───>  │ Refine All      │
 │ (Section tree)  │      │ Paragraphs       │      │ Paragraphs      │
 └─────────────────┘      └──────────────────┘      │ with LLM        │
        │                                              └──────────────┘
