@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+from datetime import timedelta
 from pathlib import Path
 from typing import Callable, Sequence, TypeVar
 
@@ -121,6 +122,43 @@ class StorageClient:
             destination_path,
         )
         return destination_path
+
+    async def stat_object(self, bucket_name: str, object_name: str):
+        """Fetch metadata for an object; raises if not found."""
+        return await self._run(
+            self._client.stat_object,
+            bucket_name=bucket_name,
+            object_name=object_name,
+        )
+
+    async def generate_presigned_url(
+        self,
+        bucket_name: str,
+        object_name: str,
+        *,
+        expires_in: int = 3600,
+    ) -> str:
+        """
+        Generate a presigned download URL for an object.
+
+        Args:
+            bucket_name: MinIO bucket
+            object_name: Object key
+            expires_in: Expiration window in seconds (default 1 hour)
+        """
+        expires_in = max(1, min(expires_in, 7 * 24 * 3600))
+        url = await self._run(
+            self._client.presigned_get_object,
+            bucket_name=bucket_name,
+            object_name=object_name,
+            expires=timedelta(seconds=expires_in),
+        )
+        self._log.debug(
+            "Generated presigned URL for '{}' (expires in {} seconds)",
+            object_name,
+            expires_in,
+        )
+        return url
 
     async def delete_object(self, bucket_name: str, object_name: str) -> None:
         await self._run(self._client.remove_object, bucket_name=bucket_name, object_name=object_name)

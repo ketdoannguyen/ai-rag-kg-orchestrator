@@ -1,15 +1,10 @@
 from .client import PostgresClient
-# Skip utils import if circular import detected (e.g., when imported from Alembic)
-try:
-    from .utils import parse_node_from_dict, set_parent_ids, set_positions
-    from .utils.code_extraction import (
-        clean_title_from_code,
-        extract_code_from_context,
-        extract_code_from_title,
-    )
-except (ImportError, AttributeError):
-    # Skip if circular import detected (e.g., when imported from Alembic)
-    pass
+from .utils import parse_node_from_dict, set_parent_ids, set_positions
+from .utils.code_extraction import (
+    clean_title_from_code,
+    extract_code_from_context,
+    extract_code_from_title,
+)
 
 __all__ = [
     "PostgresClient",
@@ -20,5 +15,4 @@ __all__ = [
     "extract_code_from_context",
     "clean_title_from_code",
 ]
-
 

@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     MINIO_ACCESS_KEY: str = "minio"
     MINIO_SECRET_KEY: str = "minio123"
     MINIO_BUCKET: str = "ingest"
+    MINIO_KNOWLEDGE_BUCKET: str = "knowledge-files"
     INGEST_FILE_WORKDIR: str = "data/ingest_file"
     # Marker (local SDK) configuration
     MARKER_USE_LLM: bool = True
