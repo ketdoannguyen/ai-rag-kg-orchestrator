@@ -9,9 +9,6 @@ from postgres_client.models import (
     ParagraphNode,
     SourceType,
     StructureNode,
-    TopicNode,
-    SubtopicNode,
-    SemanticLevel,
 )
 from postgres_client.models.attributes_metadata import (
     ParagraphAttributes,
@@ -150,8 +147,9 @@ class MarkdownToJSONConverter:
             **metadata if metadata else {},
         )
         root_section = StructureNode(
-            semantic_level=SemanticLevel.CORPUS,
-            physical_level=1,
+            node_type="structure",
+            level_down=1,
+            level_up=1,  # Will be recomputed later based on tree depth
             attributes=StructureAttributes(title=title),
             metadata=root_metadata,
             children=root_children,
@@ -193,20 +191,10 @@ class MarkdownToJSONConverter:
         """Create a new Section with provided attributes."""
         actual_level = min(level, 10)  # Cap at 10
 
-        # Determine semantic level based on physical level
-        if actual_level <= 2:
-            semantic_level = SemanticLevel.TOPIC
-            node_class = TopicNode
-        elif actual_level <= 4:
-            semantic_level = SemanticLevel.SUBTOPIC
-            node_class = SubtopicNode
-        else:
-            semantic_level = SemanticLevel.SUBTOPIC
-            node_class = SubtopicNode
-
-        return node_class(
-            semantic_level=semantic_level,
-            physical_level=actual_level,
+        return StructureNode(
+            node_type="structure",
+            level_down=actual_level,
+            level_up=1,
             attributes=attrs,
         )
 

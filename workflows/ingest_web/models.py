@@ -2,50 +2,91 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Any
+from uuid import UUID
 
-from pydantic import AnyHttpUrl, BaseModel, Field, NonNegativeInt, validator
+from pydantic import BaseModel, Field, NonNegativeInt, validator
+
+from postgres_client.models.system_admin import DataSource
 
 
 class WebIngestionStatus(str, Enum):
-    COMPLETE = "complete"
-    FAILED = "failed"
-    PARTIAL = "partial"
+    """Status của việc crawl một URL."""
 
-
-class WebIngestionUrlInput(BaseModel):
-    url: AnyHttpUrl
-    metadata: dict[str, Any] | None = None
+    SUCCESS = "success"
+    ERROR = "error"
+    SKIPPED = "skipped"  # Invalid URL hoặc disallowed by robots.txt
 
 
 class WebIngestionInput(BaseModel):
-    urls: list[WebIngestionUrlInput]
-    enable_ocr: bool = False
-    max_url_retries: NonNegativeInt = Field(default=2, le=5)
-    per_url_timeout_seconds: float = Field(default=90.0, gt=0.0, le=600.0)
-    max_concurrent_urls: int = Field(default=4, ge=1, le=10)
-    max_concurrent_images: int = Field(default=5, ge=1, le=10)
+    """Input payload for the ingest_web workflow."""
+
+    urls: list[str] = Field(
+        ...,
+        description="Danh sách URLs cần crawl",
+        min_items=1,
+    )
+    created_by: UUID = Field(
+        ...,
+        description="User ID",
+    )
+    crawl_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Cấu hình crawling (respect_robots_txt, max_depth, etc.)",
+    )
+    max_url_retries: NonNegativeInt = Field(
+        default=3,
+        le=5,
+        description="Số lần retry tối đa cho mỗi URL",
+    )
+    per_url_timeout_seconds: float = Field(
+        default=90.0,
+        gt=0.0,
+        le=600.0,
+        description="Timeout cho mỗi URL (giây)",
+    )
+    max_concurrent_urls: int = Field(
+        default=4,
+        ge=1,
+        le=10,
+        description="Số URL crawl đồng thời tối đa",
+    )
 
     @validator("urls")
-    def _ensure_urls_present(cls, value: list[WebIngestionUrlInput]) -> list[WebIngestionUrlInput]:
+    def _ensure_urls_present(cls, value: list[str]) -> list[str]:
         if not value:
             raise ValueError("At least one URL is required")
         return value
 
 
 class WebIngestionSingleResult(BaseModel):
-    url: AnyHttpUrl
-    status: WebIngestionStatus
-    job_id: str
-    minio_objects: dict[str, str] = Field(default_factory=dict)
-    local_paths: dict[str, str] = Field(default_factory=dict)
-    images_processed: int = 0
-    error: str | None = None
+    """Kết quả xử lý cho một URL."""
+
+    status: WebIngestionStatus = Field(
+        ...,
+        description="Status của việc crawl URL này",
+    )
+    data_source: DataSource | None = Field(
+        None,
+        description="DataSource cho web (status='processing' hoặc 'error'). None nếu status=SKIPPED",
+    )
+    root_node: dict[str, Any] | None = Field(
+        None,
+        description="CORPUS node (root) của knowledge tree (serialized as dict). None nếu status=ERROR hoặc SKIPPED",
+    )
+    statistics: dict[str, Any] | None = Field(
+        None,
+        description="Thống kê crawling (nodes_by_level, total_nodes, etc.). None nếu status=ERROR hoặc SKIPPED",
+    )
+    error_message: str | None = Field(
+        None,
+        description="Thông báo lỗi nếu status=ERROR",
+    )
 
 
-class WebIngestionBatchResult(BaseModel):
-    status: WebIngestionStatus
-    job_id: str
-    total_urls: int
-    succeeded: int
-    failed: int
-    results: list[WebIngestionSingleResult]
+class WebIngestionResult(BaseModel):
+    """Kết quả của workflow - list các kết quả cho từng URL."""
+
+    results: list[WebIngestionSingleResult] = Field(
+        ...,
+        description="Danh sách kết quả cho từng URL",
+    )

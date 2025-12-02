@@ -1,390 +1,621 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
+import socket
+import warnings
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
+from urllib.parse import urlparse
+from uuid import UUID
 
-from config.settings import settings
+import aiohttp
 from loguru import logger
-from minio_client import StorageClient
+from postgres_client import PostgresClient, set_parent_ids, set_positions
+from postgres_client.handlers.system_admin_handler import SystemAdminHandler
+from postgres_client.models.enums import NodeType, SourceType
+from postgres_client.models.knowledge import KnowledgeNode
+from postgres_client.models.structure_nodes import StructureNode
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from workflows.dependencies import get_minio_client
-from workflows.shared.storage_utils import ensure_bucket_with_retry, upload_bytes
-from postgres_client.models import SourceType
-from postgres_client import set_parent_ids, set_positions
+from workflows.dependencies import init_postgres_client
 from .content_extractor import ContentExtractor
 from .crawl4ai_client import Crawl4AIClient
-from .image_handler import ImageHandler
 from .markdown_to_json import MarkdownToJSONConverter
+
+# Note: image_handler.py is kept in the codebase for future use but is not currently imported
+# or used in this workflow. It will be integrated when image processing functionality is needed.
 from .models import (
-    WebIngestionBatchResult,
     WebIngestionInput,
+    WebIngestionResult,
     WebIngestionSingleResult,
     WebIngestionStatus,
-    WebIngestionUrlInput,
 )
 
-# Local output directory for testing
-LOCAL_OUTPUT_DIR = Path("data/ingest_web")
-RETRY_DELAY_SECONDS = 2.0
-MAX_FILENAME_LENGTH = 80
-FORBIDDEN_FILENAME_CHARS = re.compile(r'[<>:"|?*\x00-\x1f]')
 
-
-def start_ingest(
-    payload: WebIngestionInput | Sequence[str],
-    enable_ocr: bool | None = None,
+async def start_ingest_web(
+    payload: WebIngestionInput | dict[str, Any],
+    *,
+    pg_client: PostgresClient | None = None,
 ) -> dict[str, Any]:
     """
     Entry point for the ingest_web workflow.
 
-    Accepts either a prepared WebIngestionInput or a simple sequence of URLs.
+    Args:
+        payload: Workflow input (Pydantic model or plain dict)
+        pg_client: Optional Postgres client (defaults to settings.DATABASE_URL)
     """
+    input_payload = payload if isinstance(payload, WebIngestionInput) else WebIngestionInput(**payload)
+    postgres_client = pg_client or init_postgres_client()
 
-    if isinstance(payload, WebIngestionInput):
-        if enable_ocr is not None:
-            payload = payload.copy(update={"enable_ocr": enable_ocr})
-        input_payload = payload
-    else:
-        if isinstance(payload, (str, bytes)):
-            raise TypeError("payload must be WebIngestionInput or a sequence of URLs")
-        url_models = [WebIngestionUrlInput(url=url) for url in payload]
-        input_payload = WebIngestionInput(
-            urls=url_models,
-            enable_ocr=enable_ocr or False,
-        )
-
-    storage = get_minio_client()
-    workflow = WebIngestionWorkflow(
-        storage=storage,
-        bucket=settings.MINIO_BUCKET,
-        enable_ocr=input_payload.enable_ocr,
-    )
-    result = asyncio.run(workflow.run(input_payload))
+    workflow = WebIngestionWorkflow(pg_client=postgres_client)
+    result = await workflow.run(input_payload)
     if hasattr(result, "model_dump"):
-        return result.model_dump(mode="json")
+        # Suppress Pydantic serialization warnings for nested models
+        # These warnings occur because attributes/metadata are Pydantic models in derived classes
+        # but are correctly serialized to dict by model_dump(mode="json")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            return result.model_dump(mode="json")
     return result.dict()
 
 
 class WebIngestionWorkflow:
-    """Coordinates web ingestion, content extraction, and storage."""
+    """Coordinates web ingestion, content extraction, and knowledge tree building."""
 
     def __init__(
         self,
         *,
-        storage: StorageClient,
-        bucket: str,
-        enable_ocr: bool = False,
+        pg_client: PostgresClient,
     ) -> None:
-        self._storage = storage
-        self._bucket = bucket
-        self._enable_ocr = enable_ocr
-        self._date_prefix = datetime.utcnow().strftime("%d-%m-%Y")
-        self._job_id = datetime.utcnow().strftime("%H:%M:%S-%f")[:-3]
-        self._logger = logger.bind(job_id=self._job_id)
+        self._pg_client = pg_client
+        self._logger = logger.bind(workflow="ingest_web")
 
-    async def run(self, payload: WebIngestionInput) -> WebIngestionBatchResult:
-        """Run the ingestion workflow for multiple URLs."""
-        await ensure_bucket_with_retry(self._storage, self._bucket)
+    async def run(self, payload: WebIngestionInput) -> WebIngestionResult:
+        """
+        Run the ingestion workflow:
+
+        1. Validate URLs (format, DNS, robots.txt)
+        2. Process each URL (crawl, extract, build tree)
+        3. For each URL:
+           - Create DataSource
+           - Crawl URL
+           - Build Knowledge Tree
+           - Validate Nodes
+           - Calculate Statistics
+           - Save DataSource to Postgres
+        """
+        self._logger.info("Starting web ingestion", total_urls=len(payload.urls))
+
+        # Bước 2: Validate URLs và tạo results cho skipped URLs
+        validation_results = await self._validate_urls(payload.urls, payload.crawl_config)
+        valid_urls = validation_results["valid"]
+        skipped_results = validation_results["skipped"]
+
+        if not valid_urls and not skipped_results:
+            raise ValueError("All URLs are invalid")
 
         crawler = Crawl4AIClient()
         content_extractor = ContentExtractor()
-        image_handler = ImageHandler(self._storage, self._bucket)
         json_converter = MarkdownToJSONConverter()
 
         url_semaphore = asyncio.Semaphore(payload.max_concurrent_urls)
-        image_semaphore = asyncio.Semaphore(payload.max_concurrent_images)
 
-        async def process_entry(entry: WebIngestionUrlInput) -> WebIngestionSingleResult:
+        async def process_url(url: str) -> WebIngestionSingleResult:
             async with url_semaphore:
-                return await self._process_url_with_retry(
-                    entry=entry,
-                    payload=payload,
-                    crawler=crawler,
-                    content_extractor=content_extractor,
-                    image_handler=image_handler,
-                    json_converter=json_converter,
-                    image_semaphore=image_semaphore,
+                try:
+                    return await self._process_single_url_with_retry(
+                        url=url,
+                        payload=payload,
+                        crawler=crawler,
+                        content_extractor=content_extractor,
+                        json_converter=json_converter,
+                    )
+                except Exception as exc:
+                    # Return error result instead of raising
+                    self._logger.error(f"Failed to process URL {url} after retries: {exc}")
+                    return WebIngestionSingleResult(
+                        status=WebIngestionStatus.ERROR,
+                        data_source=None,
+                        root_node=None,
+                        statistics=None,
+                        error_message=str(exc),
+                    )
+
+        results = skipped_results.copy()
+
+        if valid_urls:
+            try:
+                processed_results = await asyncio.gather(*(process_url(url) for url in valid_urls))
+                results.extend(processed_results)
+            finally:
+                await crawler.close()
+
+        succeeded = len([r for r in results if r.status == WebIngestionStatus.SUCCESS])
+        failed = len([r for r in results if r.status == WebIngestionStatus.ERROR])
+        skipped = len([r for r in results if r.status == WebIngestionStatus.SKIPPED])
+
+        self._logger.info(
+            "Web ingestion finished",
+            total_urls=len(payload.urls),
+            succeeded=succeeded,
+            failed=failed,
+            skipped=skipped,
+        )
+
+        return WebIngestionResult(results=results)
+
+    async def _validate_urls(
+        self,
+        urls: list[str],
+        crawl_config: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Bước 2: Validate URLs - Kiểm tra URLs.
+
+        - Check format hợp lệ (regex: ^https?://)
+        - Check domain có accessible không (DNS lookup)
+        - Check robots.txt nếu respect_robots_txt=true
+
+        Returns:
+            dict với keys:
+            - "valid": list[str] - URLs hợp lệ
+            - "skipped": list[WebIngestionSingleResult] - URLs bị skip với reason
+        """
+        valid_urls: list[str] = []
+        skipped_results: list[WebIngestionSingleResult] = []
+        respect_robots = crawl_config.get("respect_robots_txt", True)
+
+        for url in urls:
+            skip_reason: str | None = None
+
+            # Check format
+            if not re.match(r"^https?://", url):
+                skip_reason = f"Invalid URL format: {url}"
+                self._logger.warning(skip_reason)
+            else:
+                try:
+                    parsed = urlparse(url)
+                    domain = parsed.netloc
+
+                    # DNS lookup
+                    try:
+                        socket.gethostbyname(domain)
+                    except socket.gaierror:
+                        skip_reason = f"DNS lookup failed for {url}"
+                        self._logger.warning(skip_reason)
+
+                    # Check robots.txt
+                    if not skip_reason and respect_robots:
+                        if not await self._check_robots_txt(url, domain):
+                            skip_reason = f"URL disallowed by robots.txt: {url}"
+                            self._logger.warning(skip_reason)
+
+                    if not skip_reason:
+                        valid_urls.append(url)
+                except Exception as exc:
+                    skip_reason = f"Error validating URL {url}: {exc}"
+                    self._logger.warning(skip_reason)
+
+            if skip_reason:
+                skipped_results.append(
+                    WebIngestionSingleResult(
+                        status=WebIngestionStatus.SKIPPED,
+                        data_source=None,
+                        root_node=None,
+                        statistics={"url": url, "skip_reason": skip_reason},
+                        error_message=skip_reason,
+                    )
                 )
 
-        self._logger.info(
-            f"Starting ingestion for {len(payload.urls)} URL(s)",
-            urls=len(payload.urls),
-        )
+        return {"valid": valid_urls, "skipped": skipped_results}
 
+    async def _check_robots_txt(self, url: str, domain: str) -> bool:
+        """Check if URL is allowed by robots.txt."""
         try:
-            results = await asyncio.gather(*(process_entry(entry) for entry in payload.urls))
-        finally:
-            await crawler.close()
+            robots_url = f"https://{domain}/robots.txt"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(robots_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status != 200:
+                        # If robots.txt doesn't exist, allow crawling
+                        return True
 
-        succeeded = [r for r in results if r.status == WebIngestionStatus.COMPLETE]
-        failed = [r for r in results if r.status == WebIngestionStatus.FAILED]
+                    robots_content = await resp.text()
+                    # Simple robots.txt parser
+                    user_agent = "*"
+                    disallowed_paths: list[str] = []
 
-        if failed and succeeded:
-            batch_status = WebIngestionStatus.PARTIAL
-        elif failed:
-            batch_status = WebIngestionStatus.FAILED
-        else:
-            batch_status = WebIngestionStatus.COMPLETE
+                    for line in robots_content.split("\n"):
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
 
-        self._logger.info(
-            "Ingestion finished",
-            status=batch_status.value,
-            succeeded=len(succeeded),
-            failed=len(failed),
-        )
+                        if line.lower().startswith("user-agent:"):
+                            user_agent = line.split(":", 1)[1].strip()
+                        elif line.lower().startswith("disallow:") and user_agent == "*":
+                            path = line.split(":", 1)[1].strip()
+                            if path:
+                                disallowed_paths.append(path)
 
-        return WebIngestionBatchResult(
-            status=batch_status,
-            job_id=self._job_id,
-            total_urls=len(results),
-            succeeded=len(succeeded),
-            failed=len(failed),
-            results=results,
-        )
+                    # Check if URL path matches any disallowed path
+                    parsed = urlparse(url)
+                    url_path = parsed.path
 
-    async def _process_url_with_retry(
+                    for disallowed in disallowed_paths:
+                        if url_path.startswith(disallowed):
+                            return False
+
+                    return True
+        except Exception as exc:
+            self._logger.warning(f"Error checking robots.txt for {url}: {exc}")
+            # If we can't check robots.txt, allow crawling
+            return True
+
+    async def _process_single_url_with_retry(
         self,
         *,
-        entry: WebIngestionUrlInput,
+        url: str,
         payload: WebIngestionInput,
         crawler: Crawl4AIClient,
         content_extractor: ContentExtractor,
-        image_handler: ImageHandler,
         json_converter: MarkdownToJSONConverter,
-        image_semaphore: asyncio.Semaphore,
     ) -> WebIngestionSingleResult:
-        url_str = str(entry.url)
-        last_error: Exception | None = None
+        """Process a single URL with retry logic."""
+        # Create DataSource once before retry
+        data_source = await self._create_data_source(url, payload)
 
-        for attempt in range(payload.max_url_retries + 1):
+        @retry(
+            reraise=True,
+            stop=stop_after_attempt(payload.max_url_retries + 1),
+            wait=wait_exponential(multiplier=1, min=1, max=8),
+            retry=retry_if_exception_type((Exception,)),
+        )
+        async def _crawl_and_build_tree() -> WebIngestionSingleResult:
+            """Retry only the crawl and tree building part."""
             try:
                 return await asyncio.wait_for(
                     self._process_single_url(
-                        url=url_str,
-                        entry_metadata=entry.metadata,
+                        url=url,
+                        payload=payload,
+                        data_source=data_source,
                         crawler=crawler,
                         content_extractor=content_extractor,
-                        image_handler=image_handler,
                         json_converter=json_converter,
-                        image_semaphore=image_semaphore,
                     ),
                     timeout=payload.per_url_timeout_seconds,
                 )
+            except asyncio.TimeoutError:
+                self._logger.error(f"Timeout processing URL: {url}")
+                raise
             except Exception as exc:
-                last_error = exc
-                self._logger.warning(
-                    f"Attempt {attempt + 1} failed for {url_str}: {exc}",
-                )
-                if attempt < payload.max_url_retries:
-                    await asyncio.sleep(RETRY_DELAY_SECONDS * (attempt + 1))
+                self._logger.warning(f"Error processing URL {url}: {exc}")
+                raise
 
-        return WebIngestionSingleResult(
-            url=url_str,
-            status=WebIngestionStatus.FAILED,
-            job_id=self._job_id,
-            error=str(last_error) if last_error else "Unknown error",
-        )
+        try:
+            return await _crawl_and_build_tree()
+        except Exception as exc:
+            # Update DataSource status to error if all retries failed
+            error_msg = str(exc)
+            self._logger.error(f"All retries failed for URL {url}: {error_msg}")
+            async with self._pg_client.sessionmaker() as session:
+                handler = SystemAdminHandler(session)
+                await handler.sources.update_status(data_source.id, "error")
+
+            # Return error result instead of raising
+            return WebIngestionSingleResult(
+                status=WebIngestionStatus.ERROR,
+                data_source=data_source,
+                root_node=None,
+                statistics=None,
+                error_message=error_msg,
+            )
 
     async def _process_single_url(
         self,
         *,
         url: str,
-        entry_metadata: dict[str, Any] | None,
+        payload: WebIngestionInput,
+        data_source: Any,
         crawler: Crawl4AIClient,
         content_extractor: ContentExtractor,
-        image_handler: ImageHandler,
         json_converter: MarkdownToJSONConverter,
-        image_semaphore: asyncio.Semaphore,
     ) -> WebIngestionSingleResult:
-        """Process a single URL."""
-        crawl_result = await crawler.crawl_url(url)
-        html = crawl_result["html"]
-
-        # Extract content in thread pool to avoid blocking event loop
-        markdown = await asyncio.to_thread(content_extractor.extract_main_content, html, url)
-        if not markdown:
-            self._logger.warning(f"No content extracted from {url}, falling back to crawler markdown")
-            markdown = crawl_result.get("markdown", "")
-
-        image_urls = image_handler.extract_image_urls_from_markdown(markdown)
-        image_mappings = await self._process_images(
-            url=url,
-            image_urls=image_urls,
-            image_handler=image_handler,
-            image_semaphore=image_semaphore,
-        )
-
-        if image_mappings:
-            markdown = json_converter.replace_image_urls(markdown, image_mappings)
-
-        metadata = {
-            "crawled_at": datetime.utcnow().isoformat(),
-            "job_id": self._job_id,
-            "images_count": len(image_mappings),
-        }
-        if entry_metadata:
-            metadata["source_metadata"] = entry_metadata
-
-        root_section = json_converter.convert_to_section(
-            markdown=markdown,
-            source_type=SourceType.WEB,
-            url=url,
-            metadata=metadata,
-        )
-        # Set parent_id and position for all nodes in the tree before serializing
-        set_parent_ids(root_section)
-        set_positions(root_section)
-        structured_json = root_section.model_dump(mode="json", exclude_none=False)
-
-        minio_objects = await self._persist_outputs(
-            url=url,
-            markdown=markdown,
-            structured_json=structured_json,
-            html=html,
-        )
-        local_paths = await asyncio.to_thread(
-            self._save_locally,
-            url=url,
-            markdown=markdown,
-            structured_json=structured_json,
-            html=html,
-        )
-
-        return WebIngestionSingleResult(
-            url=url,
-            status=WebIngestionStatus.COMPLETE,
-            job_id=self._job_id,
-            minio_objects=minio_objects,
-            local_paths=local_paths,
-            images_processed=len(image_mappings),
-        )
-
-    async def _process_images(
-        self,
-        *,
-        url: str,
-        image_urls: list[str],
-        image_handler: ImageHandler,
-        image_semaphore: asyncio.Semaphore,
-    ) -> dict[str, str]:
-        if not image_urls:
-            return {}
-
-        async def process(image_url: str) -> tuple[str, str]:
-            async with image_semaphore:
-                try:
-                    image_info = await image_handler.download_and_upload_image(
-                        image_url,
-                        url,
-                        self._job_id,
-                    )
-                    if image_info:
-                        minio_path = image_info["minio_object"]
-                        return image_url, f"[Image stored at: {minio_path}]"
-                except Exception as exc:
-                    self._logger.warning(f"Could not process image {image_url} from {url}: {exc}")
-                return image_url, f"[Image: {image_url}]"
-
-        pairs = await asyncio.gather(*(process(image_url) for image_url in image_urls))
-        return {original: replacement for original, replacement in pairs}
-
-
-    def _build_object_name(self, safe_name: str, extension: str) -> str:
-        return f"web/{self._date_prefix}/{self._job_id}/{safe_name}.{extension}"
-
-    async def _upload_content(
-        self,
-        *,
-        safe_name: str,
-        content: str,
-        content_type: str,
-        extension: str,
-    ) -> str:
-        object_name = self._build_object_name(safe_name, extension)
-        return await upload_bytes(
-            storage=self._storage,
-            bucket=self._bucket,
-            data=content,
-            object_name=object_name,
-            content_type=content_type,
-        )
-
-    async def _persist_outputs(
-        self,
-        *,
-        url: str,
-        markdown: str,
-        structured_json: dict[str, Any],
-        html: str,
-    ) -> dict[str, str]:
-        """Persist outputs to MinIO. Allows partial failures."""
-        safe_name = self._safe_filename(url)
-        outputs: dict[str, str] = {}
-        json_payload = json.dumps(structured_json, indent=2, ensure_ascii=False)
-        upload_plan = (
-            ("html", html, "text/html", "html"),
-            ("markdown", markdown, "text/markdown", "md"),
-            ("json", json_payload, "application/json", "json"),
-        )
-
-        for key, content, content_type, extension in upload_plan:
-            try:
-                outputs[key] = await self._upload_content(
-                    safe_name=safe_name,
-                    content=content,
-                    content_type=content_type,
-                    extension=extension,
-                )
-            except Exception as exc:
-                self._logger.warning(f"Failed to upload {key} for {url}: {exc}")
-                outputs[key] = "not_saved"
-
-        return outputs
-
-    def _save_locally(
-        self,
-        *,
-        url: str,
-        markdown: str,
-        structured_json: dict[str, Any],
-        html: str,
-    ) -> dict[str, str]:
-        """Save outputs locally for testing."""
-        job_dir = LOCAL_OUTPUT_DIR / self._date_prefix / self._job_id
-        job_dir.mkdir(parents=True, exist_ok=True)
-
-        safe_name = self._safe_filename(url)
-        paths: dict[str, str] = {}
+        """
+        Process a single URL:
+        1. Crawl URL
+        2. Build Knowledge Tree
+        3. Validate Nodes
+        4. Calculate Statistics
+        5. Update DataSource to Postgres
+        """
+        crawl_start_time = datetime.utcnow()
 
         try:
-            html_path = job_dir / f"{safe_name}.html"
-            html_path.write_text(html, encoding="utf-8")
-            paths["html"] = str(html_path)
+            # Bước 3: Crawl URL
+            crawl_result = await crawler.crawl_url(url)
+            html = crawl_result["html"]
 
-            markdown_path = job_dir / f"{safe_name}.md"
-            markdown_path.write_text(markdown, encoding="utf-8")
-            paths["markdown"] = str(markdown_path)
+            # Extract content
+            markdown = await asyncio.to_thread(content_extractor.extract_main_content, html, url)
+            if not markdown:
+                self._logger.warning(f"No content extracted from {url}, falling back to crawler markdown")
+                markdown = crawl_result.get("markdown", "")
 
-            json_path = job_dir / f"{safe_name}.json"
-            json_path.write_text(
-                json.dumps(structured_json, indent=2, ensure_ascii=False),
-                encoding="utf-8",
+            if not markdown.strip():
+                raise ValueError(f"No content extracted from {url}")
+
+            # Extract source_name from content (title or first heading)
+            source_name = self._extract_source_name(markdown, url)
+
+            # Update DataSource name
+            data_source.name = source_name
+
+            # Bước 4: Build Knowledge Tree
+            metadata = {
+                "crawled_at": datetime.utcnow().isoformat(),
+            }
+            if payload.crawl_config:
+                metadata["crawl_config"] = payload.crawl_config
+
+            root_node = json_converter.convert_to_section(
+                markdown=markdown,
+                source_type=SourceType.WEB,
+                url=url,
+                metadata=metadata,
             )
-            paths["json"] = str(json_path)
+
+            # Set parent_id and position for all nodes in the tree
+            set_parent_ids(root_node)
+            set_positions(root_node)
+
+            # Bước 5: Validate Nodes
+            self._validate_and_attach_source(root_node, data_source.id)
+
+            # Bước 9: Calculate Statistics
+            statistics = self._calculate_statistics(root_node, url, crawl_start_time)
+
+            # Bước 8: Update DataSource with config and save
+            updated_config = {
+                "url": url,
+                "crawl_config": payload.crawl_config,
+                "crawl_initiated_at": crawl_start_time.isoformat(),
+                "statistics": statistics,
+            }
+
+            async with self._pg_client.sessionmaker() as session:
+                handler = SystemAdminHandler(session)
+                saved_data_source = await handler.sources.update(data_source.id, {
+                    "name": source_name,
+                    "config": updated_config,
+                })
+
+            self._logger.info(
+                "Successfully processed URL",
+                url=url,
+                data_source_id=str(data_source.id),
+                nodes_count=statistics.get("total_nodes", 0),
+            )
+
+            # Convert root_node to dict to avoid Pydantic serialization warnings
+            # This ensures attributes/metadata Pydantic models are properly serialized
+            # Suppress Pydantic serialization warnings for nested models (they are correctly converted to dict)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                root_node_dict = root_node.model_dump(mode="json") if root_node else None
+
+            return WebIngestionSingleResult(
+                status=WebIngestionStatus.SUCCESS,
+                data_source=saved_data_source or data_source,
+                root_node=root_node_dict,
+                statistics=statistics,
+                error_message=None,
+            )
+
         except Exception as exc:
-            self._logger.warning(f"Could not save outputs locally for {url}: {exc}")
+            self._logger.error(f"Failed to process URL {url}: {exc}")
+            # Re-raise to trigger retry (status will be updated in _process_single_url_with_retry)
+            raise
 
-        return paths
+    async def _create_data_source(
+        self,
+        url: str,
+        payload: WebIngestionInput,
+    ) -> Any:
+        """Bước 1: Create DataSource - Tạo nguồn web."""
+        from postgres_client.models.system_admin import DataSource as DataSourceModel
 
-    @staticmethod
-    def _safe_filename(url: str) -> str:
-        filename = re.sub(r"^https?://", "", url)
-        filename = filename.split("?")[0]
-        filename = filename.replace("/", "_").replace("\\", "_")
-        filename = FORBIDDEN_FILENAME_CHARS.sub("", filename)
-        filename = filename[:MAX_FILENAME_LENGTH].rstrip(". ")
-        return filename or "document"
+        crawl_initiated_at = datetime.utcnow()
+
+        config = {
+            "urls": [url],
+            "crawl_config": payload.crawl_config,
+            "crawl_initiated_at": crawl_initiated_at.isoformat(),
+        }
+
+        data_source_model = DataSourceModel(
+            name=url,  # Temporary, will be updated after crawling
+            type=SourceType.WEB,
+            config=config,
+            hash_content=None,
+            status="processing",
+            created_by=payload.created_by,
+        )
+
+        async with self._pg_client.sessionmaker() as session:
+            handler = SystemAdminHandler(session)
+            saved = await handler.sources.create(data_source_model)
+
+        self._logger.info("Created DataSource", data_source_id=str(saved.id), url=url)
+        return saved
+
+    def _extract_source_name(self, markdown: str, url: str) -> str:
+        """Extract source name from markdown (title or first heading)."""
+        lines = markdown.split("\n")
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            # Check for H1
+            h1_match = re.match(r"^#\s+(.+)$", line)
+            if h1_match:
+                title = h1_match.group(1).strip()
+                if title and len(title) > 5:
+                    return title[:255]  # Max length for name field
+
+        # Fallback: use domain name
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc.replace("www.", "")
+            return f"Web: {domain}"
+        except Exception:
+            return "Web Source"
+
+    def _validate_and_attach_source(
+        self,
+        root: StructureNode,
+        data_source_id: UUID,
+    ) -> None:
+        """
+        Bước 5: Validate Nodes - Kiểm tra tính hợp lệ và gán source_id.
+
+        Rules:
+        - Mỗi node (trừ root) PHẢI có parent_id
+        - source_id PHẢI match với DataSource
+        - level_down và level_up PHẢI hợp lệ (>= 1)
+        - Trên mỗi path từ root đến detail: level_down + level_up phải là constant
+        - Detail nodes (PARAGRAPH, IMAGE, TABLE) PHẢI có attributes.text/url/headers không empty
+        """
+        errors: list[str] = []
+        path_constants: dict[tuple, int] = {}
+
+        def walk(node: KnowledgeNode, parent: KnowledgeNode | None, path: list[UUID] = None) -> None:
+            if path is None:
+                path = []
+
+            # Attach source_id
+            node.source_id = data_source_id
+
+            # Parent rule
+            if parent is None:
+                if node.parent_id is not None:
+                    errors.append("Root node must have parent_id=None")
+            else:
+                if node.parent_id is None:
+                    errors.append("Non-root node must have parent_id set")
+                elif node.parent_id != parent.id:
+                    errors.append(f"Node {node.id} has parent_id={node.parent_id} but parent is {parent.id}")
+
+            # Level validation
+            if node.level_down < 0:
+                errors.append(f"Node {node.id} has invalid level_down={node.level_down}, must be >= 0")
+            if node.level_up < 0:
+                errors.append(f"Node {node.id} has invalid level_up={node.level_up}, must be >= 0")
+
+            # Validate level_down + level_up constant along path
+            current_path = tuple(path + [node.id])
+            constant = node.level_down + node.level_up
+
+            if current_path in path_constants:
+                expected_constant = path_constants[current_path]
+                if constant != expected_constant:
+                    errors.append(
+                        f"Node {node.id} on path has level_down+level_up={constant}, "
+                        f"but expected {expected_constant} (path constant violation)"
+                    )
+            else:
+                path_constants[current_path] = constant
+
+            # Validate detail node content
+            if node.node_type in [NodeType.PARAGRAPH, NodeType.IMAGE, NodeType.TABLE]:
+                attrs = getattr(node, "attributes", None)
+                if attrs is not None:
+                    if isinstance(attrs, dict):
+                        if node.node_type == NodeType.PARAGRAPH:
+                            text = attrs.get("text", "")
+                            if not text or not str(text).strip():
+                                errors.append(f"Paragraph node {node.id} has empty text")
+                        elif node.node_type == NodeType.IMAGE:
+                            url_attr = attrs.get("url") or attrs.get("file_path")
+                            if not url_attr:
+                                errors.append(f"Image node {node.id} has no url or file_path")
+                        elif node.node_type == NodeType.TABLE:
+                            headers = attrs.get("headers", [])
+                            rows = attrs.get("rows", [])
+                            if not headers and not rows:
+                                errors.append(f"Table node {node.id} has no headers or rows")
+                    elif hasattr(attrs, "text"):
+                        if node.node_type == NodeType.PARAGRAPH and not attrs.text.strip():
+                            errors.append(f"Paragraph node {node.id} has empty text")
+                    elif hasattr(attrs, "url") or hasattr(attrs, "file_path"):
+                        if node.node_type == NodeType.IMAGE:
+                            url_attr = getattr(attrs, "url", None) or getattr(attrs, "file_path", None)
+                            if not url_attr:
+                                errors.append(f"Image node {node.id} has no url or file_path")
+
+            # Recursively validate children
+            for child in node.children:
+                walk(child, node, list(current_path))
+
+        walk(root, None)
+
+        if errors:
+            raise ValueError("Knowledge tree validation failed: " + "; ".join(sorted(set(errors))))
+
+    def _calculate_statistics(
+        self,
+        root_node: KnowledgeNode,
+        url: str,
+        crawl_start_time: datetime,
+    ) -> dict[str, Any]:
+        """
+        Bước 9: Calculate Statistics - Thống kê.
+
+        - Count nodes by level
+        - Count successful vs failed URLs
+        - Calculate crawl duration
+        - Calculate average content length
+        """
+        nodes_by_level: dict[int, int] = {}
+        total_nodes = 0
+        total_paragraphs = 0
+        total_content_length = 0
+
+        def walk(node: KnowledgeNode) -> None:
+            nonlocal total_nodes, total_paragraphs, total_content_length
+
+            total_nodes += 1
+            level = node.level_down
+            nodes_by_level[level] = nodes_by_level.get(level, 0) + 1
+
+            if node.node_type == NodeType.PARAGRAPH:
+                total_paragraphs += 1
+                attrs = getattr(node, "attributes", None)
+                if attrs:
+                    if isinstance(attrs, dict):
+                        text = attrs.get("text", "")
+                    elif hasattr(attrs, "text"):
+                        text = attrs.text
+                    else:
+                        text = ""
+                    total_content_length += len(str(text))
+
+            for child in node.children:
+                walk(child)
+
+        walk(root_node)
+
+        crawl_duration = (datetime.utcnow() - crawl_start_time).total_seconds()
+        avg_content_length = total_content_length / total_paragraphs if total_paragraphs > 0 else 0
+
+        return {
+            "nodes_by_level": nodes_by_level,
+            "total_nodes": total_nodes,
+            "total_paragraphs": total_paragraphs,
+            "crawl_duration_seconds": crawl_duration,
+            "average_content_length": avg_content_length,
+            "url": url,
+            "successful": True,
+        }
+
+
+__all__ = ["start_ingest_web", "WebIngestionWorkflow"]

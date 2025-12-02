@@ -1,15 +1,15 @@
 from .models import (
-    WebIngestionBatchResult,
     WebIngestionInput,
+    WebIngestionResult,
     WebIngestionSingleResult,
     WebIngestionStatus,
 )
-from .run import start_ingest
+from .run import start_ingest_web
 
 __all__ = [
-    "start_ingest",
+    "start_ingest_web",
     "WebIngestionInput",
-    "WebIngestionBatchResult",
+    "WebIngestionResult",
     "WebIngestionSingleResult",
     "WebIngestionStatus",
 ]

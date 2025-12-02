@@ -114,16 +114,23 @@ def parse_node_from_dict(data: dict | KnowledgeNode) -> KnowledgeNode:
     except ValueError:
         node_type = None
 
+    # Paragraph: explicit type or presence of text without table headers
     if node_type == NodeType.PARAGRAPH or ("text" in attributes and "headers" not in attributes):
-            return ParagraphNode.model_validate(node_data)
-    if node_type == NodeType.IMAGE or "url" in attributes or "file_path" in attributes or "alt_text" in attributes:
-            return ImageNode.model_validate(node_data)
-    if node_type == NodeType.TABLE or "headers" in attributes or "rows" in attributes:
-            return TableNode.model_validate(node_data)
+        return ParagraphNode.model_validate(node_data)
 
-    # Default to structure node family
+    # Image: explicit type or typical image attributes
+    if node_type == NodeType.IMAGE or any(
+        key in attributes for key in ("url", "file_path", "alt_text")
+    ):
+        return ImageNode.model_validate(node_data)
+
+    # Table: explicit type or presence of headers/rows
+    if node_type == NodeType.TABLE or "headers" in attributes or "rows" in attributes:
+        return TableNode.model_validate(node_data)
+
+    # Default to structure node family (CORPUS/TOPIC/SUBTOPIC)
     # We don't distinguish Corpus/Topic/Subtopic here; callers can cast if needed.
-            return StructureNode.model_validate(node_data)
+    return StructureNode.model_validate(node_data)
 
 
 def set_parent_ids(node: KnowledgeNode, parent_id: uuid.UUID | None = None) -> None:
