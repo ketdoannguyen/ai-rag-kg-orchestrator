@@ -1,4 +1,4 @@
-"""Detail-level knowledge nodes (DETAIL semantic level)."""
+"""Detail-level knowledge nodes (paragraphs, images, tables)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .attributes_metadata import (
     TableMetadata,
 )
 from .knowledge import KnowledgeNode
-from .enums import SemanticLevel
+from .enums import NodeType
 
 
 class ParagraphNode(KnowledgeNode):
@@ -32,13 +32,9 @@ class ParagraphNode(KnowledgeNode):
         - position: Position reference (e.g., 'SGK Vật Lý 12, Trang 6')
     """
 
-    semantic_level: SemanticLevel = Field(
-        default=SemanticLevel.DETAIL,
-        description="Always DETAIL for paragraphs"
-    )
-    physical_level: int = Field(
-        default=-1,
-        description="Physical level for DETAIL nodes is always -1"
+    node_type: NodeType = Field(
+        default=NodeType.PARAGRAPH,
+        description="Always PARAGRAPH for paragraph nodes",
     )
     attributes: ParagraphAttributes = Field(
         description="Paragraph attributes"
@@ -49,16 +45,15 @@ class ParagraphNode(KnowledgeNode):
     )
 
     def __init__(self, **data: Any) -> None:
-        """Initialize with default semantic level and convert dict to models."""
-        if "semantic_level" not in data:
-            data["semantic_level"] = SemanticLevel.DETAIL
+        """Initialize and convert dict attributes/metadata to models."""
+        if "node_type" not in data:
+            data["node_type"] = NodeType.PARAGRAPH
         
-        # Force physical_level to -1 for DETAIL nodes
-        if "physical_level" not in data:
-            data["physical_level"] = -1
-        else:
-            # Override any provided physical_level to ensure it's -1
-            data["physical_level"] = -1
+        # Set default level_down and level_up for detail nodes
+        if "level_down" not in data:
+            data["level_down"] = 0  # Default to root level if not specified
+        if "level_up" not in data:
+            data["level_up"] = 0  # Detail nodes are always at the bottom (level_up=1)
         
         # Convert dict to models if needed
         if "attributes" in data and isinstance(data["attributes"], dict):
@@ -104,13 +99,9 @@ class ImageNode(KnowledgeNode):
         - position: Position reference
     """
 
-    semantic_level: SemanticLevel = Field(
-        default=SemanticLevel.DETAIL,
-        description="Always DETAIL for images"
-    )
-    physical_level: int = Field(
-        default=-1,
-        description="Physical level for DETAIL nodes is always -1"
+    node_type: NodeType = Field(
+        default=NodeType.IMAGE,
+        description="Always IMAGE for image nodes",
     )
     attributes: ImageAttributes = Field(
         default_factory=ImageAttributes,
@@ -122,16 +113,15 @@ class ImageNode(KnowledgeNode):
     )
 
     def __init__(self, **data: Any) -> None:
-        """Initialize with default semantic level and convert dict to models."""
-        if "semantic_level" not in data:
-            data["semantic_level"] = SemanticLevel.DETAIL
+        """Initialize and convert dict attributes/metadata to models."""
+        if "node_type" not in data:
+            data["node_type"] = NodeType.IMAGE
         
-        # Force physical_level to -1 for DETAIL nodes
-        if "physical_level" not in data:
-            data["physical_level"] = -1
-        else:
-            # Override any provided physical_level to ensure it's -1
-            data["physical_level"] = -1
+        # Set default level_down and level_up for detail nodes
+        if "level_down" not in data:
+            data["level_down"] = 0  # Default to root level if not specified
+        if "level_up" not in data:
+            data["level_up"] = 0  # Detail nodes are always at the bottom (level_up=1)
         
         # Convert dict to models if needed
         if "attributes" in data and isinstance(data["attributes"], dict):
@@ -174,13 +164,9 @@ class TableNode(KnowledgeNode):
         - position: Position reference
     """
 
-    semantic_level: SemanticLevel = Field(
-        default=SemanticLevel.DETAIL,
-        description="Always DETAIL for tables"
-    )
-    physical_level: int = Field(
-        default=-1,
-        description="Physical level for DETAIL nodes is always -1"
+    node_type: NodeType = Field(
+        default=NodeType.TABLE,
+        description="Always TABLE for table nodes",
     )
     attributes: TableAttributes = Field(
         default_factory=TableAttributes,
@@ -192,16 +178,15 @@ class TableNode(KnowledgeNode):
     )
 
     def __init__(self, **data: Any) -> None:
-        """Initialize with default semantic level and convert dict to models."""
-        if "semantic_level" not in data:
-            data["semantic_level"] = SemanticLevel.DETAIL
+        """Initialize and convert dict attributes/metadata to models."""
+        if "node_type" not in data:
+            data["node_type"] = NodeType.TABLE
         
-        # Force physical_level to -1 for DETAIL nodes
-        if "physical_level" not in data:
-            data["physical_level"] = -1
-        else:
-            # Override any provided physical_level to ensure it's -1
-            data["physical_level"] = -1
+        # Set default level_down and level_up for detail nodes
+        if "level_down" not in data:
+            data["level_down"] = 0  # Default to root level if not specified
+        if "level_up" not in data:
+            data["level_up"] = 0  # Detail nodes are always at the bottom (level_up=1)
         
         # Convert dict to models if needed
         if "attributes" in data and isinstance(data["attributes"], dict):

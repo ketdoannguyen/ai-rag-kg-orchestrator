@@ -13,7 +13,7 @@ All Pydantic models provide:
 
 ### KnowledgeNode (and subtypes)
 
-KnowledgeNode has multiple subtypes (ParagraphNode, ImageNode, TableNode, CorpusNode, TopicNode, SubtopicNode) but uses the same conversion pattern.
+KnowledgeNode has multiple subtypes (ParagraphNode, ImageNode, TableNode, StructureNode) but uses the same conversion pattern.
 
 ```python
 from postgres_client.models import ParagraphNode
@@ -62,13 +62,11 @@ pydantic_user = User.from_orm(orm_user)
 - **ParagraphNode**: Detail-level paragraph nodes
 - **ImageNode**: Detail-level image nodes
 - **TableNode**: Detail-level table nodes
-- **CorpusNode**: Corpus-level structure nodes
-- **TopicNode**: Topic-level structure nodes
-- **SubtopicNode**: Subtopic-level structure nodes
+- **StructureNode**: Generic structure nodes (corpus/topic/subtopic levels)
 
 ### Embeddings
-- **EmbeddingStructure**: Structure embeddings (CORPUS, TOPIC, SUBTOPIC)
-- **EmbeddingContent**: Content embeddings (DETAIL chunks)
+- **EmbeddingStructure**: Embeddings cho các node cấu trúc (StructureNode)
+- **EmbeddingContent**: Embeddings cho các node nội dung chi tiết (Paragraph/Image/Table)
 
 ### Chat
 - **ChatSession**: Chat conversation sessions

@@ -14,7 +14,7 @@ from typing import Any, Type
 
 from ..models.knowledge import KnowledgeNode as KnowledgeNodePydantic
 from ..models.detail_nodes import ImageNode, ParagraphNode, TableNode
-from ..models.structure_nodes import CorpusNode, StructureNode, SubtopicNode, TopicNode
+from ..models.structure_nodes import StructureNode
 from ..orm_models.knowledge import KnowledgeNodeORM
 
 
@@ -52,11 +52,12 @@ def pydantic_to_orm(pydantic_model: KnowledgeNodePydantic) -> KnowledgeNodeORM:
     
     # Create ORM instance
     orm_instance = KnowledgeNodeORM(
-        id=data.get('id') or pydantic_model.id,
-        source_id=data.get('source_id') or pydantic_model.source_id,
-        parent_id=data.get('parent_id') or pydantic_model.parent_id,
-        semantic_level=pydantic_model.semantic_level,
-        physical_level=pydantic_model.physical_level,
+        id=data.get("id") or pydantic_model.id,
+        source_id=data.get("source_id") or pydantic_model.source_id,
+        parent_id=data.get("parent_id") or pydantic_model.parent_id,
+        node_type=pydantic_model.node_type,
+        level_down=pydantic_model.level_down,
+        level_up=pydantic_model.level_up,
         attributes=attributes,
         node_metadata=metadata,  # Use node_metadata (ORM attribute name)
     )
@@ -75,12 +76,12 @@ def orm_to_pydantic(
     For other ORM models (UserORM, DataSourceORM, etc.), use their Pydantic model's from_orm() method instead.
     
     This function reconstructs the appropriate Pydantic model class
-    based on the ORM instance's semantic_level and attributes structure.
+    based on the ORM instance's node_type and attributes structure.
     
     Args:
         orm_instance: KnowledgeNodeORM instance from database
         pydantic_class: Optional specific Pydantic class to use.
-                       If None, will be inferred from semantic_level and attributes.
+                       If None, will be inferred from node_type and attributes.
         
     Returns:
         Validated KnowledgeNode Pydantic model instance
@@ -89,7 +90,7 @@ def orm_to_pydantic(
         >>> orm_node = session.query(KnowledgeNodeORM).first()
         >>> pydantic_node = orm_to_pydantic(orm_node)
     """
-    # If no specific class provided, infer from semantic_level
+    # If no specific class provided, infer from node_type / attributes
     if pydantic_class is None:
         pydantic_class = _infer_pydantic_class_from_orm(orm_instance)
     
@@ -97,14 +98,15 @@ def orm_to_pydantic(
     # Note: children relationship is not loaded to avoid async lazy loading issues
     # Children should be loaded separately using get_children() method if needed
     data = {
-        'id': orm_instance.id,
-        'source_id': orm_instance.source_id,
-        'parent_id': orm_instance.parent_id,
-        'semantic_level': orm_instance.semantic_level,
-        'physical_level': orm_instance.physical_level,
-        'attributes': orm_instance.attributes or {},
-        'metadata': orm_instance.node_metadata or {},  # Use node_metadata (ORM attribute name)
-        'children': [],  # Children not loaded by default (use get_children() method if needed)
+        "id": orm_instance.id,
+        "source_id": orm_instance.source_id,
+        "parent_id": orm_instance.parent_id,
+        "node_type": orm_instance.node_type,
+        "level_down": orm_instance.level_down,
+        "level_up": orm_instance.level_up,
+        "attributes": orm_instance.attributes or {},
+        "metadata": orm_instance.node_metadata or {},  # Use node_metadata (ORM attribute name)
+        "children": [],  # Children not loaded by default (use get_children() method if needed)
     }
     
     # Create Pydantic instance
@@ -115,34 +117,34 @@ def _infer_pydantic_class_from_orm(orm_instance: KnowledgeNodeORM) -> Type[Knowl
     """
     Infer Pydantic model class from ORM instance.
     
-    Uses semantic_level and attributes structure to determine the correct class.
+    Uses node_type and attributes structure to determine the correct class.
     When you add new node types, update this function.
     """
-    semantic_level = orm_instance.semantic_level
     attributes = orm_instance.attributes or {}
     
-    # Convert semantic_level to string if it's an enum
-    semantic_level_str = semantic_level.value if hasattr(semantic_level, 'value') else str(semantic_level)
-    
-    # Structure nodes - check semantic_level
-    if semantic_level_str == "CORPUS":
-        return CorpusNode
-    elif semantic_level_str == "TOPIC":
-        return TopicNode
-    elif semantic_level_str == "SUBTOPIC":
-        return SubtopicNode
-    elif semantic_level_str == "DETAIL":
-        # For DETAIL nodes, infer from attributes structure
-        # Check for specific attribute keys that identify node type
-        if 'text' in attributes and 'headers' not in attributes:
+    # Try to infer from node_type first
+    node_type = getattr(orm_instance, "node_type", None)
+    node_type_str = getattr(node_type, "value", None) or str(node_type) if node_type is not None else ""
+
+    if node_type_str.lower() == "structure":
+        # Further refine structure type by level_down if needed
+        # but for now just use generic StructureNode
+        return StructureNode
+
+    if node_type_str.lower() == "paragraph":
             return ParagraphNode
-        elif 'url' in attributes or 'file_path' in attributes:
+    if node_type_str.lower() == "image":
             return ImageNode
-        elif 'headers' in attributes or 'rows' in attributes:
+    if node_type_str.lower() == "table":
             return TableNode
-        else:
-            # Default to ParagraphNode if unclear
+
+    # Fallback: infer from attributes
+    if "text" in attributes and "headers" not in attributes:
             return ParagraphNode
+    if "url" in attributes or "file_path" in attributes:
+        return ImageNode
+    if "headers" in attributes or "rows" in attributes:
+        return TableNode
     
-    # Fallback to base class
+    # Ultimate fallback to base class
     return KnowledgeNodePydantic

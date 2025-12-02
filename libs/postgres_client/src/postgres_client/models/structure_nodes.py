@@ -1,4 +1,4 @@
-"""Structure-level knowledge nodes (CORPUS, TOPIC, SUBTOPIC semantic levels)."""
+"""Structure-level knowledge nodes (document/collection/topic hierarchy)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pydantic import Field, model_validator
 
 from .attributes_metadata import StructureAttributes, StructureMetadata
 from .knowledge import KnowledgeNode
-from .enums import SemanticLevel
+from .enums import NodeType
 
 
 class StructureNode(KnowledgeNode):
@@ -40,18 +40,16 @@ class StructureNode(KnowledgeNode):
     )
 
     def __init__(self, **data: Any) -> None:
-        """Initialize structure node."""
-        # Validate semantic level
-        semantic_level = data.get("semantic_level")
-        if semantic_level and semantic_level not in [
-            SemanticLevel.CORPUS,
-            SemanticLevel.TOPIC,
-            SemanticLevel.SUBTOPIC,
-        ]:
-            raise ValueError(
-                f"StructureNode must have semantic_level of CORPUS, TOPIC, or SUBTOPIC, "
-                f"got {semantic_level}"
-            )
+        """Initialize structure node and normalize attribute/metadata types."""
+        # Set default node_type for structure nodes
+        if "node_type" not in data:
+            data["node_type"] = NodeType.STRUCTURE
+        
+        # Set default level_down and level_up for structure nodes
+        if "level_down" not in data:
+            data["level_down"] = 0  # Default to root level if not specified
+        if "level_up" not in data:
+            data["level_up"] = 0  # Default value, should be calculated based on tree depth
         
         # Convert dict to models if needed
         if "attributes" in data and isinstance(data["attributes"], dict):
@@ -76,49 +74,4 @@ class StructureNode(KnowledgeNode):
             if "metadata" in data and isinstance(data["metadata"], dict):
                 data["metadata"] = StructureMetadata(**data["metadata"])
         return data
-
-
-class CorpusNode(StructureNode):
-    """Corpus-level node (document/collection level)."""
-
-    semantic_level: SemanticLevel = Field(
-        default=SemanticLevel.CORPUS,
-        description="Always CORPUS for corpus nodes"
-    )
-
-    def __init__(self, **data: Any) -> None:
-        """Initialize with default semantic level."""
-        if "semantic_level" not in data:
-            data["semantic_level"] = SemanticLevel.CORPUS
-        super().__init__(**data)
-
-
-class TopicNode(StructureNode):
-    """Topic-level node (major topic level)."""
-
-    semantic_level: SemanticLevel = Field(
-        default=SemanticLevel.TOPIC,
-        description="Always TOPIC for topic nodes"
-    )
-
-    def __init__(self, **data: Any) -> None:
-        """Initialize with default semantic level."""
-        if "semantic_level" not in data:
-            data["semantic_level"] = SemanticLevel.TOPIC
-        super().__init__(**data)
-
-
-class SubtopicNode(StructureNode):
-    """Subtopic-level node (sub-topic level)."""
-
-    semantic_level: SemanticLevel = Field(
-        default=SemanticLevel.SUBTOPIC,
-        description="Always SUBTOPIC for subtopic nodes"
-    )
-
-    def __init__(self, **data: Any) -> None:
-        """Initialize with default semantic level."""
-        if "semantic_level" not in data:
-            data["semantic_level"] = SemanticLevel.SUBTOPIC
-        super().__init__(**data)
 

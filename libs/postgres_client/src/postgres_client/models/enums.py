@@ -37,30 +37,11 @@ class FAQStatus(str, Enum):
     ARCHIVED = "archived"
 
 
-class SemanticLevel(str, Enum):
-    """
-    Semantic levels for knowledge nodes - used by AI Router.
-    
-    - CORPUS: Document/Collection level (e.g., Handbook 2025)
-    - TOPIC: Major topic level (e.g., Chapter, Part, Web Domain)
-    - SUBTOPIC: Sub-topic level (e.g., Lesson, Section I, Clause)
-    - DETAIL: Detail level (e.g., Paragraph, Item a/b/c, FAQ question)
-    """
-
-    CORPUS = "CORPUS"
-    TOPIC = "TOPIC"
-    SUBTOPIC = "SUBTOPIC"
-    DETAIL = "DETAIL"
-
-
 class NodeType(str, Enum):
     """Node type classification for knowledge nodes."""
 
     PARAGRAPH = "paragraph"
     IMAGE = "image"
     TABLE = "table"
-    SECTION = "section"
-    CORPUS = "corpus"
-    TOPIC = "topic"
-    SUBTOPIC = "subtopic"
+    STRUCTURE = "structure"
 

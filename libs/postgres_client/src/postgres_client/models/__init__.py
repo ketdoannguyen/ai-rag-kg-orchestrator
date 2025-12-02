@@ -7,16 +7,10 @@ from .enums import (
     FAQStatus,
     FeedbackStatus,
     NodeType,
-    SemanticLevel,
     SourceType,
     UserRole,
 )
-from .structure_nodes import (
-    CorpusNode,
-    StructureNode,
-    SubtopicNode,
-    TopicNode,
-)
+from .structure_nodes import StructureNode
 from .system_admin import DataSource, User
 from .embeddings import EmbeddingContent, EmbeddingStructure
 from .chat import ChatMessage, ChatSession, Feedback
@@ -51,17 +45,13 @@ __all__ = [
     "SourceType",
     "FeedbackStatus",
     "FAQStatus",
-    "SemanticLevel",
     "NodeType",
     # Pydantic Detail nodes
     "ParagraphNode",
     "ImageNode",
     "TableNode",
-    # Pydantic Structure nodes
+    # Pydantic Structure node
     "StructureNode",
-    "CorpusNode",
-    "TopicNode",
-    "SubtopicNode",
     # Pydantic System Admin
     "User",
     "DataSource",

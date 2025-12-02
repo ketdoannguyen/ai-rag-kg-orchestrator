@@ -28,14 +28,15 @@ orm_models/
 ### Knowledge (`knowledge.py`)
 - **KnowledgeNodeORM**: `knowledge_nodes` table
   - Core knowledge graph nodes
+  - Classification fields: `node_type`, `level_down`, `level_up`  
   - Relationships: `children`, `parent`, `source`, `structure_embedding`, `content_embedding`
 
 - **EmbeddingStructureORM**: `embeddings_structure` table
-  - Structure embeddings (CORPUS, TOPIC, SUBTOPIC)
+  - Embeddings cho các node cấu trúc (StructureNode)  
   - Vector dimension: 1024
 
 - **EmbeddingContentORM**: `embeddings_content` table
-  - Content embeddings (DETAIL chunks)
+  - Embeddings cho các node nội dung chi tiết (Paragraph/Image/Table)  
   - Vector dimension: 1024
 
 ### Chat (`chat.py`)

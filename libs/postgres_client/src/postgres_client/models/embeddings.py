@@ -18,7 +18,7 @@ class EmbeddingStructure(BaseModel):
     Pydantic model for embeddings_structure table.
     
     Lớp 1: Dành cho MUC (Topic/Subtopic)
-    Chỉ chứa nodes có semantic_level là CORPUS, TOPIC, SUBTOPIC
+    Chỉ chứa các node cấu trúc (node_type = STRUCTURE, level_down < max depth)
     """
 
     node_id: uuid.UUID = Field(
@@ -64,7 +64,7 @@ class EmbeddingContent(BaseModel):
     Pydantic model for embeddings_content table.
     
     Lớp 2: Dành cho KHOI (Detail/Chunk)
-    Chỉ chứa nodes có semantic_level là DETAIL
+    Chỉ chứa các node nội dung chi tiết (ví dụ node_type PARAGRAPH, IMAGE, TABLE)
     """
 
     node_id: uuid.UUID = Field(

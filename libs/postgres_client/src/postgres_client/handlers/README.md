@@ -51,7 +51,7 @@ messages = chat_handler.messages.get_by_session(created.id)
 
 ### KnowledgeHandler
 ```python
-from postgres_client.models import ParagraphNode, TopicNode
+from postgres_client.models import ParagraphNode, StructureNode
 
 # Create paragraph
 paragraph = ParagraphNode(

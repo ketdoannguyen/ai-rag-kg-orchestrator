@@ -74,7 +74,7 @@ class TableMetadata(BaseModel):
 
 
 # ============================================
-# Structure Node (CORPUS, TOPIC, SUBTOPIC)
+# Structure Node (hierarchical sections)
 # ============================================
 # Lazy import to avoid circular dependency
 def _get_extract_code_from_title():
@@ -87,7 +87,7 @@ def _get_extract_code_from_title():
 
 
 class StructureAttributes(BaseModel):
-    """Attributes for StructureNode (CORPUS, TOPIC, SUBTOPIC)."""
+    """Attributes for StructureNode (corpus/topic/subtopic levels)."""
 
     title: str = Field(..., description="Section/topic title/name")
     code: str | None = Field(None, description="Optional code/identifier (e.g., 'Chapter', 'Part', 'I', 'II', 'III', '1', '2', ...)")
@@ -104,7 +104,7 @@ class StructureAttributes(BaseModel):
 
 
 class StructureMetadata(BaseModel):
-    """Metadata for StructureNode (CORPUS, TOPIC, SUBTOPIC)."""
+    """Metadata for StructureNode (corpus/topic/subtopic levels)."""
 
     start_page: int | None = Field(None, description="Start page number in source document")
     end_page: int | None = Field(None, description="End page number in source document")

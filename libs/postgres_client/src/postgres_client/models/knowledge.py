@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .enums import SemanticLevel
+from .enums import NodeType
 
 
 class KnowledgeNode(BaseModel):
@@ -35,35 +35,41 @@ class KnowledgeNode(BaseModel):
         description="Parent node ID for tree structure"
     )
 
-    # Classification: Structure & Semantics
-    semantic_level: SemanticLevel = Field(
+    # Classification: Node type & tree levels
+    node_type: NodeType = Field(
         ...,
-        description="Semantic level used by AI Router (TOPIC vs DETAIL)"
+        description="Node type used by AI Router and UI (STRUCTURE, PARAGRAPH, IMAGE, TABLE, etc.)",
     )
-    physical_level: int = Field(
+    level_down: int = Field(
         default=1,
-        description="Physical level for UI indentation. For DETAIL nodes, must be -1. For structure nodes (CORPUS, TOPIC, SUBTOPIC), must be >= 1."
+        ge=0,
+        description="Tree depth from root (1 = root, 0 = detail nodes temporarily).",
+    )
+    level_up: int = Field(
+        default=1,
+        ge=0,
+        description=(
+            "Tree distance from this node up to the farthest detail node on the path "
+            "from root to detail. Example for a linear path of 4 nodes: "
+            "root=(1,4), next=(2,3), next=(3,2), detail=(4,1). "
+            "Detail nodes temporarily use (0,0)."
+        ),
     )
     
     @model_validator(mode="after")
-    def validate_physical_level(self) -> "KnowledgeNode":
+    def validate_levels(self) -> "KnowledgeNode":
         """
-        Validate that physical_level matches semantic_level:
-        - DETAIL nodes must have physical_level = -1
-        - Structure nodes (CORPUS, TOPIC, SUBTOPIC) must have physical_level >= 1
+        Basic invariants for level_down/level_up on a single node.
+
+        Global tree-level consistency (constant level_down + level_up along a root->detail
+        path) is validated in tree utilities like the ingest workflow.
+        
+        Note: Detail nodes (PARAGRAPH, IMAGE, TABLE) can temporarily have level_down=0 and level_up=0.
         """
-        if self.semantic_level == SemanticLevel.DETAIL:
-            if self.physical_level != -1:
-                raise ValueError(
-                    f"DETAIL nodes must have physical_level = -1, got {self.physical_level}"
-                )
-        else:
-            # Structure nodes (CORPUS, TOPIC, SUBTOPIC)
-            if self.physical_level < 1:
-                raise ValueError(
-                    f"Structure nodes (CORPUS, TOPIC, SUBTOPIC) must have physical_level >= 1, "
-                    f"got {self.physical_level}"
-                )
+        if self.level_down < 0:
+            raise ValueError(f"level_down must be >= 0, got {self.level_down}")
+        if self.level_up < 0:
+            raise ValueError(f"level_up must be >= 0, got {self.level_up}")
         return self
 
     # Flexible data fields (JSONB in SQL)

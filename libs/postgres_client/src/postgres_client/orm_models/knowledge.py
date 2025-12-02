@@ -25,7 +25,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship, backref
 
-from ..models.enums import NodeType, SemanticLevel
+from ..models.enums import NodeType
 from .base import Base
 
 
@@ -54,11 +54,16 @@ class KnowledgeNodeORM(Base):
     )
 
     # Classification
-    semantic_level: Mapped[SemanticLevel] = mapped_column(
-        SQLEnum(SemanticLevel, name='semantic_level_enum'),
+    node_type: Mapped[NodeType] = mapped_column(
+        SQLEnum(NodeType, name="node_type_enum"),
         nullable=False,
     )
-    physical_level: Mapped[int] = mapped_column(
+    level_down: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+    )
+    level_up: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
         default=1,
@@ -113,7 +118,7 @@ class EmbeddingStructureORM(Base):
     ORM class for embeddings_structure table.
     
     Lớp 1: Dành cho MUC (Topic/Subtopic)
-    Chỉ chứa nodes có semantic_level là CORPUS, TOPIC, SUBTOPIC
+    Chỉ chứa nodes STRUCTURE ở các level_down < max depth (không phải DETAIL)
     """
 
     __tablename__ = 'embeddings_structure'
@@ -136,7 +141,7 @@ class EmbeddingContentORM(Base):
     ORM class for embeddings_content table.
     
     Lớp 2: Dành cho KHOI (Detail/Chunk)
-    Chỉ chứa nodes có semantic_level là DETAIL
+    Chỉ chứa nodes nội dung chi tiết (ví dụ node_type PARAGRAPH, IMAGE, TABLE)
     """
 
     __tablename__ = 'embeddings_content'
@@ -157,4 +162,5 @@ class EmbeddingContentORM(Base):
         "KnowledgeNodeORM",
         back_populates="content_embedding",
     )
+
 

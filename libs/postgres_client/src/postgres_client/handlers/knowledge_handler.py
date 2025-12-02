@@ -2,7 +2,7 @@
 CRUD handlers for Knowledge models.
 
 Handles KnowledgeNode and its subtypes (ParagraphNode, ImageNode, TableNode,
-CorpusNode, TopicNode, SubtopicNode) operations.
+StructureNode) operations.
 
 Note: KnowledgeNode uses special converter functions (pydantic_to_orm, orm_to_pydantic)
 instead of the standard to_orm()/from_orm() methods.
@@ -18,9 +18,9 @@ from sqlalchemy import select, func
 from .base_handler import BaseHandler
 from ..models.knowledge import KnowledgeNode
 from ..models.detail_nodes import ParagraphNode, ImageNode, TableNode
-from ..models.structure_nodes import CorpusNode, TopicNode, SubtopicNode, StructureNode
+from ..models.structure_nodes import StructureNode
 from ..orm_models.knowledge import KnowledgeNodeORM
-from ..models.enums import SemanticLevel
+from ..models.enums import NodeType
 from ..utils.knowledge_node_converter import pydantic_to_orm, orm_to_pydantic
 
 
@@ -44,25 +44,21 @@ class KnowledgeNodeHandler:
             ParagraphNode,
             ImageNode,
             TableNode,
-            CorpusNode,
-            TopicNode,
-            SubtopicNode,
+            StructureNode,
         ],
     ) -> Union[
         KnowledgeNode,
         ParagraphNode,
         ImageNode,
         TableNode,
-        CorpusNode,
-        TopicNode,
-        SubtopicNode,
+        StructureNode,
     ]:
         """
         Create a new knowledge node from Pydantic model.
         
         Args:
             pydantic_model: Validated KnowledgeNode Pydantic model instance
-                           (can be any subtype: ParagraphNode, TopicNode, etc.)
+                           (can be any subtype: ParagraphNode, StructureNode, etc.)
             
         Returns:
             Created Pydantic model instance (with database-generated fields)
@@ -97,9 +93,7 @@ class KnowledgeNodeHandler:
         ParagraphNode,
         ImageNode,
         TableNode,
-        CorpusNode,
-        TopicNode,
-        SubtopicNode,
+        StructureNode,
     ]]:
         """
         Get a knowledge node by ID.
@@ -134,9 +128,7 @@ class KnowledgeNodeHandler:
         ParagraphNode,
         ImageNode,
         TableNode,
-        CorpusNode,
-        TopicNode,
-        SubtopicNode,
+        StructureNode,
     ]]:
         """
         Get all knowledge nodes with optional pagination and ordering.
@@ -186,9 +178,7 @@ class KnowledgeNodeHandler:
         ParagraphNode,
         ImageNode,
         TableNode,
-        CorpusNode,
-        TopicNode,
-        SubtopicNode,
+        StructureNode,
     ]]:
         """
         Get knowledge nodes by filter criteria.
@@ -206,7 +196,7 @@ class KnowledgeNodeHandler:
         Example:
             >>> handler = KnowledgeNodeHandler(session)
             >>> nodes = await handler.get_by_filter(
-            ...     {"source_id": source_id, "semantic_level": SemanticLevel.DETAIL},
+            ...     {"source_id": source_id, "node_type": NodeType.PARAGRAPH},
             ...     order_by=KnowledgeNodeORM.created_at.desc()
             ... )
         """
@@ -245,9 +235,7 @@ class KnowledgeNodeHandler:
         ParagraphNode,
         ImageNode,
         TableNode,
-        CorpusNode,
-        TopicNode,
-        SubtopicNode,
+        StructureNode,
     ]]:
         """
         Get knowledge nodes by source ID.
@@ -269,9 +257,9 @@ class KnowledgeNodeHandler:
             order_by=order_by,
         )
 
-    async def get_by_semantic_level(
+    async def get_by_node_type(
         self,
-        semantic_level: SemanticLevel,
+        node_type: NodeType,
         limit: Optional[int] = None,
         order_by: Optional[Any] = None,
     ) -> List[Union[
@@ -279,15 +267,13 @@ class KnowledgeNodeHandler:
         ParagraphNode,
         ImageNode,
         TableNode,
-        CorpusNode,
-        TopicNode,
-        SubtopicNode,
+        StructureNode,
     ]]:
         """
-        Get knowledge nodes by semantic level.
+        Get knowledge nodes by node type.
         
         Args:
-            semantic_level: Semantic level (CORPUS, TOPIC, SUBTOPIC, DETAIL)
+            node_type: Node type (STRUCTURE, PARAGRAPH, IMAGE, TABLE, etc.)
             limit: Maximum number of nodes to return
             order_by: Column to order by (default: created_at desc)
             
@@ -298,7 +284,7 @@ class KnowledgeNodeHandler:
             order_by = KnowledgeNodeORM.created_at.desc()
         
         return await self.get_by_filter(
-            {"semantic_level": semantic_level},
+            {"node_type": node_type},
             limit=limit,
             order_by=order_by,
         )
@@ -313,9 +299,7 @@ class KnowledgeNodeHandler:
         ParagraphNode,
         ImageNode,
         TableNode,
-        CorpusNode,
-        TopicNode,
-        SubtopicNode,
+        StructureNode,
     ]]:
         """
         Get child nodes by parent ID.
@@ -346,9 +330,7 @@ class KnowledgeNodeHandler:
         ParagraphNode,
         ImageNode,
         TableNode,
-        CorpusNode,
-        TopicNode,
-        SubtopicNode,
+        StructureNode,
     ]]:
         """
         Get direct children of a node (using relationship).
@@ -391,9 +373,7 @@ class KnowledgeNodeHandler:
         ParagraphNode,
         ImageNode,
         TableNode,
-        CorpusNode,
-        TopicNode,
-        SubtopicNode,
+        StructureNode,
     ]]:
         """
         Update a knowledge node by ID.
@@ -431,18 +411,14 @@ class KnowledgeNodeHandler:
             ParagraphNode,
             ImageNode,
             TableNode,
-            CorpusNode,
-            TopicNode,
-            SubtopicNode,
+            StructureNode,
         ],
     ) -> Optional[Union[
         KnowledgeNode,
         ParagraphNode,
         ImageNode,
         TableNode,
-        CorpusNode,
-        TopicNode,
-        SubtopicNode,
+        StructureNode,
     ]]:
         """
         Update a knowledge node using a Pydantic model.
@@ -535,7 +511,7 @@ class KnowledgeHandler:
     Usage:
         >>> handler = KnowledgeHandler(session)
         >>> paragraph = await handler.nodes.create(ParagraphNode(...))
-        >>> topic = await handler.nodes.create(TopicNode(...))
+        >>> section = await handler.nodes.create(StructureNode(...))
     """
 
     def __init__(self, session: AsyncSession):
