@@ -4,7 +4,8 @@ import asyncio
 import hashlib
 import json
 import shutil
-from datetime import datetime
+import warnings
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -50,7 +51,7 @@ def start_ingest(
     if isinstance(payload, FileIngestionInput):
         input_payload = payload
     elif isinstance(payload, (UUID, str)):
-        input_payload = FileIngestionInput(data_source_id=UUID(str(payload)))
+        input_payload = FileIngestionInput(data_source_id=str(payload))
     else:
         input_payload = FileIngestionInput(**payload)
 
@@ -73,7 +74,12 @@ def start_ingest(
 
     result = asyncio.run(workflow.run(input_payload))
     if hasattr(result, "model_dump"):
-        return result.model_dump(mode="json")
+        # Suppress Pydantic serialization warnings for nested models
+        # These warnings occur because attributes/metadata are Pydantic models in derived classes
+        # but are correctly serialized to dict by model_dump(mode="json")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            return result.model_dump(mode="json")
     return result.dict()
 
 
@@ -106,14 +112,16 @@ class FileIngestionWorkflow:
         6. Validate nodes
         7. Update DataSource metadata
         """
-        job_id = datetime.utcnow().strftime("%H-%M-%S")
+        # Use timezone-aware UTC for job IDs and timing
+        job_id = datetime.now(timezone.utc).strftime("%H-%M-%S")
         self._logger = logger.bind(job_id=job_id, workflow="ingest_file")
+        ingestion_start_time = datetime.now(timezone.utc)
 
         self._workspace_root.mkdir(parents=True, exist_ok=True)
         job_dir = self._workspace_root / job_id
         job_dir.mkdir(parents=True, exist_ok=True)
 
-        data_source_id = payload.data_source_id
+        data_source_id = UUID(payload.data_source_id)
 
         try:
             async with self._pg_client.sessionmaker() as session:
@@ -204,33 +212,74 @@ class FileIngestionWorkflow:
                 # Gán source_id + validate tree theo rule
                 self._validate_and_attach_source(parser.root, data_source_id)
 
-                # Bước 7: Update DataSource metadata (không persist tree vào DB)
-                await sys_handler.sources.update(
+                # Bước 7: Calculate Statistics - Thống kê
+                statistics = self._calculate_statistics(parser.root, ingestion_start_time)
+
+                # Bước 8: Update DataSource metadata (không persist tree vào DB)
+                updated_data_source = await sys_handler.sources.update(  # noqa: F841
                     data_source_id,
                     {
-                        "updated_at": datetime.utcnow(),
+                        "updated_at": datetime.now(timezone.utc),
                         "status": "active",
                     },
                 )
 
+                # Reload DataSource to get updated version
+                final_data_source = await sys_handler.sources.get_by_id(data_source_id)
+                if not final_data_source:
+                    raise ValueError(f"DataSource {data_source_id} not found after update")
+
                 self._logger.info(
                     "File ingestion completed successfully (in-memory tree only)",
                     data_source_id=str(data_source_id),
+                    total_nodes=statistics.get("total_nodes", 0),
                 )
+
+                # Convert root_node to dict to avoid Pydantic serialization warnings
+                # This ensures attributes/metadata Pydantic models are properly serialized
+                # Suppress Pydantic serialization warnings for nested models (they are correctly converted to dict)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    root_node_dict = parser.root.model_dump(mode="json") if parser.root else None
 
                 return FileIngestionResult(
                     status=FileIngestionStatus.COMPLETE,
                     job_id=job_id,
-                    data_source_id=data_source_id,
-                    root_node=parser.root,
+                    data_source=final_data_source,
+                    root_node=root_node_dict,
+                    statistics=statistics,
                 )
         except Exception as exc:
             self._logger.exception("File ingestion failed")
+            # Try to get DataSource even on failure
+            data_source_on_error = None
+            try:
+                async with self._pg_client.sessionmaker() as session:
+                    sys_handler = SystemAdminHandler(session)
+                    data_source_on_error = await sys_handler.sources.get_by_id(data_source_id)
+            except Exception:
+                pass
+
+            # If we can't get DataSource, create a minimal one with just the ID
+            if not data_source_on_error:
+                from postgres_client.models.system_admin import DataSource as DataSourceModel
+                from postgres_client.models.enums import SourceType
+                data_source_on_error = DataSourceModel(
+                    id=data_source_id,
+                    name="Unknown",
+                    type=SourceType.PDF,
+                    status="error",
+                )
+
             return FileIngestionResult(
                 status=FileIngestionStatus.FAILED,
                 job_id=job_id,
-                data_source_id=data_source_id,
+                data_source=data_source_on_error,
                 root_node=None,
+                statistics={
+                    "successful": False,
+                    "error": str(exc),
+                },
                 error=str(exc),
             )
         finally:
@@ -336,3 +385,57 @@ class FileIngestionWorkflow:
             raise ValueError(
                 "Knowledge tree validation failed: " + "; ".join(sorted(set(errors)))
             )
+
+    def _calculate_statistics(
+        self,
+        root_node: StructureNode,
+        ingestion_start_time: datetime,
+    ) -> dict[str, Any]:
+        """
+        Calculate Statistics - Thống kê ingestion.
+
+        - Count nodes by level
+        - Count total nodes và total paragraphs
+        - Calculate processing duration
+        - Calculate average content length
+        """
+        nodes_by_level: dict[int, int] = {}
+        total_nodes = 0
+        total_paragraphs = 0
+        total_content_length = 0
+
+        def walk(node: KnowledgeNode) -> None:
+            nonlocal total_nodes, total_paragraphs, total_content_length
+
+            total_nodes += 1
+            level = node.level_down
+            nodes_by_level[level] = nodes_by_level.get(level, 0) + 1
+
+            if node.node_type == NodeType.PARAGRAPH:
+                total_paragraphs += 1
+                attrs = getattr(node, "attributes", None)
+                if attrs:
+                    if isinstance(attrs, dict):
+                        text = attrs.get("text", "")
+                    elif hasattr(attrs, "text"):
+                        text = attrs.text
+                    else:
+                        text = ""
+                    total_content_length += len(str(text))
+
+            for child in node.children:
+                walk(child)
+
+        walk(root_node)
+
+        processing_duration = (datetime.now(timezone.utc) - ingestion_start_time).total_seconds()
+        avg_content_length = total_content_length / total_paragraphs if total_paragraphs > 0 else 0
+
+        return {
+            "nodes_by_level": nodes_by_level,
+            "total_nodes": total_nodes,
+            "total_paragraphs": total_paragraphs,
+            "processing_duration_seconds": processing_duration,
+            "average_content_length": avg_content_length,
+            "successful": True,
+        }

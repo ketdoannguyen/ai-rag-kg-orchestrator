@@ -32,7 +32,13 @@ Workflow chịu trách nhiệm xử lý `DataSource` đã được upload, tải
    - Trên mỗi path từ root đến detail: `level_down + level_up` phải là hằng số.
    - Detail nodes (PARAGRAPH, IMAGE, TABLE) phải có nội dung không rỗng (text/url/headers).
 
-6. **Metadata update**
+6. **Calculate Statistics**
+   - Count nodes by level
+   - Count total nodes và total paragraphs
+   - Calculate processing duration
+   - Calculate average content length
+
+7. **Metadata update**
    - Khi thành công, set `DataSource.updated_at` = timestamp hiện tại và `status` = `"active"`.
    - Cây tri thức **không được persist** bởi workflow này; được trả về cho caller để xử lý tiếp.
 
@@ -68,14 +74,15 @@ from workflows.ingest_file import FileIngestionInput, start_ingest
 
 async def main() -> None:
     payload = FileIngestionInput(
-        data_source_id=UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890"),
+        data_source_id="a1b2c3d4-e5f6-7890-abcd-ef1234567890",  # UUID as string
         enable_ocr=False,
     )
 
     result = await start_ingest(payload)
     print(result.status)           # "complete" hoặc "failed"
-    print(result.data_source_id)    # UUID đã truyền vào
-    print(result.root_node)         # Root StructureNode của cây tri thức
+    print(result.data_source)      # DataSource object (status='active' after success)
+    print(result.root_node)        # Root StructureNode của cây tri thức
+    print(result.statistics)       # Statistics dict (total_nodes, processing_duration, etc.)
 
 asyncio.run(main())
 ```

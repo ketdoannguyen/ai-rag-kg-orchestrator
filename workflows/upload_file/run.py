@@ -8,7 +8,7 @@ import shutil
 import tempfile
 import uuid
 import zipfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -353,7 +353,8 @@ class FileUploadWorkflow:
                 object_name=object_name,
                 expires_in=self._presigned_ttl,
             )
-            expires_at = datetime.utcnow() + timedelta(seconds=self._presigned_ttl)
+            # Use timezone-aware UTC timestamp
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=self._presigned_ttl)
             return url, expires_at
         except Exception as exc:  # pragma: no cover - depends on MinIO features
             self._log.warning(

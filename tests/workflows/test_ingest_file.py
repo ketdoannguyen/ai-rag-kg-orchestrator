@@ -146,16 +146,21 @@ class IngestFileWorkflowIntegrationTest(unittest.TestCase):
             pg_client=self._pg_client,
         )
 
-        ingest_input = FileIngestionInput(data_source_id=data_source_id)
+        ingest_input = FileIngestionInput(data_source_id=str(data_source_id))
 
         # Step 3: Run the ingest_file workflow end-to-end (except for real Marker).
         ingest_result = asyncio.run(workflow.run(ingest_input))
 
         # Basic result assertions.
         self.assertEqual(ingest_result.status, FileIngestionStatus.COMPLETE)
-        self.assertEqual(ingest_result.data_source_id, data_source_id)
+        self.assertIsNotNone(ingest_result.data_source)
+        self.assertEqual(ingest_result.data_source.id, data_source_id)
         self.assertIsNotNone(ingest_result.root_node)
-        self.assertGreater(len(ingest_result.root_node.children), 0)
+        # root_node is now a dict after serialization
+        self.assertIsInstance(ingest_result.root_node, dict)
+        self.assertGreater(len(ingest_result.root_node.get("children", [])), 0)
+        self.assertIsNotNone(ingest_result.statistics)
+        self.assertGreater(ingest_result.statistics.get("total_nodes", 0), 0)
 
         # Step 4: Verify DataSource metadata has been updated in the database.
         datasource_after = asyncio.run(self._fetch_datasource(data_source_id))
@@ -187,6 +192,8 @@ class IngestFileWorkflowIntegrationTest(unittest.TestCase):
         with open(result_path, "w", encoding="utf-8") as f:
             f.write(result_json)
         print(f"\n✅ Saved complete FileIngestionResult to: {result_path}")
+        print(f"   Statistics: {ingest_result.statistics.get('total_nodes', 0)} nodes, "
+              f"{ingest_result.statistics.get('processing_duration_seconds', 0):.2f}s")
 
 
 if __name__ == "__main__":
