@@ -1,46 +1,58 @@
 from __future__ import annotations
 
 import asyncio
-import base64
+import hashlib
 import json
-import mimetypes
 import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from config.settings import settings
 from loguru import logger
+from postgres_client import PostgresClient, set_parent_ids, set_positions
+from postgres_client.handlers.system_admin_handler import SystemAdminHandler
+from postgres_client.models.knowledge import KnowledgeNode
+from postgres_client.models.structure_nodes import StructureNode
+from postgres_client.models.enums import NodeType
 from typing import TYPE_CHECKING
-from workflows.dependencies import get_minio_client
-from workflows.shared.storage_utils import ensure_bucket_with_retry, upload_file
+
+from workflows.dependencies import get_minio_client, init_postgres_client
+from workflows.process_raw_json.parser import TextbookParser
 from .marker_client import MarkerClient
-from .models import (
-    FileIngestionInput,
-    FileIngestionResult,
-    FileIngestionStatus,
-    MarkerFileMetadata,
-    MarkerImageMetadata,
-    MarkerOutputMetadata,
-    SourceMetadata,
-)
+from .models import FileIngestionInput, FileIngestionResult, FileIngestionStatus
 
 if TYPE_CHECKING:
     from minio_client import StorageClient  # type: ignore[import-not-found]
 
 
+def _calculate_md5(data: bytes) -> str:
+    digest = hashlib.md5()
+    digest.update(data)
+    return digest.hexdigest()
+
+
 def start_ingest(
-    payload: FileIngestionInput | str | Path,
+    payload: FileIngestionInput | dict[str, Any] | UUID | str,
+    *,
+    storage: StorageClient | None = None,
+    pg_client: PostgresClient | None = None,
 ) -> dict[str, Any]:
     """
     Entry point for the ingest_file workflow.
 
-    Accepts either a prepared FileIngestionInput or a simple file path.
+    Accepts either:
+    - a prepared FileIngestionInput
+    - a plain dict (will be unpacked into FileIngestionInput)
+    - a UUID / string UUID (interpreted as data_source_id)
     """
-    if isinstance(payload, (str, Path)):
-        input_payload = FileIngestionInput(file_path=Path(payload))
-    else:
+    if isinstance(payload, FileIngestionInput):
         input_payload = payload
+    elif isinstance(payload, (UUID, str)):
+        input_payload = FileIngestionInput(data_source_id=UUID(str(payload)))
+    else:
+        input_payload = FileIngestionInput(**payload)
 
     marker_client = MarkerClient(
         use_llm=settings.MARKER_USE_LLM,
@@ -49,12 +61,14 @@ def start_ingest(
         google_api_key=settings.GOOGLE_API_KEY,
     )
 
-    storage = get_minio_client()
+    storage_client = storage or get_minio_client()
+    postgres_client = pg_client or init_postgres_client()
+
     workflow = FileIngestionWorkflow(
-        storage=storage,
-        bucket=settings.MINIO_BUCKET,
+        storage=storage_client,
         workspace_root=Path(settings.INGEST_FILE_WORKDIR),
         marker_client=marker_client,
+        pg_client=postgres_client,
     )
 
     result = asyncio.run(workflow.run(input_payload))
@@ -64,281 +78,261 @@ def start_ingest(
 
 
 class FileIngestionWorkflow:
-    """Coordinates file ingestion, storage, and Marker parsing."""
+    """Coordinates DataSource-based ingestion, Marker parsing, and in-memory knowledge tree build."""
 
     def __init__(
         self,
         *,
         storage: StorageClient,
-        bucket: str,
         workspace_root: Path,
         marker_client: MarkerClient,
+        pg_client: PostgresClient,
     ) -> None:
         self._storage = storage
-        self._bucket = bucket
         self._workspace_root = workspace_root
         self._marker_client = marker_client
-        self._date_prefix = datetime.utcnow().strftime("%d-%m-%Y")
-        self._object_root = f"file/{self._date_prefix}"
-        self._logger = logger.bind(job_id=None)
+        self._pg_client = pg_client
+        self._logger = logger.bind(job_id=None, workflow="ingest_file")
 
     async def run(self, payload: FileIngestionInput) -> FileIngestionResult:
-        """Run the file ingestion workflow."""
-        file_path = payload.file_path
-        self._logger = logger.bind(job_id=None)
+        """
+        Run the ingestion workflow:
+
+        1. Load DataSource and validate status/config
+        2. Download file from MinIO
+        3. Verify MD5 hash
+        4. Parse file using Marker
+        5. Build knowledge tree via TextbookParser
+        6. Validate nodes
+        7. Update DataSource metadata
+        """
+        job_id = datetime.utcnow().strftime("%H-%M-%S")
+        self._logger = logger.bind(job_id=job_id, workflow="ingest_file")
 
         self._workspace_root.mkdir(parents=True, exist_ok=True)
-        await ensure_bucket_with_retry(self._storage, self._bucket)
-
-        job_id = datetime.utcnow().strftime("%H-%M-%S")
-        self._logger = logger.bind(job_id=job_id)
-        self._logger.info(f"Starting file ingestion for {file_path.name}")
-
         job_dir = self._workspace_root / job_id
         job_dir.mkdir(parents=True, exist_ok=True)
 
+        data_source_id = payload.data_source_id
+
         try:
-            source_meta = await self._persist_source(
-                file_path=file_path, job_dir=job_dir, job_id=job_id
-            )
+            async with self._pg_client.sessionmaker() as session:
+                sys_handler = SystemAdminHandler(session)
 
-            # Convert PDF in thread pool to avoid blocking event loop
-            marker_result = await asyncio.to_thread(
-                self._marker_client.convert_pdf, file_path
-            )
+                # Bước 1: Load DataSource - Lấy thông tin nguồn
+                data_source = await sys_handler.sources.get_by_id(data_source_id)
+                if not data_source:
+                    raise ValueError(f"DataSource not found: {data_source_id}")
 
-            marker_meta = await self._persist_marker_outputs(
-                marker_result=marker_result,
-                job_dir=job_dir,
-                job_id=job_id,
-            )
+                if data_source.status == "active":
+                    raise ValueError(
+                        f"DataSource {data_source_id} is already ingested (status=active)"
+                    )
 
-            output_json_path = (
-                marker_meta.json.local_path if marker_meta.json else None
-            )
+                config = data_source.config or {}
+                minio_bucket = config.get("minio_bucket")
+                minio_path = config.get("minio_path")
+                if not minio_bucket or not minio_path:
+                    raise ValueError(
+                        f"DataSource {data_source_id} is missing minio_bucket/minio_path in config"
+                    )
 
-            self._logger.info("File ingestion completed successfully")
+                self._logger.info(
+                    "Loaded DataSource for ingestion",
+                    data_source_id=str(data_source_id),
+                    bucket=minio_bucket,
+                    path=minio_path,
+                )
 
-            return FileIngestionResult(
-                status=FileIngestionStatus.COMPLETE,
-                job_id=job_id,
-                output_json_path=output_json_path,
-                source=source_meta,
-                marker=marker_meta,
-            )
+                # Bước 2: Download File from MinIO - Tải file về
+                local_filename = config.get("original_filename") or "source.pdf"
+                local_path = job_dir / local_filename
+                await self._storage.download_file(
+                    bucket_name=minio_bucket,
+                    object_name=minio_path,
+                    destination=local_path,
+                )
+
+                file_bytes = await asyncio.to_thread(local_path.read_bytes)
+
+                # Bước 3: Verify Hash - Kiểm tra tính toàn vẹn
+                calculated_hash = _calculate_md5(file_bytes)
+                if data_source.hash_content and calculated_hash != data_source.hash_content:
+                    raise ValueError(
+                        "Integrity check failed: downloaded file hash does not match DataSource.hash_content"
+                    )
+
+                self._logger.info(
+                    "Integrity check passed",
+                    expected_hash=data_source.hash_content,
+                    actual_hash=calculated_hash,
+                )
+
+                # Bước 4: Parse File - Phân tích nội dung (Marker)
+                marker_result = await asyncio.to_thread(
+                    self._marker_client.convert_pdf, local_path
+                )
+                payload_dict: dict[str, Any] = marker_result.get("payload", {})
+                raw_json = payload_dict.get("json")
+                if raw_json is None:
+                    raise ValueError("Marker output does not contain 'json' payload")
+
+                # Persist raw JSON locally for parser only (không upload MinIO)
+                raw_json_path = job_dir / "marker_raw.json"
+                await asyncio.to_thread(
+                    raw_json_path.write_text,
+                    json.dumps(raw_json, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+
+                # Bước 5: Build Knowledge Tree - Tạo cây phân cấp (in-memory)
+                processed_json_path = job_dir / "processed.json"
+                parser = TextbookParser(
+                    input_path=str(raw_json_path),
+                    output_path=str(processed_json_path),
+                    page_offset=5,
+                    extract_images=True,
+                    bucket=minio_bucket,
+                )
+
+                await parser.parse()
+
+                # Set parent IDs & positions cho toàn bộ cây
+                set_parent_ids(parser.root)
+                set_positions(parser.root)
+
+                # Gán source_id + validate tree theo rule
+                self._validate_and_attach_source(parser.root, data_source_id)
+
+                # Bước 7: Update DataSource metadata (không persist tree vào DB)
+                await sys_handler.sources.update(
+                    data_source_id,
+                    {
+                        "updated_at": datetime.utcnow(),
+                        "status": "active",
+                    },
+                )
+
+                self._logger.info(
+                    "File ingestion completed successfully (in-memory tree only)",
+                    data_source_id=str(data_source_id),
+                )
+
+                return FileIngestionResult(
+                    status=FileIngestionStatus.COMPLETE,
+                    job_id=job_id,
+                    data_source_id=data_source_id,
+                    root_node=parser.root,
+                )
         except Exception as exc:
             self._logger.exception("File ingestion failed")
             return FileIngestionResult(
                 status=FileIngestionStatus.FAILED,
                 job_id=job_id,
-                output_json_path=None,
-                source=SourceMetadata(
-                    local_path="",
-                    minio_object="",
-                    size_bytes=0,
-                ),
-                marker=MarkerOutputMetadata(request_id="", images=[]),
+                data_source_id=data_source_id,
+                root_node=None,
                 error=str(exc),
             )
-
-
-    async def _persist_source(
-        self, file_path: Path, job_dir: Path, job_id: str
-    ) -> SourceMetadata:
-        """Persist source PDF file to workspace and MinIO."""
-        copied_path = job_dir / file_path.name
-        await asyncio.to_thread(shutil.copy2, file_path, copied_path)
-
-        minio_object = await upload_file(
-            storage=self._storage,
-            bucket=self._bucket,
-            local_path=copied_path,
-            object_name=f"{self._object_root}/source/{copied_path.name}",
-            content_type="application/pdf",
-        )
-
-        def get_size() -> int:
-            return copied_path.stat().st_size
-
-        size_bytes = await asyncio.to_thread(get_size)
-        return SourceMetadata(
-            local_path=str(copied_path),
-            minio_object=minio_object,
-            size_bytes=size_bytes,
-        )
-
-    async def _persist_marker_outputs(
-        self,
-        *,
-        marker_result: dict[str, Any],
-        job_dir: Path,
-        job_id: str,
-    ) -> MarkerOutputMetadata:
-        """Persist all Marker outputs to workspace and MinIO."""
-        payload = marker_result["payload"]
-        request_id = marker_result["request_id"]
-
-        # Save raw payload
-        raw_payload_path = job_dir / "marker_raw.json"
-        await asyncio.to_thread(
-            raw_payload_path.write_text,
-            json.dumps(payload, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        raw_payload_meta = MarkerFileMetadata(
-            local_path=str(raw_payload_path),
-            minio_object=await upload_file(
-                storage=self._storage,
-                bucket=self._bucket,
-                local_path=raw_payload_path,
-                object_name=f"{self._object_root}/output/{job_id}/marker_raw.json",
-                content_type="application/json",
-            ),
-        )
-
-        # Process JSON payload
-        json_meta: MarkerFileMetadata | None = None
-        json_payload = payload.get("json")
-        json_data: Any | None = None
-        if isinstance(json_payload, str):
+        finally:
+            # Best-effort cleanup of temp workspace
             try:
-                json_data = json.loads(json_payload)
-            except json.JSONDecodeError:
-                json_data = {"raw": json_payload}
-        elif json_payload is not None:
-            json_data = json_payload
+                shutil.rmtree(job_dir, ignore_errors=True)
+            except Exception:
+                pass
 
-        if json_data is not None:
-            json_path = job_dir / "marker.json"
-            await asyncio.to_thread(
-                json_path.write_text,
-                json.dumps(json_data, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            json_meta = MarkerFileMetadata(
-                local_path=str(json_path),
-                minio_object=await upload_file(
-                    storage=self._storage,
-                    bucket=self._bucket,
-                    local_path=json_path,
-                    object_name=f"{self._object_root}/output/{job_id}/marker.json",
-                    content_type="application/json",
-                ),
-            )
-
-        # Process markdown payload
-        markdown_meta: MarkerFileMetadata | None = None
-        markdown_payload = payload.get("markdown")
-        if isinstance(markdown_payload, str) and markdown_payload.strip():
-            markdown_path = job_dir / "marker.md"
-            await asyncio.to_thread(
-                markdown_path.write_text, markdown_payload, encoding="utf-8"
-            )
-            markdown_meta = MarkerFileMetadata(
-                local_path=str(markdown_path),
-                minio_object=await upload_file(
-                    storage=self._storage,
-                    bucket=self._bucket,
-                    local_path=markdown_path,
-                    object_name=f"{self._object_root}/output/{job_id}/marker.md",
-                    content_type="text/markdown",
-                ),
-            )
-
-        # Process images
-        images: list[MarkerImageMetadata] = []
-        images_payload = payload.get("images")
-        if images_payload:
-            images_dir = job_dir / "images"
-            images_dir.mkdir(parents=True, exist_ok=True)
-            images = await self._save_images(
-                images_payload=images_payload,
-                images_dir=images_dir,
-                job_id=job_id,
-            )
-
-        return MarkerOutputMetadata(
-            request_id=request_id,
-            json=json_meta,
-            markdown=markdown_meta,
-            raw_payload=raw_payload_meta,
-            images=images,
-        )
-
-    async def _save_images(
+    def _validate_and_attach_source(
         self,
-        *,
-        images_payload: Any,
-        images_dir: Path,
-        job_id: str,
-    ) -> list[MarkerImageMetadata]:
-        """Save extracted images to workspace and MinIO."""
-        saved_images: list[MarkerImageMetadata] = []
+        root: StructureNode,
+        data_source_id: UUID,
+    ) -> None:
+        """
+        Bước 6: Validate Nodes - Kiểm tra tính hợp lệ và gán source_id.
 
-        if isinstance(images_payload, dict):
-            iterator = images_payload.items()
-        elif isinstance(images_payload, list):
-            iterator = enumerate(images_payload)
-        else:
-            return saved_images
+        Rules:
+        - Mỗi node (trừ root) PHẢI có parent_id
+        - source_id PHẢI match với DataSource
+        - level_down và level_up PHẢI hợp lệ (>= 1)
+        - Trên mỗi path từ root đến detail: level_down + level_up phải là constant
+        - Detail nodes (PARAGRAPH, IMAGE, TABLE) PHẢI có attributes.text/url/headers không empty (nếu tồn tại)
+        """
+        errors: list[str] = []
+        # Track path constants for validation
+        path_constants: dict[tuple, int] = {}  # (path_signature) -> constant value
 
-        for key, value in iterator:
-            image_info = self._extract_image_info(key, value)
-            if image_info is None:
-                continue
+        def walk(node: KnowledgeNode, parent: KnowledgeNode | None, path: list[UUID] = None) -> None:
+            if path is None:
+                path = []
+            
+            # Attach source_id
+            node.source_id = data_source_id
 
-            filename = image_info["filename"]
-            image_path = images_dir / filename
-            await asyncio.to_thread(image_path.write_bytes, image_info["data"])
+            # Parent rule
+            if parent is None:
+                if node.parent_id is not None:
+                    errors.append("Root node must have parent_id=None")
+            else:
+                if node.parent_id is None:
+                    errors.append("Non-root node must have parent_id set")
+                elif node.parent_id != parent.id:
+                    errors.append(f"Node {node.id} has parent_id={node.parent_id} but parent is {parent.id}")
 
-            minio_object = await upload_file(
-                storage=self._storage,
-                bucket=self._bucket,
-                local_path=image_path,
-                object_name=f"{self._object_root}/output/{job_id}/images/{filename}",
-                content_type=image_info["content_type"],
+            # Level validation
+            if node.level_down < 0:
+                errors.append(f"Node {node.id} has invalid level_down={node.level_down}, must be >= 0")
+            if node.level_up < 0:
+                errors.append(f"Node {node.id} has invalid level_up={node.level_up}, must be >= 0")
+
+            # Validate level_down + level_up constant along path
+            current_path = tuple(path + [node.id])
+            constant = node.level_down + node.level_up
+            
+            if current_path in path_constants:
+                expected_constant = path_constants[current_path]
+                if constant != expected_constant:
+                    errors.append(
+                        f"Node {node.id} on path has level_down+level_up={constant}, "
+                        f"but expected {expected_constant} (path constant violation)"
+                    )
+            else:
+                # First node on this path - record the constant
+                path_constants[current_path] = constant
+
+            # Validate detail node content
+            if node.node_type in [NodeType.PARAGRAPH, NodeType.IMAGE, NodeType.TABLE]:
+                attrs = getattr(node, "attributes", None)
+                if attrs is not None:
+                    if isinstance(attrs, dict):
+                        # Check for empty text/url/headers based on node type
+                        if node.node_type == NodeType.PARAGRAPH:
+                            text = attrs.get("text", "")
+                            if not text or not str(text).strip():
+                                errors.append(f"Paragraph node {node.id} has empty text")
+                        elif node.node_type == NodeType.IMAGE:
+                            url = attrs.get("url") or attrs.get("file_path")
+                            if not url:
+                                errors.append(f"Image node {node.id} has no url or file_path")
+                        elif node.node_type == NodeType.TABLE:
+                            headers = attrs.get("headers", [])
+                            rows = attrs.get("rows", [])
+                            if not headers and not rows:
+                                errors.append(f"Table node {node.id} has no headers or rows")
+                    elif hasattr(attrs, "text"):
+                        # Pydantic model
+                        if node.node_type == NodeType.PARAGRAPH and not attrs.text.strip():
+                            errors.append(f"Paragraph node {node.id} has empty text")
+                    elif hasattr(attrs, "url") or hasattr(attrs, "file_path"):
+                        if node.node_type == NodeType.IMAGE:
+                            url = getattr(attrs, "url", None) or getattr(attrs, "file_path", None)
+                            if not url:
+                                errors.append(f"Image node {node.id} has no url or file_path")
+
+            # Recursively validate children
+            for child in node.children:
+                walk(child, node, list(current_path))
+
+        walk(root, None)
+
+        if errors:
+            raise ValueError(
+                "Knowledge tree validation failed: " + "; ".join(sorted(set(errors)))
             )
-
-            saved_images.append(
-                MarkerImageMetadata(
-                    filename=filename,
-                    content_type=image_info["content_type"],
-                    local_path=str(image_path),
-                    minio_object=minio_object,
-                ),
-            )
-
-        return saved_images
-
-    def _extract_image_info(
-        self,
-        key: Any,
-        value: Any,
-    ) -> dict[str, Any] | None:
-        data_b64: str | None = None
-        content_type: str | None = None
-        filename: str | None = None
-
-        if isinstance(value, dict):
-            data_b64 = value.get("data") or value.get("content")
-            content_type = value.get("content_type") or value.get("mime_type")
-            filename = value.get("filename")
-        elif isinstance(value, str):
-            data_b64 = value
-
-        if not filename:
-            filename = f"{key}.png"
-        if not content_type:
-            guessed_type, _ = mimetypes.guess_type(filename)
-            content_type = guessed_type or "image/png"
-
-        if not data_b64:
-            return None
-
-        try:
-            binary = base64.b64decode(data_b64)
-        except (ValueError, TypeError):
-            return None
-
-        return {"filename": filename, "content_type": content_type, "data": binary}
-

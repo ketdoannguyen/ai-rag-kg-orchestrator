@@ -1,49 +1,83 @@
-# ingest_file Workflow
+# Workflow: `ingest_file`
 
-This workflow processes PDF files using the Marker SDK, extracts structured content and images, uploads artifacts to MinIO, and optionally writes local copies for inspection. The goal is to keep the orchestration simple and predictable so we can extend it later without rewriting core pieces.
+Workflow chịu trách nhiệm xử lý `DataSource` đã được upload, tải PDF từ MinIO, kiểm tra tính toàn vẹn, parse với Marker, xây dựng cây tri thức phân cấp và trả về root node. Mục tiêu là giữ orchestration đơn giản và deterministic để có thể tái sử dụng trong các pipeline khác.
 
-## How It Works
+## Luồng xử lý
 
-```
-┌──────────┐      ┌────────────┐      ┌────────────────┐      ┌─────────────┐
-│ PDF file │ ───> │ Marker SDK │ ───> │ Extract content │ ───> │ Structured  │
-│ / input  │      │ converter  │      │ (JSON/MD/images) │      │ JSON output │
-└──────────┘      └────────────┘      └────────────────┘      └─────────────┘
-       │                                                    ┌─┴─────────────┐
-       │                                                    │ Image handler │
-       │                                                    └─┬─────────────┘
-       │                                                      │
-       ▼                                                      ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Persist artifacts (PDF / JSON / Markdown + images) to MinIO │
-│ Optionally mirror the same files into workspace directory   │
-└──────────────────────────────────────────────────────────────┘
-```
+1. **Load DataSource**
+   - Mở session Postgres, load `DataSource` theo `data_source_id`.
+   - Kiểm tra:
+     - Record tồn tại.
+     - Status không phải `"active"` (chưa được ingest).
+     - `config` chứa `minio_bucket` và `minio_path`.
 
-1. **Input** – either pass a ready-made `FileIngestionInput` or provide a file path; the workflow wraps it for you with validation.
-2. **Marker conversion** – the `MarkerClient` converts PDF to structured JSON and markdown using local inference (runs in thread pool to avoid blocking event loop).
-3. **Content extraction** – extracts JSON structure, markdown text, and embedded images from the PDF.
-4. **Image handler** – saves extracted images to workspace and uploads them to MinIO.
-5. **Persistence** – uploads source PDF, JSON, Markdown, and images to MinIO; saves the same assets locally for debugging.
+2. **Download & Hash verify**
+   - Tải PDF từ MinIO theo bucket/path đã lưu.
+   - Tính MD5 và so sánh với `DataSource.hash_content`.
+   - Dừng workflow nếu hash không khớp.
 
-## Running It Manually
+3. **Marker conversion**
+   - `MarkerClient` chuyển đổi PDF sang structured JSON (và images) bằng Marker SDK.
+   - Chạy trong thread pool để tránh block event loop.
 
-Use the helper script to kick off a run from the project root:
+4. **Build Knowledge Tree**
+   - Raw Marker JSON được truyền vào `TextbookParser`.
+   - Xây dựng cây `StructureNode` (root STRUCTURE node, các STRUCTURE nodes con, DETAIL nodes cho paragraphs và images).
+   - Gán parent IDs và positions qua shared helpers.
+
+5. **Validation**
+   - Mọi node trừ root phải có `parent_id` không null.
+   - `source_id` được gắn vào mọi node và khớp với `DataSource` id.
+   - `level_down` và `level_up` phải >= 0 (detail nodes có thể tạm thời = 0).
+   - Trên mỗi path từ root đến detail: `level_down + level_up` phải là hằng số.
+   - Detail nodes (PARAGRAPH, IMAGE, TABLE) phải có nội dung không rỗng (text/url/headers).
+
+6. **Metadata update**
+   - Khi thành công, set `DataSource.updated_at` = timestamp hiện tại và `status` = `"active"`.
+   - Cây tri thức **không được persist** bởi workflow này; được trả về cho caller để xử lý tiếp.
+
+## Cấu hình & phụ thuộc
+
+| Biến môi trường | Vai trò |
+|-----------------|---------|
+| `DATABASE_URL` | Kết nối Postgres (asyncpg). |
+| `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Thông tin MinIO client. |
+| `MINIO_KNOWLEDGE_BUCKET` | Bucket chứa file (default `knowledge-files`). |
+
+Phụ thuộc chính: `loguru`, `postgres_client`, `minio_client`, `marker-python`.
+
+## Chạy thử
 
 ```bash
-python scripts/run_ingest_file.py path/to/document.pdf \
-  --output tmp/ingest.json
+export DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/db"
+export MINIO_ENDPOINT="http://localhost:9000"
+export MINIO_ACCESS_KEY="minio"
+export MINIO_SECRET_KEY="minio123"
+export MINIO_KNOWLEDGE_BUCKET="knowledge-files"
+
+python -m workflows.ingest_file.run
 ```
 
-Flags:
+Hoặc gọi trực tiếp:
 
-- `--enable-ocr` – passed through to the workflow (enables OCR processing in Marker).
-- `--output` – optional path where the script writes the JSON result that `start_ingest()` returns.
+```python
+import asyncio
+from uuid import UUID
 
-## Key Files
+from workflows.ingest_file import FileIngestionInput, start_ingest
 
-- `run.py` – orchestrates conversion, storage, and local persistence with retry logic.
-- `marker_client.py` – thin wrapper around the Marker SDK for PDF conversion.
-- `models.py` – Pydantic models for input validation and output structure.
+async def main() -> None:
+    payload = FileIngestionInput(
+        data_source_id=UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890"),
+        enable_ocr=False,
+    )
 
-Keep changes small and readable—each helper covers a single responsibility so we can reason about failures quickly.
+    result = await start_ingest(payload)
+    print(result.status)           # "complete" hoặc "failed"
+    print(result.data_source_id)    # UUID đã truyền vào
+    print(result.root_node)         # Root StructureNode của cây tri thức
+
+asyncio.run(main())
+```
+
+Đảm bảo Postgres & MinIO đang chạy, và `DataSource` đã được tạo bởi `upload_file` workflow.
