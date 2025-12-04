@@ -1,3 +1,5 @@
+"python -m tests.workflows.test_enrich_knowledge_tree"
+
 from __future__ import annotations
 
 import asyncio

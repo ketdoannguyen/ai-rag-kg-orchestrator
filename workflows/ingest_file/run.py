@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import shutil
 import warnings
@@ -14,24 +13,17 @@ from config.settings import settings
 from loguru import logger
 from postgres_client import PostgresClient, set_parent_ids, set_positions
 from postgres_client.handlers.system_admin_handler import SystemAdminHandler
-from postgres_client.models.knowledge import KnowledgeNode
-from postgres_client.models.structure_nodes import StructureNode
-from postgres_client.models.enums import NodeType
+from postgres_client.utils import compute_tree_statistics, validate_tree_and_attach_source
 from typing import TYPE_CHECKING
 
 from workflows.dependencies import get_minio_client, init_postgres_client
-from workflows.process_raw_json.parser import TextbookParser
+from workflows.shared import calculate_md5
 from .marker_client import MarkerClient
+from .parser import TextbookParser
 from .models import FileIngestionInput, FileIngestionResult, FileIngestionStatus
 
 if TYPE_CHECKING:
     from minio_client import StorageClient  # type: ignore[import-not-found]
-
-
-def _calculate_md5(data: bytes) -> str:
-    digest = hashlib.md5()
-    digest.update(data)
-    return digest.hexdigest()
 
 
 def start_ingest(
@@ -164,7 +156,7 @@ class FileIngestionWorkflow:
                 file_bytes = await asyncio.to_thread(local_path.read_bytes)
 
                 # Bước 3: Verify Hash - Kiểm tra tính toàn vẹn
-                calculated_hash = _calculate_md5(file_bytes)
+                calculated_hash = calculate_md5(file_bytes)
                 if data_source.hash_content and calculated_hash != data_source.hash_content:
                     raise ValueError(
                         "Integrity check failed: downloaded file hash does not match DataSource.hash_content"
@@ -210,10 +202,13 @@ class FileIngestionWorkflow:
                 set_positions(parser.root)
 
                 # Gán source_id + validate tree theo rule
-                self._validate_and_attach_source(parser.root, data_source_id)
+                validate_tree_and_attach_source(parser.root, data_source_id)
 
                 # Bước 7: Calculate Statistics - Thống kê
-                statistics = self._calculate_statistics(parser.root, ingestion_start_time)
+                statistics = compute_tree_statistics(
+                    parser.root,
+                    start_time=ingestion_start_time,
+                )
 
                 # Bước 8: Update DataSource metadata (không persist tree vào DB)
                 updated_data_source = await sys_handler.sources.update(  # noqa: F841
@@ -289,153 +284,3 @@ class FileIngestionWorkflow:
             except Exception:
                 pass
 
-    def _validate_and_attach_source(
-        self,
-        root: StructureNode,
-        data_source_id: UUID,
-    ) -> None:
-        """
-        Bước 6: Validate Nodes - Kiểm tra tính hợp lệ và gán source_id.
-
-        Rules:
-        - Mỗi node (trừ root) PHẢI có parent_id
-        - source_id PHẢI match với DataSource
-        - level_down và level_up PHẢI hợp lệ (>= 1)
-        - Trên mỗi path từ root đến detail: level_down + level_up phải là constant
-        - Detail nodes (PARAGRAPH, IMAGE, TABLE) PHẢI có attributes.text/url/headers không empty (nếu tồn tại)
-        """
-        errors: list[str] = []
-        # Track path constants for validation
-        path_constants: dict[tuple, int] = {}  # (path_signature) -> constant value
-
-        def walk(node: KnowledgeNode, parent: KnowledgeNode | None, path: list[UUID] = None) -> None:
-            if path is None:
-                path = []
-            
-            # Attach source_id
-            node.source_id = data_source_id
-
-            # Parent rule
-            if parent is None:
-                if node.parent_id is not None:
-                    errors.append("Root node must have parent_id=None")
-            else:
-                if node.parent_id is None:
-                    errors.append("Non-root node must have parent_id set")
-                elif node.parent_id != parent.id:
-                    errors.append(f"Node {node.id} has parent_id={node.parent_id} but parent is {parent.id}")
-
-            # Level validation
-            if node.level_down < 0:
-                errors.append(f"Node {node.id} has invalid level_down={node.level_down}, must be >= 0")
-            if node.level_up < 0:
-                errors.append(f"Node {node.id} has invalid level_up={node.level_up}, must be >= 0")
-
-            # Validate level_down + level_up constant along path
-            current_path = tuple(path + [node.id])
-            constant = node.level_down + node.level_up
-            
-            if current_path in path_constants:
-                expected_constant = path_constants[current_path]
-                if constant != expected_constant:
-                    errors.append(
-                        f"Node {node.id} on path has level_down+level_up={constant}, "
-                        f"but expected {expected_constant} (path constant violation)"
-                    )
-            else:
-                # First node on this path - record the constant
-                path_constants[current_path] = constant
-
-            # Validate detail node content
-            if node.node_type in [NodeType.PARAGRAPH, NodeType.IMAGE, NodeType.TABLE]:
-                attrs = getattr(node, "attributes", None)
-                if attrs is not None:
-                    if isinstance(attrs, dict):
-                        # Check for empty text/url/headers based on node type
-                        if node.node_type == NodeType.PARAGRAPH:
-                            text = attrs.get("text", "")
-                            if not text or not str(text).strip():
-                                errors.append(f"Paragraph node {node.id} has empty text")
-                        elif node.node_type == NodeType.IMAGE:
-                            url = attrs.get("url") or attrs.get("file_path")
-                            if not url:
-                                errors.append(f"Image node {node.id} has no url or file_path")
-                        elif node.node_type == NodeType.TABLE:
-                            headers = attrs.get("headers", [])
-                            rows = attrs.get("rows", [])
-                            if not headers and not rows:
-                                errors.append(f"Table node {node.id} has no headers or rows")
-                    elif hasattr(attrs, "text"):
-                        # Pydantic model
-                        if node.node_type == NodeType.PARAGRAPH and not attrs.text.strip():
-                            errors.append(f"Paragraph node {node.id} has empty text")
-                    elif hasattr(attrs, "url") or hasattr(attrs, "file_path"):
-                        if node.node_type == NodeType.IMAGE:
-                            url = getattr(attrs, "url", None) or getattr(attrs, "file_path", None)
-                            if not url:
-                                errors.append(f"Image node {node.id} has no url or file_path")
-
-            # Recursively validate children
-            for child in node.children:
-                walk(child, node, list(current_path))
-
-        walk(root, None)
-
-        if errors:
-            raise ValueError(
-                "Knowledge tree validation failed: " + "; ".join(sorted(set(errors)))
-            )
-
-    def _calculate_statistics(
-        self,
-        root_node: StructureNode,
-        ingestion_start_time: datetime,
-    ) -> dict[str, Any]:
-        """
-        Calculate Statistics - Thống kê ingestion.
-
-        - Count nodes by level
-        - Count total nodes và total paragraphs
-        - Calculate processing duration
-        - Calculate average content length
-        """
-        nodes_by_level: dict[int, int] = {}
-        total_nodes = 0
-        total_paragraphs = 0
-        total_content_length = 0
-
-        def walk(node: KnowledgeNode) -> None:
-            nonlocal total_nodes, total_paragraphs, total_content_length
-
-            total_nodes += 1
-            level = node.level_down
-            nodes_by_level[level] = nodes_by_level.get(level, 0) + 1
-
-            if node.node_type == NodeType.PARAGRAPH:
-                total_paragraphs += 1
-                attrs = getattr(node, "attributes", None)
-                if attrs:
-                    if isinstance(attrs, dict):
-                        text = attrs.get("text", "")
-                    elif hasattr(attrs, "text"):
-                        text = attrs.text
-                    else:
-                        text = ""
-                    total_content_length += len(str(text))
-
-            for child in node.children:
-                walk(child)
-
-        walk(root_node)
-
-        processing_duration = (datetime.now(timezone.utc) - ingestion_start_time).total_seconds()
-        avg_content_length = total_content_length / total_paragraphs if total_paragraphs > 0 else 0
-
-        return {
-            "nodes_by_level": nodes_by_level,
-            "total_nodes": total_nodes,
-            "total_paragraphs": total_paragraphs,
-            "processing_duration_seconds": processing_duration,
-            "average_content_length": avg_content_length,
-            "successful": True,
-        }

@@ -1,0 +1,1499 @@
+{
+  "id": "8906bc2f-06ba-44b0-9839-ad6b0d987292",
+  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+  "parent_id": null,
+  "node_type": "structure",
+  "level_down": 1,
+  "level_up": 1,
+  "attributes": {
+    "title": "SGK Vật Lý 12 - Kết nối tri thức",
+    "code": null,
+    "description": "Chương I giới thiệu vật lý nhiệt: cấu trúc chất, chuyển đổi, nội năng, Định luật I, nhiệt độ, thang đo, nhiệt dung, nóng chảy, hoá hơi, nền tảng cho phát minh máy hơi nước của Watt (1765)."
+  },
+  "metadata": {
+    "start_page": 0,
+    "end_page": null,
+    "url": null,
+    "file_path": null,
+    "position": "SGK Vật Lý 12 - Kết nối tri thức"
+  },
+  "children": [
+    {
+      "id": "47bcb42f-ce54-41f7-b9bf-1dfa38f77e51",
+      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+      "parent_id": "8906bc2f-06ba-44b0-9839-ad6b0d987292",
+      "node_type": "structure",
+      "level_down": 2,
+      "level_up": 1,
+      "attributes": {
+        "title": "CHƯƠNG I: VẬT LÍ NHIỆT",
+        "code": "CHƯƠNG I",
+        "description": "Năm 1765 Watt dựa trên kiến thức vật lí nhiệt (cấu trúc chất, chuyển thể, nội năng, Định luật I, nhiệt độ, thang đo, nhiệt dung, nóng chảy, hoá hơi) phát minh máy hơi nước."
+      },
+      "metadata": {
+        "start_page": 5,
+        "end_page": null,
+        "url": null,
+        "file_path": null,
+        "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT"
+      },
+      "children": [
+        {
+          "id": "759e5903-8bf0-4089-bf25-657d66415e83",
+          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+          "parent_id": "47bcb42f-ce54-41f7-b9bf-1dfa38f77e51",
+          "node_type": "paragraph",
+          "level_down": 0,
+          "level_up": 0,
+          "attributes": {
+            "text": "Năm 1765, James Watt (Giêm Oát) (1736-1819) dựa vào những thành tựu nghiên cứu về Vật lí nhiệt đã phát minh ra máy hơi nước, góp phần quan trọng vào việc làm bùng nổ cuộc Cách mạng Công nghiệp lần thứ nhất. Những kiến thức về Vật lí nhiệt nào đã làm cơ sở cho việc phát minh ra máy hơi nước?"
+          },
+          "metadata": {
+            "page": 5,
+            "bbox": [
+              209,
+              1364,
+              1388,
+              1522
+            ],
+            "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT"
+          },
+          "children": []
+        },
+        {
+          "id": "8b2b591d-5af8-4759-8388-47befe1abb98",
+          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+          "parent_id": "47bcb42f-ce54-41f7-b9bf-1dfa38f77e51",
+          "node_type": "structure",
+          "level_down": 7,
+          "level_up": 1,
+          "attributes": {
+            "title": "Nội dung",
+            "code": null,
+            "description": "Bao gồm cấu trúc chất, chuyển thể, nội năng và Định luật I, nhiệt độ và thang đo, cùng các nhiệt dung, nóng chảy và hoá hơi riêng."
+          },
+          "metadata": {
+            "start_page": 5,
+            "end_page": null,
+            "url": null,
+            "file_path": null,
+            "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Nội dung"
+          },
+          "children": [
+            {
+              "id": "583cd4b4-b6f8-4347-856a-6054159c2eb1",
+              "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+              "parent_id": "8b2b591d-5af8-4759-8388-47befe1abb98",
+              "node_type": "paragraph",
+              "level_down": 0,
+              "level_up": 0,
+              "attributes": {
+                "text": "* Cấu trúc của chất. Sự chuyển thể\n* Nội năng, Định luật I của Nhiệt động lực học\n* Nhiệt độ, thang nhiệt độ, nhiệt kế\n* Nhiệt dung riêng, nhiệt nóng chảy riêng, nhiệt hoá hơi riêng"
+              },
+              "metadata": {
+                "page": 5,
+                "bbox": [
+                  562,
+                  1787,
+                  1402,
+                  1974
+                ],
+                "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Nội dung"
+              },
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "01a0391d-c248-4f99-8623-4545c8d95f24",
+          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+          "parent_id": "47bcb42f-ce54-41f7-b9bf-1dfa38f77e51",
+          "node_type": "structure",
+          "level_down": 3,
+          "level_up": 1,
+          "attributes": {
+            "title": "Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ",
+            "code": "Bài 1",
+            "description": "Chất cùng loại tồn tại ở rắn, lỏng, khí vì phân tử thay đổi khoảng cách, sắp xếp và chuyển động khi năng lượng thay đổi. Khi năng lượng tăng, liên kết yếu → tan chảy, bốc hơi, sôi."
+          },
+          "metadata": {
+            "start_page": 6,
+            "end_page": null,
+            "url": null,
+            "file_path": null,
+            "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ"
+          },
+          "children": [
+            {
+              "id": "66827a1d-fb68-4450-abdb-12a080df957b",
+              "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+              "parent_id": "01a0391d-c248-4f99-8623-4545c8d95f24",
+              "node_type": "paragraph",
+              "level_down": 0,
+              "level_up": 0,
+              "attributes": {
+                "text": "Hãy dựa trên những kiến thức đã học về cấu tạo chất để giải thích tại sao cùng một chất lại có thể tồn tại ở các thể khác nhau là rắn, lỏng, khí."
+              },
+              "metadata": {
+                "page": 6,
+                "bbox": [
+                  308,
+                  423,
+                  1312,
+                  497
+                ],
+                "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ"
+              },
+              "children": []
+            },
+            {
+              "id": "8b038c5b-62b4-42ee-b615-ca503294984d",
+              "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+              "parent_id": "01a0391d-c248-4f99-8623-4545c8d95f24",
+              "node_type": "structure",
+              "level_down": 4,
+              "level_up": 1,
+              "attributes": {
+                "title": "MÔ HÌNH ĐỘNG HỌC PHÂN TỬ VỀ CẤU TẠO CHẤT",
+                "code": null,
+                "description": "Mô hình động học phân tử, nội dung, ứng dụng, hình minh họa, câu hỏi lịch sử, thí nghiệm Brown và lực liên kết giữa các phân tử."
+              },
+              "metadata": {
+                "start_page": 6,
+                "end_page": null,
+                "url": null,
+                "file_path": null,
+                "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > MÔ HÌNH ĐỘNG HỌC PHÂN TỬ VỀ CẤU TẠO CHẤT"
+              },
+              "children": [
+                {
+                  "id": "2f77828b-7d82-45ab-9865-a8dc47ce2f6c",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "8b038c5b-62b4-42ee-b615-ca503294984d",
+                  "node_type": "paragraph",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "text": "Nội dung cơ bản mô hình động học phân tử : Mô hình động học phân tử về cấu tạo chất có những nội dung cơ bản sau đây: * Các chất được cấu tạo từ các hạt riêng biệt là phân tử. * Các phân tử chuyển động không ngừng. Nhiệt độ của vật càng cao thì tốc độ chuyển động của các phân tử cấu tạo nên vật càng lớn. * Giữa các phân tử có lực hút và đẩy gọi chung là lực liên kết phân tử."
+                  },
+                  "metadata": {
+                    "page": 6,
+                    "bbox": [],
+                    "position": null
+                  },
+                  "children": []
+                },
+                {
+                  "id": "65ce6f73-3be6-4734-a003-682bee2ad77b",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "8b038c5b-62b4-42ee-b615-ca503294984d",
+                  "node_type": "paragraph",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "text": "Ứng dụng và thuật ngữ phân tử : Dùng mô hình này có thể giải thích được cấu trúc của các chất rắn, chất lỏng, chất khí và sự chuyển thể. Thuật ngữ phân tử trong mô hình trên được dùng để chỉ chung các hạt cấu tạo chất: phân tử, nguyên tử, ion."
+                  },
+                  "metadata": {
+                    "page": 6,
+                    "bbox": [],
+                    "position": null
+                  },
+                  "children": []
+                },
+                {
+                  "id": "912721d4-5d73-4479-906d-89cb0c6e2e0f",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "8b038c5b-62b4-42ee-b615-ca503294984d",
+                  "node_type": "paragraph",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "text": "Mô tả hình 1.1 và mũi tên : Hình 1.1. Chuyển động của các phân tử nước và các hạt phân hoa Mũi tên màu đen (→) biểu diễn hướng chuyển động của các phân tử nước Mũi tên màu vàng (→) biểu diễn hướng chuyển động của các hạt phân hoa"
+                  },
+                  "metadata": {
+                    "page": 6,
+                    "bbox": [],
+                    "position": null
+                  },
+                  "children": []
+                },
+                {
+                  "id": "0351efa7-2061-4d7b-94db-f544b37fd731",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "8b038c5b-62b4-42ee-b615-ca503294984d",
+                  "node_type": "paragraph",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "text": "Câu hỏi quan điểm cấu tạo chất : 1. Trong lịch sử phát triển của khoa học, có hai quan điểm khác nhau về cấu tạo chất là quan điểm chất có cấu tạo liên tục và chất có cấu tạo gián đoạn. Mô hình động học phân tử được xây dựng trên quan điểm nào?"
+                  },
+                  "metadata": {
+                    "page": 6,
+                    "bbox": [],
+                    "position": null
+                  },
+                  "children": []
+                },
+                {
+                  "id": "347626a0-6e2f-4412-abb7-c2824fbf4443",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "8b038c5b-62b4-42ee-b615-ca503294984d",
+                  "node_type": "paragraph",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "text": "Thí nghiệm Brown và câu hỏi liên quan : 2. Năm 1827, khi làm thí nghiệm quan sát các hạt phân hoa rất nhỏ trong nước bằng kính hiển vi, Brown thấy chúng chuyển động hỗn loạn, không ngừng. (Hình 1.1 và Hình 1.2). Chuyển động này được gọi là chuyển động Brown. a) Tại sao thí nghiệm của Brown được coi là một trong những thí nghiệm chứng tỏ các phân tử chuyển động hỗn loạn, không ngừng? b) Làm thế nào để với thí nghiệm của Brown có thể chứng tỏ được khi nhiệt độ của nước càng cao thì các phân tử nước chuyển động càng nhanh?"
+                  },
+                  "metadata": {
+                    "page": 6,
+                    "bbox": [],
+                    "position": null
+                  },
+                  "children": []
+                },
+                {
+                  "id": "61a16961-7919-4cb3-96c9-aeac735bf946",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "8b038c5b-62b4-42ee-b615-ca503294984d",
+                  "node_type": "paragraph",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "text": "Hiện tượng lực đẩy, hút giữa phân tử : 3. Hãy tìm các hiện tượng thực tế chứng tỏ giữa các phân tử có lực đẩy, lực hút."
+                  },
+                  "metadata": {
+                    "page": 6,
+                    "bbox": [],
+                    "position": null
+                  },
+                  "children": []
+                },
+                {
+                  "id": "0ecc835a-1188-40d5-be46-e2fd940f17f4",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "8b038c5b-62b4-42ee-b615-ca503294984d",
+                  "node_type": "paragraph",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "text": "Hình 1.2 và định nghĩa chuyển động Brown : Hình 1.2. Quỹ đạo chuyển động của hạt phân hoa trong nước Người ta thường gọi chuyển động hỗn loạn, không ngừng của các hạt rất nhỏ dưới tác dụng của các phân tử chất lỏng hoặc chất khí là chuyển động Brown."
+                  },
+                  "metadata": {
+                    "page": 6,
+                    "bbox": [],
+                    "position": null
+                  },
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "4b4ec9eb-b185-4e71-813d-12df25041ae4",
+              "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+              "parent_id": "01a0391d-c248-4f99-8623-4545c8d95f24",
+              "node_type": "structure",
+              "level_down": 4,
+              "level_up": 1,
+              "attributes": {
+                "title": "CẤU TRÚC CỦA CHẤT RẮN, CHẤT LỎNG VÀ CHẤT KHÍ",
+                "code": null,
+                "description": "Mô tả cấu trúc và đặc điểm phân tử của chất rắn, lỏng, khí dựa trên khoảng cách, sắp xếp và chuyển động."
+              },
+              "metadata": {
+                "start_page": 7,
+                "end_page": null,
+                "url": null,
+                "file_path": null,
+                "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > CẤU TRÚC CỦA CHẤT RẮN, CHẤT LỎNG VÀ CHẤT KHÍ"
+              },
+              "children": [
+                {
+                  "id": "38de440a-4711-4677-8481-6078ed98e035",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "4b4ec9eb-b185-4e71-813d-12df25041ae4",
+                  "node_type": "paragraph",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "text": "Đặc điểm phân tử và cấu trúc : Dựa vào các đặc điểm sau đây của phân tử có thể nêu được sơ lược cấu trúc của hầu hết các chất rắn, chất lỏng, chất khí: * Khoảng cách giữa các phân tử càng lớn thì lực liên kết giữa chúng càng yếu. * Các phân tử sắp xếp có trật tự thì lực liên kết giữa chúng mạnh."
+                  },
+                  "metadata": {
+                    "page": 7,
+                    "bbox": [],
+                    "position": null
+                  },
+                  "children": []
+                },
+                {
+                  "id": "3be2898e-c2bc-4d2d-b2e2-2b6b4ccfeeb1",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "4b4ec9eb-b185-4e71-813d-12df25041ae4",
+                  "node_type": "paragraph",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "text": "Yêu cầu mô tả dựa vào hình : Hãy dựa vào Hình 1.3 để mô tả, so sánh khoảng cách và sự sắp xếp (a), chuyển động (b) của phân tử ở các thể khác nhau. Từ đó mô tả một cách sơ lược về cấu trúc của chất rắn, chất lỏng, chất khí. Hình 1.3. (a) Khoảng cách và sự sắp xếp các phân tử ở các thể khác nhau(b) Chuyển động của phân tử ở các thể khác nhauHình cầu là phân tử, mũi tên là hướng chuyển động của phân tử"
+                  },
+                  "metadata": {
+                    "page": 7,
+                    "bbox": [],
+                    "position": null
+                  },
+                  "children": []
+                },
+                {
+                  "id": "d6d78df3-f12f-49e2-b413-ac599514fef6",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "4b4ec9eb-b185-4e71-813d-12df25041ae4",
+                  "node_type": "paragraph",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "text": "Giải thích đặc điểm ba thể : Hãy giải thích các đặc điểm sau đây của thể khí, thể rắn, thể lỏng. * Chất khí không có hình dạng và thể tích riêng, luôn chiếm toàn bộ thể tích bình chứa và có thể nén được dễ dàng. * Vật ở thể rắn có thể tích và hình dạng riêng, rất khó nén. * Vật ở thể lỏng có thể tích riêng nhưng không có hình dạng riêng."
+                  },
+                  "metadata": {
+                    "page": 7,
+                    "bbox": [],
+                    "position": null
+                  },
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "8d6b86c0-a497-40b6-b37c-73ff2fcf328e",
+              "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+              "parent_id": "01a0391d-c248-4f99-8623-4545c8d95f24",
+              "node_type": "structure",
+              "level_down": 4,
+              "level_up": 1,
+              "attributes": {
+                "title": "SỰ CHUYỂN THỂ",
+                "code": null,
+                "description": "Chất chuyển giữa rắn‑lỏng‑khí; khi năng lượng tăng, phân tử va chạm, chuyển động hỗn loạn, khoảng cách tăng, liên kết yếu → bay hơi, sôi, tan chảy."
+              },
+              "metadata": {
+                "start_page": 7,
+                "end_page": null,
+                "url": null,
+                "file_path": null,
+                "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ"
+              },
+              "children": [
+                {
+                  "id": "781ca51f-f497-41d1-a427-5f6407aca612",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "8d6b86c0-a497-40b6-b37c-73ff2fcf328e",
+                  "node_type": "structure",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "title": "Sự chuyển thể",
+                    "code": null,
+                    "description": "Các chất có thể chuyển giữa thể rắn, lỏng, khí; quá trình và các dạng chuyển thể được mô tả và minh họa trong Hình 1.4."
+                  },
+                  "metadata": {
+                    "start_page": 7,
+                    "end_page": null,
+                    "url": null,
+                    "file_path": null,
+                    "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Sự chuyển thể"
+                  },
+                  "children": [
+                    {
+                      "id": "b18013bc-662d-4bef-9f19-9ce4c79d752c",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "781ca51f-f497-41d1-a427-5f6407aca612",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Chuyển thể chất và hình minh họa : Các chất có thể chuyển từ thể này sang thể khác. Đa số các chất ở thể rắn khi nóng lên có thể chuyển sang thể lỏng, rồi từ thể lỏng sang thể khí. Ngược lại, đa số chất khí khi lạnh đi có thể chuyển sang thể lỏng, rồi từ thể lỏng sang thể rắn. Một số chất có thể chuyển trực tiếp từ thể rắn sang thể khí và ngược lại (Hình 1.4). Hình 1.4. Sơ đồ các hình thức chuyển thể"
+                      },
+                      "metadata": {
+                        "page": 7,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "id": "be779510-3dd1-4848-b3d4-74251afc719b",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "8d6b86c0-a497-40b6-b37c-73ff2fcf328e",
+                  "node_type": "structure",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "title": "Dùng mô hình động học phân tử giải thích sự chuyển thể",
+                    "code": null,
+                    "description": "Mô hình động học phân tử giải thích chuyển thể: khi năng lượng tăng, phân tử va chạm, chuyển động hỗn loạn, khoảng cách tăng, liên kết yếu → hoá hơi (bay hơi, sôi) và nóng chảy chất rắn kết tinh."
+                  },
+                  "metadata": {
+                    "start_page": 8,
+                    "end_page": null,
+                    "url": null,
+                    "file_path": null,
+                    "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Dùng mô hình động học phân tử giải thích sự chuyển thể"
+                  },
+                  "children": [
+                    {
+                      "id": "03c8aafa-bce4-420e-a1a4-30e8f668a55a",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "be779510-3dd1-4848-b3d4-74251afc719b",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Giải thích chuyển thể qua mô hình động học : Dựa vào đặc điểm của mô hình động học phân tử có thể giải thích sơ lược các hiện tượng liên quan đến sự chuyển thể như sự hoá hơi, sự nóng chảy: Trong khi chuyển động hỗn loạn, các phân tử có thể va chạm vào nhau, truyền năng lượng cho nhau. Càng nhận được nhiều năng lượng thì các phân tử chuyển động hỗn loạn càng nhanh, khoảng cách trung bình giữa chúng càng tăng, lực liên kết giữa chúng càng yếu."
+                      },
+                      "metadata": {
+                        "page": 8,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "6133d13c-fc21-4152-8ff7-e0c8f2d9e472",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "be779510-3dd1-4848-b3d4-74251afc719b",
+                      "node_type": "structure",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "title": "Giải thích sự hoá hơi",
+                        "code": null,
+                        "description": "Sự hoá hơi gồm bay hơi (tại mặt thoáng, phân tử thoát do động năng) và sôi (khi nước tới ~100 °C, bọt khí và hơi xuất hiện trong và trên bề mặt)."
+                      },
+                      "metadata": {
+                        "start_page": 8,
+                        "end_page": null,
+                        "url": null,
+                        "file_path": null,
+                        "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Dùng mô hình động học phân tử giải thích sự chuyển thể > Giải thích sự hoá hơi"
+                      },
+                      "children": [
+                        {
+                          "id": "4491430d-8e98-4102-a2b8-67d56496a332",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "6133d13c-fc21-4152-8ff7-e0c8f2d9e472",
+                          "node_type": "paragraph",
+                          "level_down": 0,
+                          "level_up": 0,
+                          "attributes": {
+                            "text": "Sự hoá hơi có thể xảy ra dưới hai hình thức là bay hơi và sôi."
+                          },
+                          "metadata": {
+                            "page": 8,
+                            "bbox": [
+                              216,
+                              710,
+                              942,
+                              785
+                            ],
+                            "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Dùng mô hình động học phân tử giải thích sự chuyển thể > Giải thích sự hoá hơi"
+                          },
+                          "children": []
+                        },
+                        {
+                          "id": "9dae3c11-8441-4250-ba81-8181b6f2e697",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "6133d13c-fc21-4152-8ff7-e0c8f2d9e472",
+                          "node_type": "paragraph",
+                          "level_down": 0,
+                          "level_up": 0,
+                          "attributes": {
+                            "text": "- Sự bay hơi là sự hoá hơi xảy ra ở mặt thoáng của chất lỏng. Nước đựng trong một cốc không đầy kín cạn dần là một ví dụ về sự bay hơi."
+                          },
+                          "metadata": {
+                            "page": 8,
+                            "bbox": [
+                              216,
+                              793,
+                              942,
+                              910
+                            ],
+                            "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Dùng mô hình động học phân tử giải thích sự chuyển thể > Giải thích sự hoá hơi"
+                          },
+                          "children": []
+                        },
+                        {
+                          "id": "47cf75a0-53b6-4aa7-932f-1f4acccbc9a5",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "6133d13c-fc21-4152-8ff7-e0c8f2d9e472",
+                          "node_type": "paragraph",
+                          "level_down": 0,
+                          "level_up": 0,
+                          "attributes": {
+                            "text": "Do các phân tử chuyển động hỗn loạn có thể va chạm vào nhau, truyền năng lượng cho nhau nên có một số phân tử ở gần mặt thoáng của chất lỏng có thể có động năng đủ lớn để thắng lực liên kết của các phân tử chất lỏng khác, thoát được ra khỏi mặt thoáng của chất lỏng trở thành các phân tử ở thể hơi."
+                          },
+                          "metadata": {
+                            "page": 8,
+                            "bbox": [
+                              254,
+                              919,
+                              942,
+                              1153
+                            ],
+                            "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Dùng mô hình động học phân tử giải thích sự chuyển thể > Giải thích sự hoá hơi"
+                          },
+                          "children": []
+                        },
+                        {
+                          "id": "5a6feb12-1eee-4f44-a99a-69025000bf84",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "6133d13c-fc21-4152-8ff7-e0c8f2d9e472",
+                          "node_type": "paragraph",
+                          "level_down": 0,
+                          "level_up": 0,
+                          "attributes": {
+                            "text": "- Sự sôi: Hình 1.5 là đồ thị biểu diễn sự thay đổi nhiệt độ của nước theo thời gian khi được đun nóng. Khi nhiệt độ của nước tăng tới khoảng 100^\text{o}\text{C} dưới áp suất tiêu chuẩn (1,01.10^5 \text{ Pa}) thì nước bắt đầu sôi. Khi đó các bọt chứa không khí và hơi nước nổi lên trong lòng nước càng ngày càng nhiều, càng nổi lên trên thể tích các bọt khí này càng tăng, tới mặt thoáng thì vỡ, không khí và hơi nước thoát ra ngoài khí quyển. Do đó sự sôi là sự hoá hơi xảy ra đồng thời ở bên trong và trên mặt thoáng của chất lỏng."
+                          },
+                          "metadata": {
+                            "page": 8,
+                            "bbox": [
+                              216,
+                              1162,
+                              942,
+                              1544
+                            ],
+                            "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Dùng mô hình động học phân tử giải thích sự chuyển thể > Giải thích sự hoá hơi"
+                          },
+                          "children": []
+                        },
+                        {
+                          "id": "7779cc9d-c505-43b6-8f1d-0cda06b55b4f",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "6133d13c-fc21-4152-8ff7-e0c8f2d9e472",
+                          "node_type": "paragraph",
+                          "level_down": 0,
+                          "level_up": 0,
+                          "attributes": {
+                            "text": "Hình 1.5. Đồ thị vẽ sự thay đổi nhiệt độ của nước theo thời gian khi được đun sôi"
+                          },
+                          "metadata": {
+                            "page": 8,
+                            "bbox": [
+                              998,
+                              522,
+                              1351,
+                              607
+                            ],
+                            "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Dùng mô hình động học phân tử giải thích sự chuyển thể > Giải thích sự hoá hơi"
+                          },
+                          "children": []
+                        },
+                        {
+                          "id": "4ba32b13-68d9-43c6-b95b-69b259cb917f",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "6133d13c-fc21-4152-8ff7-e0c8f2d9e472",
+                          "node_type": "structure",
+                          "level_down": 7,
+                          "level_up": 1,
+                          "attributes": {
+                            "title": "EM CÓ BIẾT",
+                            "code": null,
+                            "description": "Giới thiệu cấu trúc chất rắn, phân loại kết tinh và vô định hình, điểm nóng chảy, và các câu hỏi về quá trình bay hơi, đun và sôi của nước."
+                          },
+                          "metadata": {
+                            "start_page": 8,
+                            "end_page": null,
+                            "url": null,
+                            "file_path": null,
+                            "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Dùng mô hình động học phân tử giải thích sự chuyển thể > Giải thích sự hoá hơi > EM CÓ BIẾT"
+                          },
+                          "children": [
+                            {
+                              "id": "ba4997f2-7345-4af6-9347-12faed5a8bcf",
+                              "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                              "parent_id": "4ba32b13-68d9-43c6-b95b-69b259cb917f",
+                              "node_type": "paragraph",
+                              "level_down": 8,
+                              "level_up": 1,
+                              "attributes": {
+                                "text": "Chất rắn kết tinh và vô định hình : Chất rắn kết tinh là chất mà các hạt (phân tử, nguyên tử, ion) cấu tạo nên nó ở thể rắn, liên kết với nhau một cách chặt chẽ, sắp xếp theo một trật tự hình học tuần hoàn tạo thành các mạng tinh thể (Hình 1.6). Chất rắn vô định hình là chất ở thể rắn mà các hạt tạo nên nó không tạo thành mạng tinh thể. Hầu hết các kim loại là các chất kết tinh; thủy tinh, nhựa đường, các chất dẻo,... là các chất vô định hình. Mỗi chất rắn kết tinh có nhiệt độ nóng chảy (hoặc đông đặc) riêng xác định. Hình 1.6. Tinh thể muối ăn"
+                              },
+                              "metadata": {
+                                "page": 8,
+                                "bbox": [],
+                                "position": null
+                              },
+                              "children": []
+                            },
+                            {
+                              "id": "7c44a575-018c-48f9-884c-407ad59a715c",
+                              "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                              "parent_id": "4ba32b13-68d9-43c6-b95b-69b259cb917f",
+                              "node_type": "paragraph",
+                              "level_down": 8,
+                              "level_up": 1,
+                              "attributes": {
+                                "text": "Nguyên nhân giảm nhiệt khi bay hơi : Tại sao khi bay hơi nhiệt độ của chất lỏng giảm?"
+                              },
+                              "metadata": {
+                                "page": 8,
+                                "bbox": [],
+                                "position": null
+                              },
+                              "children": []
+                            },
+                            {
+                              "id": "314b4b17-a246-43b0-8274-9fcbda8806d5",
+                              "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                              "parent_id": "4ba32b13-68d9-43c6-b95b-69b259cb917f",
+                              "node_type": "paragraph",
+                              "level_down": 8,
+                              "level_up": 1,
+                              "attributes": {
+                                "text": "Câu hỏi về nhiệt độ và năng lượng nước sôi : * Hãy dựa vào đồ thị ở Hình 1.5 để mô tả sự thay đổi nhiệt độ của nước khi được đun từ 20^\\ext{o}\\ext{C} tới khi sôi.\n* Khi nước đang sôi thì năng lượng mà nước nhận được từ nguồn nhiệt có được chuyển hoá thành động năng của các phân tử nước không? Tại sao?"
+                              },
+                              "metadata": {
+                                "page": 8,
+                                "bbox": [],
+                                "position": null
+                              },
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "id": "0e678493-7e53-4762-932a-3030feff5f24",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "be779510-3dd1-4848-b3d4-74251afc719b",
+                      "node_type": "structure",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "title": "Giải thích sự nóng chảy của chất rắn kết tinh",
+                        "code": null,
+                        "description": "Khi đun nóng, chất rắn kết tinh tới điểm nóng chảy, nhiệt độ không tăng vì năng lượng dùng để phá liên kết giữa phân tử, chuyển sang thể lỏng; quá trình mô tả bằng đồ thị ba giai đoạn."
+                      },
+                      "metadata": {
+                        "start_page": 9,
+                        "end_page": null,
+                        "url": null,
+                        "file_path": null,
+                        "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Dùng mô hình động học phân tử giải thích sự chuyển thể > Giải thích sự nóng chảy của chất rắn kết tinh"
+                      },
+                      "children": [
+                        {
+                          "id": "2d9d61c1-6b50-46a7-96c5-123a6ce8584f",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "0e678493-7e53-4762-932a-3030feff5f24",
+                          "node_type": "paragraph",
+                          "level_down": 7,
+                          "level_up": 1,
+                          "attributes": {
+                            "text": "Câu hỏi, hình và giai đoạn nóng chảy : * Tại sao chất rắn kết tinh khi được đun nóng có thể chuyển thành chất lỏng? * a) Hãy dựa vào Hình 1.7 để mô tả quá trình nóng chảy của chất kết tinh.b) Giải thích tại sao khi đang nóng chảy, nhiệt độ của chất rắn kết tinh không tăng dù vẫn nhận được nhiệt năng. Năng lượng mà chất rắn kết tinh nhận được lúc này dùng để làm gì? Hình 1.7. Đồ thị sự thay đổi nhiệt độ của chất rắn kết tinh khi được làm nóng chảy Giai đoạn a: Chất rắn chưa nóng chảy;Giai đoạn b: Chất rắn đang nóng chảy;Giai đoạn c: Chất rắn đã nóng chảy hoàn toàn."
+                          },
+                          "metadata": {
+                            "page": 9,
+                            "bbox": [],
+                            "position": null
+                          },
+                          "children": []
+                        },
+                        {
+                          "id": "fdcdcce3-a2d3-4676-b031-3efc3f0df84e",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "0e678493-7e53-4762-932a-3030feff5f24",
+                          "node_type": "structure",
+                          "level_down": 7,
+                          "level_up": 1,
+                          "attributes": {
+                            "title": "EM ĐÃ HỌC",
+                            "code": null,
+                            "description": "Mô hình động học phân tử: chất gồm các phân tử riêng biệt, luôn chuyển động; nhiệt độ cao → tốc độ trung bình lớn. Có lực liên kết, cho phép chuyển thể."
+                          },
+                          "metadata": {
+                            "start_page": 9,
+                            "end_page": null,
+                            "url": null,
+                            "file_path": null,
+                            "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Dùng mô hình động học phân tử giải thích sự chuyển thể > Giải thích sự nóng chảy của chất rắn kết tinh > EM ĐÃ HỌC"
+                          },
+                          "children": [
+                            {
+                              "id": "cb8c690f-3189-4784-bb71-2e6a017380b0",
+                              "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                              "parent_id": "fdcdcce3-a2d3-4676-b031-3efc3f0df84e",
+                              "node_type": "paragraph",
+                              "level_down": 0,
+                              "level_up": 0,
+                              "attributes": {
+                                "text": "* Mô hình động học phân tử về cấu tạo chất:\n* Các chất được cấu tạo từ các hạt riêng biệt là phân tử.\n* Các phân tử chuyển động không ngừng. Nhiệt độ của vật càng cao thì tốc độ trung bình của các phân tử càng lớn.\n* Giữa các phân tử có lực liên kết phân tử.\n* Các chất có thể chuyển từ thể này sang thể khác."
+                              },
+                              "metadata": {
+                                "page": 9,
+                                "bbox": [
+                                  232,
+                                  861,
+                                  1359,
+                                  1125
+                                ],
+                                "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Dùng mô hình động học phân tử giải thích sự chuyển thể > Giải thích sự nóng chảy của chất rắn kết tinh > EM ĐÃ HỌC"
+                              },
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "id": "ca2580c3-b932-40ab-a229-4c7f0bed67fc",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "0e678493-7e53-4762-932a-3030feff5f24",
+                          "node_type": "structure",
+                          "level_down": 7,
+                          "level_up": 1,
+                          "attributes": {
+                            "title": "EM CÓ THỂ",
+                            "code": null,
+                            "description": "Giải thích các thể chất, cơ chế chuyển thể và vai trò của chúng trong vòng tuần hoàn nước, công nghệ đúc và các lĩnh vực đời sống."
+                          },
+                          "metadata": {
+                            "start_page": 9,
+                            "end_page": null,
+                            "url": null,
+                            "file_path": null,
+                            "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Dùng mô hình động học phân tử giải thích sự chuyển thể > Giải thích sự nóng chảy của chất rắn kết tinh > EM CÓ THỂ"
+                          },
+                          "children": [
+                            {
+                              "id": "571d079c-3844-4460-bbf2-2147f4270e51",
+                              "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                              "parent_id": "ca2580c3-b932-40ab-a229-4c7f0bed67fc",
+                              "node_type": "paragraph",
+                              "level_down": 0,
+                              "level_up": 0,
+                              "attributes": {
+                                "text": "* Giải thích được sự khác nhau giữa các thể của chất và cơ chế của sự chuyển thể.\n* Tìm hiểu và trình bày được vai trò của sự chuyển thể đối với cuộc sống con người như vòng tuần hoàn nước, công nghệ đúc,..."
+                              },
+                              "metadata": {
+                                "page": 9,
+                                "bbox": [
+                                  232,
+                                  1280,
+                                  1359,
+                                  1403
+                                ],
+                                "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Dùng mô hình động học phân tử giải thích sự chuyển thể > Giải thích sự nóng chảy của chất rắn kết tinh > EM CÓ THỂ"
+                              },
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "id": "6f5701a5-50ef-4a61-afa0-45257947a131",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "0e678493-7e53-4762-932a-3030feff5f24",
+                          "node_type": "structure",
+                          "level_down": 7,
+                          "level_up": 1,
+                          "attributes": {
+                            "title": "EM CÓ BIẾT",
+                            "code": null,
+                            "description": "Ở nhiệt độ cao, chất tồn tại ở thể Plasma; hình minh họa luồng Plasma từ Mặt Trời."
+                          },
+                          "metadata": {
+                            "start_page": 9,
+                            "end_page": null,
+                            "url": null,
+                            "file_path": null,
+                            "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 1: CẤU TRÚC CỦA CHẤTSỰ CHUYỂN THỂ > SỰ CHUYỂN THỂ > Dùng mô hình động học phân tử giải thích sự chuyển thể > Giải thích sự nóng chảy của chất rắn kết tinh > EM CÓ BIẾT"
+                          },
+                          "children": [
+                            {
+                              "id": "9968f560-58f5-4ddc-9582-20693d93f54c",
+                              "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                              "parent_id": "6f5701a5-50ef-4a61-afa0-45257947a131",
+                              "node_type": "paragraph",
+                              "level_down": 8,
+                              "level_up": 1,
+                              "attributes": {
+                                "text": "Plasma và hình minh họa : Ở nhiệt độ hàng triệu độ, chất không tồn tại ở các thể rắn, lỏng, khí mà ở một thể đặc biệt gọi là Plasma. Ở thể này, chất không tồn tại dưới dạng các nguyên tử, phân tử mà dưới dạng các ion. Plasma rất ít gặp trên Trái Đất nhưng trong vũ trụ có tới trên 99% các chất tồn tại ở thể Plasma (Hình 1.8). Hình 1.8. Luồng Plasma phóng ra từ Mặt Trời"
+                              },
+                              "metadata": {
+                                "page": 9,
+                                "bbox": [],
+                                "position": null
+                              },
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "2f4bcb93-68e1-4f18-ab21-67836bdcb65d",
+          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+          "parent_id": "47bcb42f-ce54-41f7-b9bf-1dfa38f77e51",
+          "node_type": "structure",
+          "level_down": 3,
+          "level_up": 1,
+          "attributes": {
+            "title": "Bài 2: NỘI NĂNGĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC",
+            "code": "Bài 2",
+            "description": "Nội năng U là tổng động‑thế năng các phân tử, phụ thuộc T, V (J). ΔU = Q + A (Q>0 nhận nhiệt, A>0 nhận công). Thí nghiệm minh họa liên hệ U với năng lượng phân tử."
+          },
+          "metadata": {
+            "start_page": 10,
+            "end_page": null,
+            "url": null,
+            "file_path": null,
+            "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 2: NỘI NĂNGĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC"
+          },
+          "children": [
+            {
+              "id": "a879d246-eed8-4a23-a895-542a65731f45",
+              "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+              "parent_id": "2f4bcb93-68e1-4f18-ab21-67836bdcb65d",
+              "node_type": "paragraph",
+              "level_down": 0,
+              "level_up": 0,
+              "attributes": {
+                "text": "Khi nước được đun tới lúc bắt đầu sôi thì dù có tiếp tục đun, nhiệt độ của nước cũng không thay đổi. Vậy nhiệt năng mà nước nhận được lúc này làm tăng dạng năng lượng nào của nước?"
+              },
+              "metadata": {
+                "page": 10,
+                "bbox": [
+                  319,
+                  436,
+                  1312,
+                  546
+                ],
+                "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 2: NỘI NĂNGĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC"
+              },
+              "children": []
+            },
+            {
+              "id": "c689762c-a199-4ffc-a176-6e4f0864f67e",
+              "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+              "parent_id": "2f4bcb93-68e1-4f18-ab21-67836bdcb65d",
+              "node_type": "structure",
+              "level_down": 4,
+              "level_up": 1,
+              "attributes": {
+                "title": "KHÁI NIỆM NỘI NĂNG",
+                "code": null,
+                "description": "Nội năng (U) = tổng động + thế năng các phân tử, phụ thuộc vào T và V, đo J, quan tâm ΔU. Thí nghiệm minh họa mối liên hệ U với năng lượng phân tử khí qua các bước chuẩn bị, tiến hành và câu hỏi phân tích."
+              },
+              "metadata": {
+                "start_page": 10,
+                "end_page": null,
+                "url": null,
+                "file_path": null,
+                "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 2: NỘI NĂNGĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > KHÁI NIỆM NỘI NĂNG"
+              },
+              "children": [
+                {
+                  "id": "804c15ad-7007-444b-92a7-033b48efdc95",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "c689762c-a199-4ffc-a176-6e4f0864f67e",
+                  "node_type": "structure",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "title": "Nội năng của một vật",
+                    "code": null,
+                    "description": "Nội năng (U) của vật là tổng động năng và thế năng của các phân tử, phụ thuộc vào nhiệt độ và thể tích vì tốc độ, khoảng cách phân tử thay đổi; đơn vị J, quan tâm đến ΔU."
+                  },
+                  "metadata": {
+                    "start_page": 10,
+                    "end_page": null,
+                    "url": null,
+                    "file_path": null,
+                    "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 2: NỘI NĂNGĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > KHÁI NIỆM NỘI NĂNG > Nội năng của một vật"
+                  },
+                  "children": [
+                    {
+                      "id": "e350bd1d-50cc-4943-a3b8-e7e950a4ffd1",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "804c15ad-7007-444b-92a7-033b48efdc95",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Động năng, thế năng, nội năng : Vì các phân tử chuyển động không ngừng nên chúng có động năng. Động năng này được gọi là động năng phân tử. Động năng phân tử phụ thuộc vào tốc độ chuyển động của phân tử. Vì các phân tử tương tác với nhau nên chúng có thế năng. Thế năng này được gọi là thế năng tương tác phân tử, gọi tắt là thế năng phân tử. Thế năng phân tử phụ thuộc vào khoảng cách giữa các phân tử. Tổng động năng và thế năng của các phân tử cấu tạo nên vật được gọi là nội năng của vật. Nội năng được kí hiệu bằng chữ U và có đơn vị là jun (J)."
+                      },
+                      "metadata": {
+                        "page": 10,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "440d2d69-153c-4b98-aa6e-eb9a4bf5115c",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "804c15ad-7007-444b-92a7-033b48efdc95",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Nội năng phụ thuộc T, V và giải thích : Nội năng của một vật phụ thuộc vào nhiệt độ và thể tích của vật. Tại sao nội năng của vật lại phụ thuộc vào nhiệt độ và thể tích của vật? * Vì các phân tử cấu tạo nên vật chuyển động không ngừng nên tốc độ và khoảng cách giữa các phân tử luôn thay đổi làm cho động năng và cả thế năng của các phân tử cũng không ngừng thay đổi. Do đó, khi nói động năng và thế năng của phân tử thì phải hiểu đó là động năng và thế năng trung bình của các phân tử cấu tạo nên vật. * Vì số phân tử trong một vật vô cùng lớn và các phân tử chuyển động hỗn loạn nên không thể xác định được chính xác độ lớn nội năng của một vật. Trong vật lí người ta chủ yếu quan tâm đến độ biến thiên nội năng (ΔU) của vật."
+                      },
+                      "metadata": {
+                        "page": 10,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "a90a88db-4291-4d86-9fef-0b0acf4db2b0",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "804c15ad-7007-444b-92a7-033b48efdc95",
+                      "node_type": "structure",
+                      "level_down": 7,
+                      "level_up": 1,
+                      "attributes": {
+                        "title": "EM CÓ BIẾT",
+                        "code": null,
+                        "description": "Nhiệt động lực học, định nghĩa, nguồn gốc và đóng góp của James Joule"
+                      },
+                      "metadata": {
+                        "start_page": 10,
+                        "end_page": null,
+                        "url": null,
+                        "file_path": null,
+                        "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 2: NỘI NĂNGĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > KHÁI NIỆM NỘI NĂNG > Nội năng của một vật > EM CÓ BIẾT"
+                      },
+                      "children": [
+                        {
+                          "id": "c7377f5d-52ee-49d7-b5b7-ede4e133431f",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "a90a88db-4291-4d86-9fef-0b0acf4db2b0",
+                          "node_type": "paragraph",
+                          "level_down": 8,
+                          "level_up": 1,
+                          "attributes": {
+                            "text": "Giới thiệu nhiệt động lực học và Joule : (PARAGRAPH) Hình 2.1. James Joule (Giêm Giun) (1818-1889), nhà vật lí người Anh có nhiều đóng góp cho sự hình thành và phát triển nhiệt động lực học (PARAGRAPH) Nhiệt động lực học là lĩnh vực vật lí nghiên cứu về năng lượng nhiệt và sự truyền nhiệt. (PARAGRAPH) Nhiệt động lực học ra đời vào giữa thế kỉ XIX trong quá trình con người tìm hiểu về sự chuyển hoá năng lượng dự trữ trong các nhiên liệu thành cơ năng để chế tạo các động cơ nhiệt."
+                          },
+                          "metadata": {
+                            "page": 10,
+                            "bbox": [],
+                            "position": null
+                          },
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "id": "523760c7-ce22-4ef6-9070-56869167d206",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "c689762c-a199-4ffc-a176-6e4f0864f67e",
+                  "node_type": "structure",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "title": "Thí nghiệm về mối liên hệ nội năng của vật với năng lượng của các phân tử cấu tạo nên vật",
+                    "code": null,
+                    "description": "Thí nghiệm minh họa mối quan hệ giữa nội năng vật và năng lượng các phân tử khí, gồm chuẩn bị, tiến hành và các câu hỏi phân tích."
+                  },
+                  "metadata": {
+                    "start_page": 11,
+                    "end_page": null,
+                    "url": null,
+                    "file_path": null,
+                    "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 2: NỘI NĂNGĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > KHÁI NIỆM NỘI NĂNG > Thí nghiệm về mối liên hệ nội năng của vật với năng lượng của các phân tử cấu tạo nên vật"
+                  },
+                  "children": [
+                    {
+                      "id": "157d56b4-2cbf-4847-81f2-24da784ae0ea",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "523760c7-ce22-4ef6-9070-56869167d206",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Mối liên hệ nội năng và năng lượng phân tử : Thí nghiệm sau đây cho thấy mối liên hệ giữa nội năng của vật với năng lượng của các phân tử cấu tạo nên vật."
+                      },
+                      "metadata": {
+                        "page": 11,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "428b5493-f298-45b7-bee7-efaa574c60f8",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "523760c7-ce22-4ef6-9070-56869167d206",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Chuẩn bị dụng cụ thí nghiệm : Chuẩn bị:\n* Ống nghiệm (1).\n* Nút bấc có kích thước vừa khít miệng ống nghiệm (2).\n* Đèn cồn (3).\n* Giá đỡ thí nghiệm (4)."
+                      },
+                      "metadata": {
+                        "page": 11,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "85b620d9-a8bd-4f45-90b7-0828733111cf",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "523760c7-ce22-4ef6-9070-56869167d206",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Tiến hành thí nghiệm : Tiến hành:\n* Bố trí thí nghiệm như Hình 2.2.\n* Dùng đèn cồn đun nóng ống nghiệm cho đến khi nút bấc bật ra."
+                      },
+                      "metadata": {
+                        "page": 11,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "b35811d2-d6c2-4cdc-a198-8c36b7995591",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "523760c7-ce22-4ef6-9070-56869167d206",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Các câu hỏi yêu cầu giải thích : Thực hiện các yêu cầu sau:\n* Khi đun ống nghiệm tới một lúc nào đó thì thấy nút bấc bật ra. Giải thích vì sao nút bấc bật ra.\n* Khi nút chưa bị bật ra:\n* Nội năng của không khí trong ống nghiệm tăng hay giảm? Vì sao?\n* Nội năng của không khí trong ống nghiệm tăng có phải do thế năng phân tử khí tăng không? Tại sao?\n* Tại sao hiện tượng nút ống nghiệm bị bật ra lại chứng tỏ động năng của các phân tử khí trong ống nghiệm tăng?"
+                      },
+                      "metadata": {
+                        "page": 11,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "5973aebf-aa7e-46db-82f0-06e66887c8a0",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "523760c7-ce22-4ef6-9070-56869167d206",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Chú thích hình 2.2 : Hình 2.2. Thí nghiệm về mối liên hệ giữa nội năng của vật với năng lượng của các phân tử khí"
+                      },
+                      "metadata": {
+                        "page": 11,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "b5355bfc-32eb-4371-bcb8-8e8b54f682b9",
+              "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+              "parent_id": "2f4bcb93-68e1-4f18-ab21-67836bdcb65d",
+              "node_type": "structure",
+              "level_down": 4,
+              "level_up": 1,
+              "attributes": {
+                "title": "ĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC",
+                "code": null,
+                "description": "Định luật I: ΔU = Q + A. Q>0 nhận nhiệt, Q<0 truyền; A>0 nhận công, A<0 thực hiện. Nội năng thay đổi qua công hoặc truyền nhiệt, luôn tồn tại trong mọi quá trình."
+              },
+              "metadata": {
+                "start_page": 11,
+                "end_page": null,
+                "url": null,
+                "file_path": null,
+                "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 2: NỘI NĂNGĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > ĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC"
+              },
+              "children": [
+                {
+                  "id": "2e2cc713-3c7e-4c5b-b6c8-98ce1732aacb",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "b5355bfc-32eb-4371-bcb8-8e8b54f682b9",
+                  "node_type": "structure",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "title": "Cách làm thay đổi nội năng",
+                    "code": null,
+                    "description": "Nội năng thay đổi qua thực hiện công hoặc truyền nhiệt, kèm ví dụ và hình minh họa."
+                  },
+                  "metadata": {
+                    "start_page": 11,
+                    "end_page": null,
+                    "url": null,
+                    "file_path": null,
+                    "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 2: NỘI NĂNGĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > ĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > Cách làm thay đổi nội năng"
+                  },
+                  "children": [
+                    {
+                      "id": "62a4b125-55bb-4973-8e5c-c29e570a8bc0",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "2e2cc713-3c7e-4c5b-b6c8-98ce1732aacb",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Hai cách thay đổi nội năng và ví dụ : Có hai cách làm thay đổi nội năng là thực hiện công và truyền năng lượng nhiệt (gọi tắt là truyền nhiệt). * Ví dụ về thực hiện công: Khi dùng tay thực hiện công cọ xát một miếng kim loại lên sàn nhà thì miếng kim loại nóng lên, nội năng của nó đã thay đổi.\n* Ví dụ về truyền nhiệt: Cũng có thể làm miếng kim loại nóng lên bằng cách cho nó tiếp xúc với một nguồn nhiệt. Khi đó nội năng của nó cũng thay đổi."
+                      },
+                      "metadata": {
+                        "page": 11,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "dcfc2e38-6eea-46e8-814a-0d5a5cae8b7f",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "2e2cc713-3c7e-4c5b-b6c8-98ce1732aacb",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Mô tả và hình minh họa : * Mô tả sự thay đổi nội năng của lượng khí trong xi lanh ở Hình 2.3.\n* Tim thêm ví dụ về thực hiện công và truyền nhiệt làm thay đổi nội năng của vật.\nHình 2.3. Hai cách làm thay đổi nội năng của vật"
+                      },
+                      "metadata": {
+                        "page": 11,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "id": "88e1cc43-2eb5-4ae9-b3de-4cc6b270ced1",
+                  "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                  "parent_id": "b5355bfc-32eb-4371-bcb8-8e8b54f682b9",
+                  "node_type": "structure",
+                  "level_down": 5,
+                  "level_up": 1,
+                  "attributes": {
+                    "title": "Định luật I của nhiệt động lực học",
+                    "code": null,
+                    "description": "Định luật I: ΔU = Q + A. Q>0 nhận nhiệt, Q<0 truyền; A>0 nhận công, A<0 thực hiện. Nội năng luôn tồn tại, áp dụng cho các quá trình thay đổi năng lượng."
+                  },
+                  "metadata": {
+                    "start_page": 12,
+                    "end_page": null,
+                    "url": null,
+                    "file_path": null,
+                    "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 2: NỘI NĂNGĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > ĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > Định luật I của nhiệt động lực học"
+                  },
+                  "children": [
+                    {
+                      "id": "3e3e4a4d-cc86-43bc-adab-251172c43fda",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "88e1cc43-2eb5-4ae9-b3de-4cc6b270ced1",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Định luật I và ứng dụng : Định luật I của nhiệt động lực học là sự vận dụng định luật bảo toàn năng lượng vào các quá trình thay đổi nội năng. Nếu vật vừa nhận được công vừa được truyền nhiệt thì: Độ biến thiên nội năng của vật bằng tổng công và nhiệt lượng mà vật nhận được: Với quy ước về dấu thích hợp thì hệ thức trên có thể áp dụng cho các quá trình thay đổi nội năng khác như vật truyền nhiệt cho vật khác, vật thực hiện công lên vật khác, vật vừa thực hiện công vừa truyền nhiệt cho vật khác."
+                      },
+                      "metadata": {
+                        "page": 12,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "5eb6dd51-64b6-4b57-bc3e-cfe823a32cfd",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "88e1cc43-2eb5-4ae9-b3de-4cc6b270ced1",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Quy ước dấu Q và A : Quy ước về dấu của A và Q trong hệ thức (2.1): Q > 0: Vật nhận nhiệt lượng từ vật khác. Q < 0: Vật truyền nhiệt lượng cho vật khác. A > 0: Vật nhận công từ vật khác. A < 0: Vật thực hiện công lên vật khác. Hình 2.4. Quy ước về dấu của Q và A trong hệ thức (2.1)"
+                      },
+                      "metadata": {
+                        "page": 12,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "5a08cbaa-8e7c-4e0c-95a9-6dbd184bdf6b",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "88e1cc43-2eb5-4ae9-b3de-4cc6b270ced1",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Định nghĩa vật, nhiệt lượng, nội năng : ! Vật ở đây là vật rắn, khối chất lỏng và khối chất khí. ! – Nhiệt lượng là số đo nhiệt năng được truyền từ vật này sang vật khác trong quá trình truyền nhiệt. Khi không có quá trình truyền nhiệt thì không có nhiệt lượng.– Nội năng là một dạng năng lượng. Mọi vật luôn có nội năng."
+                      },
+                      "metadata": {
+                        "page": 12,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "26853e90-2625-455b-b194-13e4b4434487",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "88e1cc43-2eb5-4ae9-b3de-4cc6b270ced1",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Các biểu thức thay đổi nội năng : Các hệ thức sau đây mô tả các quá trình thay đổi nội năng nào? * \\Delta U = Q khi Q > 0 và khi Q < 0. * \\Delta U = A khi A > 0 và khi A < 0. * \\Delta U = A + Q khi Q > 0 và A < 0. * \\Delta U = A + Q khi Q < 0 và A > 0."
+                      },
+                      "metadata": {
+                        "page": 12,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "cac4f23d-65bc-4f0e-9bf2-13eff32005fd",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "88e1cc43-2eb5-4ae9-b3de-4cc6b270ced1",
+                      "node_type": "paragraph",
+                      "level_down": 6,
+                      "level_up": 1,
+                      "attributes": {
+                        "text": "Câu hỏi chưa rõ : ?"
+                      },
+                      "metadata": {
+                        "page": 12,
+                        "bbox": [],
+                        "position": null
+                      },
+                      "children": []
+                    },
+                    {
+                      "id": "24d08187-60a0-420c-b5aa-fdc7ea8770fb",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "88e1cc43-2eb5-4ae9-b3de-4cc6b270ced1",
+                      "node_type": "structure",
+                      "level_down": 7,
+                      "level_up": 1,
+                      "attributes": {
+                        "title": "EM CÓ BIẾT",
+                        "code": null,
+                        "description": "Giới thiệu định luật I, thí nghiệm Joule, ứng dụng trong động cơ nhiệt, mô tả cấu tạo và hoạt động của máy hơi nước, động cơ đốt trong, và các ví dụ về biến đổi nội năng."
+                      },
+                      "metadata": {
+                        "start_page": 12,
+                        "end_page": null,
+                        "url": null,
+                        "file_path": null,
+                        "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 2: NỘI NĂNGĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > ĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > Định luật I của nhiệt động lực học > EM CÓ BIẾT"
+                      },
+                      "children": [
+                        {
+                          "id": "5b47c307-2f45-40e5-907c-07c6d1b3c557",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "24d08187-60a0-420c-b5aa-fdc7ea8770fb",
+                          "node_type": "paragraph",
+                          "level_down": 8,
+                          "level_up": 1,
+                          "attributes": {
+                            "text": "Định luật I và thí nghiệm Joule : Định luật I của nhiệt động lực học được hình thành từ những thí nghiệm mà nhà vật lí người Anh Joule đã tiến hành trong những năm từ 1844 đến 1854. Một trong những thí nghiệm này được mô tả ở Hình 2.5. Thí nghiệm cho thấy công A mà nước nhận được từ vật nặng chuyển động làm quay các cánh cản khiến nước nóng lên (nội năng của nước tăng) có độ lớn tương đương với độ tăng nội năng của nước. Hình 2.5. Sơ đồ mô tả thí nghiệm của Joule Vào thời kì đó, người ta chưa đo được phần nhiệt lượng mà nước truyền cho các thiết bị thí nghiệm và môi trường xung quanh. Nếu tính cả phần nhiệt lượng này thì: \\Delta U = A + Q với Q có giá trị âm vì vật truyền nhiệt cho môi trường."
+                          },
+                          "metadata": {
+                            "page": 12,
+                            "bbox": [],
+                            "position": null
+                          },
+                          "children": []
+                        },
+                        {
+                          "id": "2cff05f7-6928-4637-85f3-5520c3b1fcf1",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "24d08187-60a0-420c-b5aa-fdc7ea8770fb",
+                          "node_type": "paragraph",
+                          "level_down": 8,
+                          "level_up": 1,
+                          "attributes": {
+                            "text": "Ứng dụng và cấu trúc động cơ nhiệt : Định luật I của nhiệt động lực học có nhiều ứng dụng thực tế, một trong những ứng dụng quan trọng là để chế tạo các loại động cơ nhiệt. Ngoài ra, định luật này còn dùng để giải thích các hiện tượng liên quan đến sự truyền và biến đổi nội năng. Động cơ nhiệt là động cơ hoạt động dựa trên nguyên tắc biến nội năng của nhiên liệu thành cơ năng. Mỗi động cơ nhiệt đều có ba bộ phận chính (Hình 2.6a): * Nguồn nóng có nhiệt độ T_1 cung cấp nhiệt lượng cho động cơ.\n* Bộ phận phát động trong đó tác nhân nhận nhiệt từ nguồn nóng, giãn nở sinh công (Trong máy hơi nước, tác nhân là hơi nước; trong động cơ đốt trong, tác nhân là khí do nhiên liệu bị đốt cháy toả ra trong xi lanh).\n* Nguồn lạnh có nhiệt độ T_2 < T_1 nhận nhiệt lượng do động cơ toả ra."
+                          },
+                          "metadata": {
+                            "page": 13,
+                            "bbox": [],
+                            "position": null
+                          },
+                          "children": []
+                        },
+                        {
+                          "id": "8a61b59a-97a4-445e-8994-46817236822a",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "24d08187-60a0-420c-b5aa-fdc7ea8770fb",
+                          "node_type": "paragraph",
+                          "level_down": 8,
+                          "level_up": 1,
+                          "attributes": {
+                            "text": "Sơ đồ hoạt động và các thành phần : Hãy dựa vào các sơ đồ trong Hình 2.6b, c để trình bày sơ lược về cấu tạo và hoạt động của máy hơi nước và động cơ đốt trong. a) Sơ đồ nguyên tắc hoạt động của động cơ nhiệt Q_1: Nhiệt lượng tác nhân nhận được từ nguồn nóng. Q_2: Nhiệt lượng tác nhân truyền cho nguồn lạnh. A: Công cơ học (công do tác nhân thực hiện để đẩy pit - tông và công do pit - tông thực hiện để đưa tác nhân về trạng thái ban đầu) * Nồi súp de (nguồn nóng)\n* Xi lanh và pit-tông\n* Bình ngưng hơi (nguồn lạnh)"
+                          },
+                          "metadata": {
+                            "page": 13,
+                            "bbox": [],
+                            "position": null
+                          },
+                          "children": []
+                        },
+                        {
+                          "id": "2521a8e7-2124-458a-9d2d-e7fd00ef7988",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "24d08187-60a0-420c-b5aa-fdc7ea8770fb",
+                          "node_type": "paragraph",
+                          "level_down": 8,
+                          "level_up": 1,
+                          "attributes": {
+                            "text": "Sơ đồ máy hơi nước và đốt trong : b) Sơ đồ nguyên tắc hoạt động của máy hơi nước * Xi lanh\n* Pit-tông\n* Bu-gi (tạo tia lửa điện đốt cháy hỗn hợp nhiên liệu và không khí) c) Sơ đồ nguyên tắc hoạt động của động cơ đốt trong Hình 2.6"
+                          },
+                          "metadata": {
+                            "page": 13,
+                            "bbox": [],
+                            "position": null
+                          },
+                          "children": []
+                        },
+                        {
+                          "id": "da8aba5a-2e23-4dc6-a185-0753e26737a4",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "24d08187-60a0-420c-b5aa-fdc7ea8770fb",
+                          "node_type": "paragraph",
+                          "level_down": 8,
+                          "level_up": 1,
+                          "attributes": {
+                            "text": "Các trường hợp nội năng và bài toán : * Nội năng của vật biến đổi như thế nào trong các trường hợp sau:\n* Vật rắn đang nóng chảy.\n* Nước đá đang tan.\n* Hơi nước ngưng tụ ở nhiệt độ không đổi.\n* Một vật khối lượng 1 kg trượt không vận tốc ban đầu từ đỉnh xuống chân một mặt phẳng dài 21 m, nghiêng 30^\\circ so với mặt nằm ngang. Tốc độ của vật ở chân mặt phẳng là 4,1 m/s. Tính công của lực ma sát và độ biến thiên nội năng của vật trong quá trình chuyển động trên. Lấy g = 9,8 \\text{ m/s}^2. Bỏ qua sự trao đổi nhiệt với mặt phẳng nghiêng."
+                          },
+                          "metadata": {
+                            "page": 14,
+                            "bbox": [],
+                            "position": null
+                          },
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "id": "90c7a48b-f6f2-4b86-9ba6-c2c0287f9ea2",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "88e1cc43-2eb5-4ae9-b3de-4cc6b270ced1",
+                      "node_type": "structure",
+                      "level_down": 7,
+                      "level_up": 1,
+                      "attributes": {
+                        "title": "EM ĐÃ HỌC",
+                        "code": null,
+                        "description": "Nội năng, cách thay đổi và định luật I; quy ước dấu của công A và nhiệt Q."
+                      },
+                      "metadata": {
+                        "start_page": 14,
+                        "end_page": null,
+                        "url": null,
+                        "file_path": null,
+                        "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 2: NỘI NĂNGĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > ĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > Định luật I của nhiệt động lực học > EM ĐÃ HỌC"
+                      },
+                      "children": [
+                        {
+                          "id": "532ea204-ed81-445d-85e5-579bcf7d1762",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "90c7a48b-f6f2-4b86-9ba6-c2c0287f9ea2",
+                          "node_type": "paragraph",
+                          "level_down": 8,
+                          "level_up": 1,
+                          "attributes": {
+                            "text": "Định nghĩa và công thức nội năng : * Tổng động năng và thế năng của các phân tử cấu tạo nên vật được gọi là nội năng của vật. Nội năng được kí hiệu bằng chữ U và có đơn vị là jun (J). * Có thể làm thay đổi nội năng của vật bằng cách: thực hiện công, truyền nhiệt. * Định luật I của nhiệt động lực học: Độ biến thiên nội năng của vật bằng tổng công và nhiệt lượng vật nhận được: \\Delta U = A + Q."
+                          },
+                          "metadata": {
+                            "page": 14,
+                            "bbox": [],
+                            "position": null
+                          },
+                          "children": []
+                        },
+                        {
+                          "id": "1cf78879-3b9b-46fe-8edd-f53344f30bc1",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "90c7a48b-f6f2-4b86-9ba6-c2c0287f9ea2",
+                          "node_type": "paragraph",
+                          "level_down": 8,
+                          "level_up": 1,
+                          "attributes": {
+                            "text": "Quy ước dấu A và Q : Quy ước về dấu của A và Q: Q > 0: Vật nhận nhiệt lượng từ vật khác. Q < 0: Vật truyền nhiệt lượng cho vật khác. A > 0: Vật nhận công từ vật khác. A < 0: Vật thực hiện công lên vật khác."
+                          },
+                          "metadata": {
+                            "page": 14,
+                            "bbox": [],
+                            "position": null
+                          },
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "id": "61aa63a1-87b5-474d-83b2-d1e6922e3af9",
+                      "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                      "parent_id": "88e1cc43-2eb5-4ae9-b3de-4cc6b270ced1",
+                      "node_type": "structure",
+                      "level_down": 7,
+                      "level_up": 1,
+                      "attributes": {
+                        "title": "EM CÓ THỂ",
+                        "code": null,
+                        "description": "Sử dụng mô hình động học phân tử để giải thích hiện tượng chuyển thể chất; dùng nội năng và định luật I nhiệt động lực học để mô tả chuyển hoá năng lượng và nguyên tắc hoạt động của động cơ nhiệt."
+                      },
+                      "metadata": {
+                        "start_page": 14,
+                        "end_page": null,
+                        "url": null,
+                        "file_path": null,
+                        "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 2: NỘI NĂNGĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > ĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > Định luật I của nhiệt động lực học > EM CÓ THỂ"
+                      },
+                      "children": [
+                        {
+                          "id": "1024cd45-d07a-4743-9cd6-a0b0aabc0447",
+                          "source_id": "4ec95e5b-0ad2-49d7-9fc1-43a66b2342cb",
+                          "parent_id": "61aa63a1-87b5-474d-83b2-d1e6922e3af9",
+                          "node_type": "paragraph",
+                          "level_down": 0,
+                          "level_up": 0,
+                          "attributes": {
+                            "text": "* Dùng mô hình động học phân tử giải thích được một số hiện tượng liên quan đến sự chuyển thể của các chất.\n* Dùng khái niệm nội năng và định luật I của nhiệt động lực học để giải thích một số hiện tượng đơn giản như sự chuyển hoá năng lượng trong các quá trình chuyển thể, nguyên tắc hoạt động của động cơ nhiệt (máy hơi nước, động cơ đốt trong)."
+                          },
+                          "metadata": {
+                            "page": 14,
+                            "bbox": [
+                              216,
+                              1462,
+                              1345,
+                              1651
+                            ],
+                            "position": "SGK Vật Lý 12 - Kết nối tri thức > CHƯƠNG I: VẬT LÍ NHIỆT > Bài 2: NỘI NĂNGĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > ĐỊNH LUẬT I CỦA NHIỆT ĐỘNG LỰC HỌC > Định luật I của nhiệt động lực học > EM CÓ THỂ"
+                          },
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -5,6 +5,7 @@ from .file_utils import (
     load_json_file,
     write_file,
 )
+from .hash_utils import calculate_md5
 from .storage_utils import (
     ensure_bucket_with_retry,
     upload_bytes,
@@ -18,5 +19,6 @@ __all__ = [
     "load_json_file",
     "write_file",
     "extract_json_from_response",
+    "calculate_md5",
 ]
 

@@ -7,15 +7,13 @@ import warnings
 from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
-from uuid import UUID
 
 import aiohttp
 from loguru import logger
 from postgres_client import PostgresClient, set_parent_ids, set_positions
 from postgres_client.handlers.system_admin_handler import SystemAdminHandler
-from postgres_client.models.enums import NodeType, SourceType
-from postgres_client.models.knowledge import KnowledgeNode
-from postgres_client.models.structure_nodes import StructureNode
+from postgres_client.models.enums import SourceType
+from postgres_client.utils import compute_tree_statistics, validate_tree_and_attach_source
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from workflows.dependencies import init_postgres_client
@@ -369,10 +367,15 @@ class WebIngestionWorkflow:
             set_positions(root_node)
 
             # Bước 5: Validate Nodes
-            self._validate_and_attach_source(root_node, data_source.id)
+            validate_tree_and_attach_source(root_node, data_source.id)
 
             # Bước 9: Calculate Statistics
-            statistics = self._calculate_statistics(root_node, url, crawl_start_time)
+            statistics = compute_tree_statistics(
+                root_node,
+                start_time=crawl_start_time,
+                duration_key="crawl_duration_seconds",
+                extra={"url": url},
+            )
 
             # Bước 8: Update DataSource with config and save
             updated_config = {
@@ -470,152 +473,7 @@ class WebIngestionWorkflow:
         except Exception:
             return "Web Source"
 
-    def _validate_and_attach_source(
-        self,
-        root: StructureNode,
-        data_source_id: UUID,
-    ) -> None:
-        """
-        Bước 5: Validate Nodes - Kiểm tra tính hợp lệ và gán source_id.
-
-        Rules:
-        - Mỗi node (trừ root) PHẢI có parent_id
-        - source_id PHẢI match với DataSource
-        - level_down và level_up PHẢI hợp lệ (>= 1)
-        - Trên mỗi path từ root đến detail: level_down + level_up phải là constant
-        - Detail nodes (PARAGRAPH, IMAGE, TABLE) PHẢI có attributes.text/url/headers không empty
-        """
-        errors: list[str] = []
-        path_constants: dict[tuple, int] = {}
-
-        def walk(node: KnowledgeNode, parent: KnowledgeNode | None, path: list[UUID] = None) -> None:
-            if path is None:
-                path = []
-
-            # Attach source_id
-            node.source_id = data_source_id
-
-            # Parent rule
-            if parent is None:
-                if node.parent_id is not None:
-                    errors.append("Root node must have parent_id=None")
-            else:
-                if node.parent_id is None:
-                    errors.append("Non-root node must have parent_id set")
-                elif node.parent_id != parent.id:
-                    errors.append(f"Node {node.id} has parent_id={node.parent_id} but parent is {parent.id}")
-
-            # Level validation
-            if node.level_down < 0:
-                errors.append(f"Node {node.id} has invalid level_down={node.level_down}, must be >= 0")
-            if node.level_up < 0:
-                errors.append(f"Node {node.id} has invalid level_up={node.level_up}, must be >= 0")
-
-            # Validate level_down + level_up constant along path
-            current_path = tuple(path + [node.id])
-            constant = node.level_down + node.level_up
-
-            if current_path in path_constants:
-                expected_constant = path_constants[current_path]
-                if constant != expected_constant:
-                    errors.append(
-                        f"Node {node.id} on path has level_down+level_up={constant}, "
-                        f"but expected {expected_constant} (path constant violation)"
-                    )
-            else:
-                path_constants[current_path] = constant
-
-            # Validate detail node content
-            if node.node_type in [NodeType.PARAGRAPH, NodeType.IMAGE, NodeType.TABLE]:
-                attrs = getattr(node, "attributes", None)
-                if attrs is not None:
-                    if isinstance(attrs, dict):
-                        if node.node_type == NodeType.PARAGRAPH:
-                            text = attrs.get("text", "")
-                            if not text or not str(text).strip():
-                                errors.append(f"Paragraph node {node.id} has empty text")
-                        elif node.node_type == NodeType.IMAGE:
-                            url_attr = attrs.get("url") or attrs.get("file_path")
-                            if not url_attr:
-                                errors.append(f"Image node {node.id} has no url or file_path")
-                        elif node.node_type == NodeType.TABLE:
-                            headers = attrs.get("headers", [])
-                            rows = attrs.get("rows", [])
-                            if not headers and not rows:
-                                errors.append(f"Table node {node.id} has no headers or rows")
-                    elif hasattr(attrs, "text"):
-                        if node.node_type == NodeType.PARAGRAPH and not attrs.text.strip():
-                            errors.append(f"Paragraph node {node.id} has empty text")
-                    elif hasattr(attrs, "url") or hasattr(attrs, "file_path"):
-                        if node.node_type == NodeType.IMAGE:
-                            url_attr = getattr(attrs, "url", None) or getattr(attrs, "file_path", None)
-                            if not url_attr:
-                                errors.append(f"Image node {node.id} has no url or file_path")
-
-            # Recursively validate children
-            for child in node.children:
-                walk(child, node, list(current_path))
-
-        walk(root, None)
-
-        if errors:
-            raise ValueError("Knowledge tree validation failed: " + "; ".join(sorted(set(errors))))
-
-    def _calculate_statistics(
-        self,
-        root_node: KnowledgeNode,
-        url: str,
-        crawl_start_time: datetime,
-    ) -> dict[str, Any]:
-        """
-        Bước 9: Calculate Statistics - Thống kê.
-
-        - Count nodes by level
-        - Count successful vs failed URLs
-        - Calculate crawl duration
-        - Calculate average content length
-        """
-        nodes_by_level: dict[int, int] = {}
-        total_nodes = 0
-        total_paragraphs = 0
-        total_content_length = 0
-
-        def walk(node: KnowledgeNode) -> None:
-            nonlocal total_nodes, total_paragraphs, total_content_length
-
-            total_nodes += 1
-            level = node.level_down
-            nodes_by_level[level] = nodes_by_level.get(level, 0) + 1
-
-            if node.node_type == NodeType.PARAGRAPH:
-                total_paragraphs += 1
-                attrs = getattr(node, "attributes", None)
-                if attrs:
-                    if isinstance(attrs, dict):
-                        text = attrs.get("text", "")
-                    elif hasattr(attrs, "text"):
-                        text = attrs.text
-                    else:
-                        text = ""
-                    total_content_length += len(str(text))
-
-            for child in node.children:
-                walk(child)
-
-        walk(root_node)
-
-        crawl_duration = (datetime.utcnow() - crawl_start_time).total_seconds()
-        avg_content_length = total_content_length / total_paragraphs if total_paragraphs > 0 else 0
-
-        return {
-            "nodes_by_level": nodes_by_level,
-            "total_nodes": total_nodes,
-            "total_paragraphs": total_paragraphs,
-            "crawl_duration_seconds": crawl_duration,
-            "average_content_length": avg_content_length,
-            "url": url,
-            "successful": True,
-        }
+    
 
 
 __all__ = ["start_ingest_web", "WebIngestionWorkflow"]

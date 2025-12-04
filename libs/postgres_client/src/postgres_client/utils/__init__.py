@@ -31,6 +31,10 @@ from .knowledge_node_converter import (
     orm_to_pydantic,
     pydantic_to_orm,
 )
+from .tree_analysis import (
+    compute_tree_statistics,
+    validate_tree_and_attach_source,
+)
 
 
 def _get_metadata_class(node: KnowledgeNode):
@@ -216,6 +220,8 @@ __all__ = [
     "parse_node_from_dict",
     "set_parent_ids",
     "set_positions",
+    "compute_tree_statistics",
+    "validate_tree_and_attach_source",
     "extract_code_from_title",
     "extract_code_from_context",
     "clean_title_from_code",

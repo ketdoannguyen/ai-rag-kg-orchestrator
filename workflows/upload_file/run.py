@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import io
 import mimetypes
 import shutil
@@ -23,6 +22,7 @@ from postgres_client.models.system_admin import DataSource
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from workflows.dependencies import get_minio_client, init_postgres_client
+from workflows.shared import calculate_md5
 from workflows.shared.storage_utils import ensure_bucket_with_retry, upload_file
 from .helper import log_upload_retry
 from .exceptions import (
@@ -142,7 +142,7 @@ class FileUploadWorkflow:
         validated = self._validate_file(payload)
         await self._maybe_scan_for_malware(payload)
 
-        file_hash = self._calculate_md5(payload.file)
+        file_hash = calculate_md5(payload.file)
         self._log.info("Calculated file hash", hash=file_hash)
 
         await ensure_bucket_with_retry(self._storage, self._bucket)
@@ -240,11 +240,6 @@ class FileUploadWorkflow:
         self._log.info("Scanning file for malware", filename=payload.filename)
         await self._antivirus_scanner(payload.file, payload.filename)
         self._log.info("Malware scan completed", filename=payload.filename)
-
-    def _calculate_md5(self, data: bytes) -> str:
-        digest = hashlib.md5()
-        digest.update(data)
-        return digest.hexdigest()
 
     @retry(
         reraise=True,
