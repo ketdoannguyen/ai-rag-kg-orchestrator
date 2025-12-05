@@ -15,6 +15,7 @@ from typing import Any, Type
 from ..models.knowledge import KnowledgeNode as KnowledgeNodePydantic
 from ..models.detail_nodes import ImageNode, ParagraphNode, TableNode
 from ..models.structure_nodes import StructureNode
+from ..models.enums import NodeType
 from ..orm_models.knowledge import KnowledgeNodeORM
 
 
@@ -50,12 +51,30 @@ def pydantic_to_orm(pydantic_model: KnowledgeNodePydantic) -> KnowledgeNodeORM:
     if hasattr(metadata, 'model_dump'):
         metadata = metadata.model_dump()
     
+    # Convert node_type to enum if it's a string (from JSON parsing)
+    node_type = pydantic_model.node_type
+    if isinstance(node_type, str):
+        try:
+            node_type = NodeType(node_type)
+        except ValueError:
+            # If invalid string, try to infer from node type
+            if isinstance(pydantic_model, ParagraphNode):
+                node_type = NodeType.PARAGRAPH
+            elif isinstance(pydantic_model, ImageNode):
+                node_type = NodeType.IMAGE
+            elif isinstance(pydantic_model, TableNode):
+                node_type = NodeType.TABLE
+            elif isinstance(pydantic_model, StructureNode):
+                node_type = NodeType.STRUCTURE
+            else:
+                raise ValueError(f"Invalid node_type: {node_type}")
+    
     # Create ORM instance
     orm_instance = KnowledgeNodeORM(
         id=data.get("id") or pydantic_model.id,
         source_id=data.get("source_id") or pydantic_model.source_id,
         parent_id=data.get("parent_id") or pydantic_model.parent_id,
-        node_type=pydantic_model.node_type,
+        node_type=node_type,
         level_down=pydantic_model.level_down,
         level_up=pydantic_model.level_up,
         attributes=attributes,

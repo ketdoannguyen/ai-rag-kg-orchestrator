@@ -445,9 +445,9 @@ class KnowledgeNodeHandler:
         # Convert Pydantic to ORM to get updated values
         updated_orm = pydantic_to_orm(pydantic_model)
         
-        # Update all fields from the new ORM instance
+        # Update all fields from the new ORM instance, excluding id and created_at
         for column in self.orm_class.__table__.columns:
-            if column.name != "id":  # Don't update primary key
+            if column.name not in ("id", "created_at"):  # Don't update primary key or created_at
                 setattr(orm_instance, column.name, getattr(updated_orm, column.name))
         
         await self.session.commit()
