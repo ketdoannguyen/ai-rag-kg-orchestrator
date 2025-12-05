@@ -33,11 +33,11 @@ orm_models/
 
 - **EmbeddingStructureORM**: `embeddings_structure` table
   - Embeddings cho các node cấu trúc (StructureNode)  
-  - Vector dimension: 1024
+  - Vector dimension: 1536 (OpenAI)
 
 - **EmbeddingContentORM**: `embeddings_content` table
   - Embeddings cho các node nội dung chi tiết (Paragraph/Image/Table)  
-  - Vector dimension: 1024
+  - Vector dimension: 1536 (OpenAI)
 
 ### Chat (`chat.py`)
 - **ChatSessionORM**: `chat_sessions` table
@@ -56,7 +56,7 @@ orm_models/
 ### Mining (`mining.py`)
 - **SuggestedFAQORM**: `suggested_faqs` table
   - Suggested FAQs from chat message clustering
-  - Vector dimension: 1024 (cluster_vector)
+  - Vector dimension: 1536 (cluster_vector, OpenAI)
 
 ## Usage
 

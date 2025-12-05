@@ -128,7 +128,7 @@ class EmbeddingStructureORM(Base):
         primary_key=True,
     )
     summary_text: Mapped[Optional[str]] = mapped_column(Text)
-    vector: Mapped[Optional[List[float]]] = mapped_column(Vector(1024))
+    vector: Mapped[Optional[List[float]]] = mapped_column(Vector(1536))
 
     node = relationship(
         "KnowledgeNodeORM",
@@ -151,7 +151,7 @@ class EmbeddingContentORM(Base):
         primary_key=True,
     )
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
-    vector: Mapped[Optional[List[float]]] = mapped_column(Vector(1024))
+    vector: Mapped[Optional[List[float]]] = mapped_column(Vector(1536))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=datetime.utcnow,

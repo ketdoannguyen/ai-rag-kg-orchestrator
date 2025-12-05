@@ -78,7 +78,7 @@ class EmbeddingStructureHandler(BaseHandler[EmbeddingStructure, EmbeddingStructu
         
         Args:
             node_id: Knowledge node ID
-            vector: Vector embedding (1024 dimensions)
+            vector: Vector embedding (1536 dimensions for OpenAI)
             
         Returns:
             Updated EmbeddingStructure instance or None if not found
@@ -165,7 +165,7 @@ class EmbeddingContentHandler(BaseHandler[EmbeddingContent, EmbeddingContentORM]
         
         Args:
             node_id: Knowledge node ID
-            vector: Vector embedding (1024 dimensions)
+            vector: Vector embedding (1536 dimensions for OpenAI)
             
         Returns:
             Updated EmbeddingContent instance or None if not found

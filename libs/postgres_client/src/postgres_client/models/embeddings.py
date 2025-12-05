@@ -31,7 +31,7 @@ class EmbeddingStructure(BaseModel):
     )
     vector: List[float] | None = Field(
         None,
-        description="Vector embedding (1024 dimensions)"
+        description="Vector embedding (1536 dimensions for OpenAI)"
     )
 
     model_config = ConfigDict(
@@ -77,7 +77,7 @@ class EmbeddingContent(BaseModel):
     )
     vector: List[float] | None = Field(
         None,
-        description="Vector embedding (1024 dimensions)"
+        description="Vector embedding (1536 dimensions for OpenAI)"
     )
     updated_at: datetime = Field(
         default_factory=datetime.utcnow,

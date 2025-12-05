@@ -43,7 +43,7 @@ class SuggestedFAQORM(Base):
 
     # Thông tin Cluster (Cụm câu hỏi)
     cluster_vector: Mapped[Optional[List[float]]] = mapped_column(
-        Vector(1024),
+        Vector(1536),
         nullable=True,
         comment="Vector trung tâm để check trùng",
     )

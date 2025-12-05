@@ -92,7 +92,7 @@ from postgres_client.models import EmbeddingStructure, EmbeddingContent
 structure = EmbeddingStructure(
     node_id=node_id,
     summary_text="Summary",
-    vector=[0.1] * 1024,
+    vector=[0.1] * 1536,
 )
 embedding_handler.structures.create(structure)
 
