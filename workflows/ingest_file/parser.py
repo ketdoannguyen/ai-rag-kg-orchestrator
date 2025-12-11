@@ -151,6 +151,7 @@ class TextbookParser:
             return {
                 "type": "Chapter",
                 "title": f"{number}: {title}".upper(),
+                "code": number,
                 "level": 2,
                 "blocks_consumed": blocks_consumed,
             }
@@ -171,6 +172,7 @@ class TextbookParser:
                     return {
                         "type": "Lesson",
                         "title": f"Bài {num_str}: {title.upper()}",
+                        "code": f"Bài {num_str}",
                         "level": 3,
                         "blocks_consumed": 3,
                     }
@@ -183,6 +185,7 @@ class TextbookParser:
                 return {
                     "type": "Section",
                     "title": match_I.group(2).strip(),
+                    "code": match_I.group(1).upper(),
                     "level": 4,
                     "blocks_consumed": 1,
                 }
@@ -193,6 +196,7 @@ class TextbookParser:
                 return {
                     "type": "Section",
                     "title": match_1.group(2).strip(),
+                    "code": match_1.group(1),
                     "level": 5,
                     "blocks_consumed": 1,
                 }
@@ -203,6 +207,7 @@ class TextbookParser:
                 return {
                     "type": "Section",
                     "title": match_a.group(2).strip(),
+                    "code": match_a.group(1).lower(),
                     "level": 6,
                     "blocks_consumed": 1,
                 }
@@ -254,7 +259,8 @@ class TextbookParser:
                         level_down=level,
                         level_up=1,  # Will be recomputed later based on tree depth
                         attributes=StructureAttributes(
-                            title=header_info["title"]
+                            title=header_info["title"],
+                            code=header_info.get("code")
                         ),
                         metadata=StructureMetadata(start_page=page_num),
                     )

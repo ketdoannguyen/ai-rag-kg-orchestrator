@@ -24,7 +24,7 @@ except Exception:
 from loguru import logger
 from postgres_client import parse_node_from_dict
 from workflows.dependencies import init_llm_client, init_postgres_client
-from workflows.enrich_knowledge_tree import EnrichKnowledgeTreeInput, KnowledgeTreeEnricher
+from workflows.enrich_knowledge_tree import EnrichKnowledgeTreeInput, start_enrich_knowledge_tree
 from workflows.embed_nodes import EmbedNodesInput, start_embed_nodes
 from workflows.embed_nodes.helper import extract_text_for_embedding
 from workflows.ingest_file import start_ingest
@@ -81,8 +81,10 @@ async def _process_data_source(
 
     # Enrich knowledge tree
     llm_client = init_llm_client()
-    enricher = KnowledgeTreeEnricher(llm_client=llm_client)
-    enrich_out = await enricher.enrich(EnrichKnowledgeTreeInput(knowledge_tree=root_node))
+    enrich_out = await start_enrich_knowledge_tree(
+        EnrichKnowledgeTreeInput(knowledge_tree=root_node),
+        llm_client=llm_client,
+    )
 
     # Save knowledge to postgres and neo4j in parallel
     from workflows.dependencies import init_neo4j_client
@@ -90,14 +92,14 @@ async def _process_data_source(
     neo4j_client = init_neo4j_client()
     save_knowledge_task = start_save_knowledge_to_postgres(
         SaveKnowledgeInput(
-            enriched_tree=enrich_out.enriched_tree,
+            enriched_tree=enrich_out["enriched_tree"],
             data_source_id=data_source_id,
         ),
         pg_client=pg_client,
     )
     save_neo4j_task = start_save_knowledge_to_neo4j(
         SaveKnowledgeToNeo4jInput(
-            enriched_tree=enrich_out.enriched_tree,
+            enriched_tree=enrich_out["enriched_tree"],
         ),
         neo4j_client=neo4j_client,
     )
@@ -161,7 +163,7 @@ async def _process_data_source(
                 },
             },
             "embeddings_saved": {"structures_saved": 0, "contents_saved": 0},
-            "enrich_stats": enrich_out.statistics.model_dump(),
+            "enrich_stats": enrich_out["statistics"],
         }
 
     # Embed nodes
@@ -200,7 +202,7 @@ async def _process_data_source(
             "structures_saved": save_embed_out["structures_saved"],
             "contents_saved": save_embed_out["contents_saved"],
         },
-        "enrich_stats": enrich_out.statistics.model_dump(),
+        "enrich_stats": enrich_out["statistics"],
     }
 
 

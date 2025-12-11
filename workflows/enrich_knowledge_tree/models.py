@@ -22,7 +22,7 @@ class RefineConfig(BaseModel):
         description="Whether to keep structure/ordering of children when rebuilding.",
     )
     max_concurrent_sections: int = Field(
-        default=30,
+        default=20,
         ge=1,
         le=128,
         description="Global concurrency limit for section-level processing/LLM calls.",

@@ -17,10 +17,11 @@ if str(ROOT) not in sys.path:
 
 from loguru import logger
 from postgres_client import parse_node_from_dict
-from workflows.dependencies import init_llm_client, init_postgres_client
+from postgres_client.handlers.knowledge_handler import KnowledgeNodeHandler
+from workflows.dependencies import init_llm_client, init_postgres_client, init_neo4j_client
 from workflows.enrich_knowledge_tree import (
     EnrichKnowledgeTreeInput,
-    KnowledgeTreeEnricher,
+    start_enrich_knowledge_tree,
 )
 from workflows.embed_nodes import EmbedNodesInput, start_embed_nodes
 from workflows.embed_nodes.helper import extract_text_for_embedding
@@ -29,6 +30,10 @@ from workflows.save_embeddings_to_postgres import SaveEmbeddingsInput, start_sav
 from workflows.save_knowledge_to_neo4j import SaveKnowledgeToNeo4jInput, start_save_knowledge_to_neo4j
 from workflows.save_knowledge_to_postgres import SaveKnowledgeInput, start_save_knowledge_to_postgres
 
+
+llm_client = init_llm_client()
+neo4j_client = init_neo4j_client()
+pg_client = init_postgres_client()
 
 async def _process_single_result(
     result: dict[str, Any],
@@ -51,24 +56,22 @@ async def _process_single_result(
     root_node = parse_node_from_dict(root_node_dict)
 
     # Enrich knowledge tree
-    llm_client = init_llm_client()
-    enricher = KnowledgeTreeEnricher(llm_client=llm_client)
-    enrich_out = await enricher.enrich(EnrichKnowledgeTreeInput(knowledge_tree=root_node))
+    enrich_out = await start_enrich_knowledge_tree(
+        EnrichKnowledgeTreeInput(knowledge_tree=root_node),
+        llm_client=llm_client,
+    )
 
     # Save knowledge to postgres and neo4j in parallel
-    from workflows.dependencies import init_neo4j_client
-    
-    neo4j_client = init_neo4j_client()
     save_knowledge_task = start_save_knowledge_to_postgres(
         SaveKnowledgeInput(
-            enriched_tree=enrich_out.enriched_tree,
+            enriched_tree=enrich_out["enriched_tree"],
             data_source_id=data_source_id,
         ),
         pg_client=pg_client,
     )
     save_neo4j_task = start_save_knowledge_to_neo4j(
         SaveKnowledgeToNeo4jInput(
-            enriched_tree=enrich_out.enriched_tree,
+            enriched_tree=enrich_out["enriched_tree"],
         ),
         neo4j_client=neo4j_client,
     )
@@ -105,7 +108,6 @@ async def _process_single_result(
     )
 
     # Query nodes from database (same as test_embed_nodes.py)
-    from postgres_client.handlers.knowledge_handler import KnowledgeNodeHandler
     
     async with pg_client.sessionmaker() as session:
         handler = KnowledgeNodeHandler(session)
@@ -132,7 +134,7 @@ async def _process_single_result(
                 },
             },
             "embeddings_saved": {"structures_saved": 0, "contents_saved": 0},
-            "enrich_stats": enrich_out.statistics.model_dump(),
+            "enrich_stats": enrich_out["statistics"],
         }
 
     # Embed nodes
@@ -171,7 +173,7 @@ async def _process_single_result(
             "structures_saved": save_embed_out["structures_saved"],
             "contents_saved": save_embed_out["contents_saved"],
         },
-        "enrich_stats": enrich_out.statistics.model_dump(),
+        "enrich_stats": enrich_out["statistics"],
     }
 
 
@@ -184,8 +186,6 @@ async def run_pipeline(
     max_concurrent_urls: int | None = None,
 ) -> List[dict[str, Any]]:
     """Run the full web pipeline for given URLs."""
-    pg_client = init_postgres_client()
-    
     ingest_input: dict[str, Any] = {
         "urls": list(urls),
         "created_by": created_by,
