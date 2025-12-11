@@ -13,6 +13,7 @@ RELATIONSHIP_TYPES = {
 # Node label constants
 NODE_LABELS = {
     "BASE": "KnowledgeNode",
+    "ROOT": "Root",
     "STRUCTURE": "Structure",
     "PARAGRAPH": "Paragraph",
     "IMAGE": "Image",
@@ -31,20 +32,22 @@ SET n.node_type = $node_type,
 RETURN n
 """
 
-# Create HAS_SECTION relationship (Structure -> Structure)
+# Create HAS_SECTION relationship (Root/Structure -> Structure)
 CREATE_HAS_SECTION_QUERY = """
-MATCH (parent:KnowledgeNode:Structure {id: $parent_id})
+MATCH (parent:KnowledgeNode {id: $parent_id})
+WHERE parent:Structure OR parent:Root
 MATCH (child:KnowledgeNode:Structure {id: $child_id})
 MERGE (parent)-[r:HAS_SECTION]->(child)
 RETURN r
 """
 
-# Create HAS_CONTENT relationship (Structure -> Detail nodes)
+# Create HAS_CONTENT relationship (Root/Structure -> Detail nodes)
 CREATE_HAS_CONTENT_QUERY = """
-MATCH (parent:KnowledgeNode:Structure {id: $parent_id})
+MATCH (parent:KnowledgeNode {id: $parent_id})
+WHERE parent:Structure OR parent:Root
 MATCH (child:KnowledgeNode {id: $child_id})
 WHERE (child:Paragraph OR child:Image OR child:Table)
-  AND NOT child:Structure
+  AND NOT child:Structure AND NOT child:Root
 MERGE (parent)-[r:HAS_CONTENT]->(child)
 RETURN r
 """

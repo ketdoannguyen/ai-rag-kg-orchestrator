@@ -75,3 +75,7 @@ class StructureNode(KnowledgeNode):
                 data["metadata"] = StructureMetadata(**data["metadata"])
         return data
 
+
+class RootNode(StructureNode):
+    """Root node for the knowledge tree."""
+    

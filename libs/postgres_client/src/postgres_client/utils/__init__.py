@@ -11,6 +11,7 @@ from ..models import (
     StructureNode,
     TableNode,
 )
+from ..models.structure_nodes import RootNode
 from ..models.enums import NodeType
 from ..models.attributes_metadata import (
     ParagraphMetadata,
@@ -133,7 +134,10 @@ def parse_node_from_dict(data: dict | KnowledgeNode) -> KnowledgeNode:
         return TableNode.model_validate(node_data)
 
     # Default to structure node family (CORPUS/TOPIC/SUBTOPIC)
-    # We don't distinguish Corpus/Topic/Subtopic here; callers can cast if needed.
+    # If level_down=1, return RootNode instead of StructureNode
+    level_down = data.get("level_down", 0)
+    if level_down == 1:
+        return RootNode.model_validate(node_data)
     return StructureNode.model_validate(node_data)
 
 

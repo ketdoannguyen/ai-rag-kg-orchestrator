@@ -10,7 +10,7 @@ from .enums import (
     SourceType,
     UserRole,
 )
-from .structure_nodes import StructureNode
+from .structure_nodes import StructureNode, RootNode
 from .system_admin import DataSource, User
 from .embeddings import EmbeddingContent, EmbeddingStructure
 from .chat import ChatMessage, ChatSession, Feedback
@@ -52,6 +52,7 @@ __all__ = [
     "TableNode",
     # Pydantic Structure node
     "StructureNode",
+    "RootNode",
     # Pydantic System Admin
     "User",
     "DataSource",

@@ -33,8 +33,20 @@ class KnowledgeNodeHandler:
         """
         self.driver = driver
 
-    def _get_type_label(self, node_type: NodeType | str) -> str:
-        """Get Neo4j label based on node_type."""
+    def _get_type_label(self, node_type: NodeType | str, level_down: int = 0) -> str:
+        """Get Neo4j label based on node_type and level_down.
+        
+        Args:
+            node_type: The node type enum or string
+            level_down: The level_down value (1 = root node)
+            
+        Returns:
+            Neo4j label string
+        """
+        # Root node special case: level_down=1 means it's the root
+        if level_down == 1:
+            return NODE_LABELS["ROOT"]
+        
         node_type_str = node_type.value if isinstance(node_type, NodeType) else str(node_type)
         label_map = {
             "structure": NODE_LABELS["STRUCTURE"],
@@ -65,8 +77,8 @@ class KnowledgeNodeHandler:
         attributes_json = self._serialize_to_json(node.attributes)
         metadata_json = self._serialize_to_json(node.metadata)
         
-        # Get node type label
-        type_label = self._get_type_label(node.node_type)
+        # Get node type label (uses level_down to determine if it's a root node)
+        type_label = self._get_type_label(node.node_type, level_down=node.level_down)
         
         # Prepare parameters (no name property - Neo4j will display based on existing properties)
         params = {
@@ -92,6 +104,7 @@ class KnowledgeNodeHandler:
         
         async with self.driver.session() as session:
             await session.run(query, params)
+
 
     async def create_has_section_relationship(
         self,

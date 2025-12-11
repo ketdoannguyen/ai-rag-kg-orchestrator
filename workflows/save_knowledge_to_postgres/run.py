@@ -122,11 +122,12 @@ class SaveKnowledgeWorkflow:
 
     def _validate_input(self, payload: SaveKnowledgeInput) -> None:
         """Validate workflow input."""
-        if not isinstance(payload.enriched_tree, StructureNode):
-            raise ValueError("enriched_tree must be a StructureNode (root node)")
-
-        if payload.enriched_tree.node_type != NodeType.STRUCTURE:
-            raise ValueError("Root node must have node_type=STRUCTURE")
+        # Check node_type instead of isinstance to support both parsed KnowledgeNode and StructureNode
+        node_type = payload.enriched_tree.node_type
+        if hasattr(node_type, 'value'):
+            node_type = node_type.value
+        if str(node_type).lower() != 'structure':
+            raise ValueError(f"Root node must have node_type=STRUCTURE, got {node_type}")
 
     def _set_source_id(self, node: KnowledgeNode, source_id: uuid.UUID) -> None:
         """Recursively set source_id for all nodes in the tree."""

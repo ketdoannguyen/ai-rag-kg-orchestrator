@@ -130,11 +130,12 @@ class SaveKnowledgeToNeo4jWorkflow:
 
     def _validate_input(self, payload: SaveKnowledgeToNeo4jInput) -> None:
         """Validate workflow input."""
-        if not isinstance(payload.enriched_tree, StructureNode):
-            raise ValueError("enriched_tree must be a StructureNode (root node)")
-
-        if payload.enriched_tree.node_type != NodeType.STRUCTURE:
-            raise ValueError("Root node must have node_type=STRUCTURE")
+        # Check node_type instead of isinstance to support both parsed KnowledgeNode and StructureNode
+        node_type = payload.enriched_tree.node_type
+        if hasattr(node_type, 'value'):
+            node_type = node_type.value
+        if str(node_type).lower() != 'structure':
+            raise ValueError(f"Root node must have node_type=STRUCTURE, got {node_type}")
 
     def _get_node_type_str(self, node: KnowledgeNode) -> str:
         """Get node_type as string."""
