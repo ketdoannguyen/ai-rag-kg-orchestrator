@@ -4,7 +4,6 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from litellm import acompletion, aembedding
-from litellm.exceptions import BadRequestError, LiteLLMUnknownProvider
 from loguru import logger
 from tenacity import (
     retry,
@@ -18,7 +17,6 @@ from .models.config import GatewayModelConfig
 from .models.embedding import EmbeddingRequest, EmbeddingResponse
 from .models.request import GatewayInvokeRequest
 from .models.response import InvokeResponse, InvokeStreamChunk
-from .openrouter import OpenRouterError, fetch_embeddings_via_openrouter
 from .registry import ModelRegistry
 from .utils import MessageConverter
 
@@ -93,35 +91,6 @@ class AIGatewayClient:
         if not choices:
             raise GatewayAPIError("LLM provider returned no choices.")
         return choices[0]
-
-    def _should_use_openrouter_fallback(self, exc: Exception, config: GatewayModelConfig) -> bool:
-        model_hint = config.model or ""
-        api_base = (config.api_base or "").lower()
-        is_openrouter_model = model_hint.startswith("openrouter/")
-        is_openrouter_base = "openrouter" in api_base
-        if not (is_openrouter_model or is_openrouter_base):
-            return False
-
-        if isinstance(exc, LiteLLMUnknownProvider):
-            return True
-        if isinstance(exc, BadRequestError) and "Unmapped LLM provider" in str(exc):
-            return True
-        return False
-
-    async def _embed_via_openrouter(
-        self,
-        config: GatewayModelConfig,
-        request: EmbeddingRequest,
-    ) -> EmbeddingResponse:
-        try:
-            embeddings, usage = await fetch_embeddings_via_openrouter(config, request.input)
-            return EmbeddingResponse(
-                embeddings=embeddings,
-                usage=self._normalize_usage(usage),
-            )
-        except OpenRouterError as exc:
-            logger.error("OpenRouter embedding fallback failed: {error}", error=exc)
-            raise GatewayAPIError(f"OpenRouter embedding call failed: {exc}") from exc
 
     @retry(
         wait=wait_exponential(multiplier=1, min=2, max=60),
@@ -204,6 +173,10 @@ class AIGatewayClient:
         ),
     )
     async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
+        """Generate embeddings for input texts.
+
+        Uses LiteLLM's aembedding with api_base for OpenRouter/OpenAI-compatible APIs.
+        """
         embedding_config = self.embedding_registry.get(request.model)
         try:
             params = self._prepare_params(request.provider_options, embedding_config)
@@ -226,15 +199,6 @@ class AIGatewayClient:
                 embeddings=embeddings,
                 usage=self._normalize_usage(response_dict.get("usage")),
             )
-        except (LiteLLMUnknownProvider, BadRequestError) as exc:
-            if self._should_use_openrouter_fallback(exc, embedding_config):
-                logger.warning(
-                    "LiteLLM cannot route embeddings for model '{model}'. Falling back to direct OpenRouter call.",
-                    model=embedding_config.model,
-                )
-                return await self._embed_via_openrouter(embedding_config, request)
-            logger.exception("Embedding call failed: {error}", error=exc)
-            raise GatewayAPIError(f"Embedding generation failed: {exc}") from exc
         except (ConfigurationError, ModelNotFoundError):
             raise
         except Exception as exc:

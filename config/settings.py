@@ -24,19 +24,35 @@ class Settings(BaseSettings):
     MARKER_FORCE_OCR: bool = False
     MARKER_TORCH_DEVICE: str | None = None  # e.g. "cuda", "cuda:0", "cpu"
     GOOGLE_API_KEY: str | None = None  # used when MARKER_USE_LLM is True
-    OPENAI_API_KEY: str | None = None
-    ANTHROPIC_API_KEY: str | None = None
-    OPENROUTER_API_KEY: str | None = None
 
-    # Gateway defaults
-    LLM_GATEWAY_CHAT_MODEL: str = "openrouter/openai/gpt-oss-120b"
-    LLM_GATEWAY_EMBEDDING_MODEL: str = "openrouter/openai/text-embedding-3-small"
-    LLM_GATEWAY_CHAT_API_KEY: str | None = None
-    LLM_GATEWAY_EMBEDDING_API_KEY: str | None = None
-    LLM_GATEWAY_CHAT_API_BASE: str | None = None
-    LLM_GATEWAY_EMBEDDING_API_BASE: str | None = None
-    LLM_GATEWAY_CHAT_OPTIONS: dict[str, Any] = Field(default_factory=dict)
-    LLM_GATEWAY_EMBEDDING_OPTIONS: dict[str, Any] = Field(default_factory=dict)
+    # =========================================================================
+    # LLM Gateway Configuration (Unified)
+    # =========================================================================
+    # Single API key and base URL for all LLM/embedding calls
+    # Supports OpenRouter, OpenAI, or any OpenAI-compatible API
+    LLM_API_KEY: str | None = None
+    LLM_API_BASE: str = "https://openrouter.ai/api/v1"  # Default to OpenRouter
+
+    # Model names - when using api_base, use model names WITHOUT provider prefix
+    # Examples: gpt-4o-mini, text-embedding-3-small
+    LLM_CHAT_MODEL: str = "gpt-4o-mini"
+    LLM_EMBEDDING_MODEL: str = "text-embedding-3-small"
+
+    # Optional: separate config for chat vs embedding (if using different providers)
+    LLM_CHAT_API_KEY: str | None = None
+    LLM_CHAT_API_BASE: str | None = None
+    LLM_EMBEDDING_API_KEY: str | None = None
+    LLM_EMBEDDING_API_BASE: str | None = None
+
+    # Extra options (temperature, max_tokens, etc.)
+    LLM_CHAT_OPTIONS: dict[str, Any] = Field(default_factory=dict)
+    LLM_EMBEDDING_OPTIONS: dict[str, Any] = Field(default_factory=dict)
+
+    # Langfuse Cloud Observability
+    LANGFUSE_PUBLIC_KEY: str | None = None
+    LANGFUSE_SECRET_KEY: str | None = None
+    LANGFUSE_OTEL_HOST: str = "https://us.cloud.langfuse.com"  # US region default
+    LANGFUSE_ENABLED: bool = True  # Toggle tracing on/off
 
     class Config:
         env_file = ".env"
@@ -49,5 +65,6 @@ def get_settings() -> "Settings":
     """Return a cached Settings instance (used by services layer)."""
 
     return Settings()
+
 
 settings: Settings = get_settings()

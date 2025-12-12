@@ -18,7 +18,7 @@ class GatewayModelConfig(BaseModel):
         if self.api_key:
             params["api_key"] = self.api_key
         if self.api_base:
-            params["base_url"] = self.api_base
+            params["api_base"] = self.api_base
         if self.timeout is not None:
             params["timeout"] = self.timeout
         return params

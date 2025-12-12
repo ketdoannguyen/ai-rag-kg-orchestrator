@@ -42,11 +42,6 @@ class ModelRegistry:
             for prefix, cfg in self._models.items():
                 if requested_name.startswith(prefix):
                     return cfg
-            logger.warning(
-                "Unable to route {type} model '{requested}'. Falling back to default.",
-                type=self.model_type,
-                requested=requested_name,
-            )
 
         if not self._default_key:
             raise ModelNotFoundError(

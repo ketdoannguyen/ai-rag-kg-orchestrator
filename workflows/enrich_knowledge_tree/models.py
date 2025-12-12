@@ -15,7 +15,7 @@ class RefineConfig(BaseModel):
     min_paragraph_length: int = Field(default=100, ge=0)
     max_paragraph_length: int = Field(default=800, ge=1)
     batch_size: int = Field(default=3, ge=1, le=100)
-    llm_model: str = Field(default="openrouter/openai/gpt-oss-120b")
+    llm_model: str = Field(default="openai/qwen/qwen3-next-80b-a3b-instruct")
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     preserve_structure: bool = Field(
         default=True,
@@ -37,7 +37,7 @@ class EnrichConfig(BaseModel):
         default="informative",
         description="High-level style hint for summaries (e.g., 'informative', 'concise').",
     )
-    llm_model: str = Field(default="openrouter/openai/gpt-oss-120b")
+    llm_model: str = Field(default="openai/qwen/qwen3-next-80b-a3b-instruct")
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
 
 
