@@ -31,6 +31,7 @@ from .helper import (
     count_paragraphs,
     create_refined_paragraphs_from_segments,
     get_title,
+    aggregate_children_metadata,
 )
 
 from .models import (
@@ -197,6 +198,11 @@ class KnowledgeTreeEnricher:
         # Replace children with refined version (images + refined paragraphs/tables + structure children)
         node.children = refined_children
 
+        # 2.5) Aggregate domain_metadata from all children (paragraphs + structure nodes)
+        aggregated_metadata = aggregate_children_metadata(node.children)
+        if aggregated_metadata:
+            node.metadata.domain_metadata = aggregated_metadata
+
         # 3) Enrich current StructureNode with summary that takes into account:
         #    - summaries from STRUCTURE children (stored in state.node_summaries)
         # If this node has no STRUCTURE children and detail-level LLM already
@@ -223,6 +229,7 @@ class KnowledgeTreeEnricher:
             "original_detail_count": section_stats.get("original_detail_count", 0),
             "refined_detail_count": section_stats.get("refined_detail_count", 0),
         }
+
 
     # ---------------------------------------------------------------------
     # Detail refinement
@@ -307,6 +314,7 @@ class KnowledgeTreeEnricher:
             segments=segments,
             items=collected_items,
             parent=node,
+            domain_schema=workflow_input.domain_schema,
         )
 
         refined_detail_count = len(refined_paragraphs)
@@ -336,7 +344,9 @@ class KnowledgeTreeEnricher:
             - segments: list of segment dicts
             - section_summary: optional summary string for the whole section
         """
-        prompt = build_detail_merge_prompt(items, breadcrumb)
+        prompt = build_detail_merge_prompt(
+            items, breadcrumb, domain_schema=workflow_input.domain_schema
+        )
         section = " > ".join(breadcrumb)
         logger.debug(
             "Detail LLM prompt",
@@ -437,7 +447,7 @@ class KnowledgeTreeEnricher:
         prompt = build_structure_enrich_prompt(
             title=get_title(node),
             children_content=children_content,
-            config=workflow_input.enrich_config,
+            summary_style=workflow_input.enrich_config.summary_style,
             short=False,
         )
         section_label = " > ".join(breadcrumb)

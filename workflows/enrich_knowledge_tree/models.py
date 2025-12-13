@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from postgres_client.models.knowledge import KnowledgeNode
+
+if TYPE_CHECKING:
+    from config.domains import DomainSchema
 
 
 class RefineConfig(BaseModel):
@@ -44,6 +47,8 @@ class EnrichConfig(BaseModel):
 class EnrichKnowledgeTreeInput(BaseModel):
     """Input model for enrich_knowledge_tree workflow."""
 
+    model_config = {"arbitrary_types_allowed": True}
+
     knowledge_tree: KnowledgeNode = Field(
         ...,
         description="Root KnowledgeNode (STRUCTURE) of the tree to enrich.",
@@ -55,6 +60,10 @@ class EnrichKnowledgeTreeInput(BaseModel):
     enrich_config: EnrichConfig = Field(
         default_factory=EnrichConfig,
         description="Configuration for structure enrichment.",
+    )
+    domain_schema: Optional[Any] = Field(
+        default=None,
+        description="DomainSchema for metadata extraction. If None, no metadata extracted.",
     )
 
 

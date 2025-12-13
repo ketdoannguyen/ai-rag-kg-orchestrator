@@ -1,5 +1,5 @@
-"""Simple async pipeline for web ingestion → enrich → save → embed → persist embeddings."""
-
+"""Simple async pipeline for web ingestion → enrich → save → embed → persist embeddings.
+python -m scripts.run_web_pipeline  --urls  https://tuyensinh.vku.udn.vn/cntt-ks https://tuyensinh.vku.udn.vn/pt-tuyenthang --created-by 550e8400-e29b-41d4-a716-446655440000 """
 from __future__ import annotations
 
 import argparse
@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
 from loguru import logger
 from postgres_client import parse_node_from_dict
 from postgres_client.handlers.knowledge_handler import KnowledgeNodeHandler
+from config.domains import get_current_domain
 from workflows.dependencies import init_llm_client, init_postgres_client, init_neo4j_client
 from workflows.enrich_knowledge_tree import (
     EnrichKnowledgeTreeInput,
@@ -34,6 +35,7 @@ from workflows.save_knowledge_to_postgres import SaveKnowledgeInput, start_save_
 llm_client = init_llm_client()
 neo4j_client = init_neo4j_client()
 pg_client = init_postgres_client()
+domain_schema = get_current_domain()  # Get domain from DOMAIN_NAME env var
 
 async def _process_single_result(
     result: dict[str, Any],
@@ -55,11 +57,15 @@ async def _process_single_result(
     # Parse root_node from dict (same as test)
     root_node = parse_node_from_dict(root_node_dict)
 
-    # Enrich knowledge tree
+    # Enrich knowledge tree with domain schema for metadata extraction
     enrich_out = await start_enrich_knowledge_tree(
-        EnrichKnowledgeTreeInput(knowledge_tree=root_node),
+        EnrichKnowledgeTreeInput(
+            knowledge_tree=root_node,
+            domain_schema=domain_schema,  # Pass domain schema for metadata extraction
+        ),
         llm_client=llm_client,
     )
+
 
     # Save knowledge to postgres and neo4j in parallel
     save_knowledge_task = start_save_knowledge_to_postgres(

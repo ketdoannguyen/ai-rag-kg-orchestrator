@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+
+from loguru import logger
 
 from postgres_client.models import (
     KnowledgeNode,
@@ -10,6 +12,9 @@ from postgres_client.models import (
     ImageNode,
 )
 from postgres_client.models.enums import NodeType
+
+if TYPE_CHECKING:
+    from config.domains import DomainSchema
 
 
 def count_paragraphs(node: KnowledgeNode | None) -> int:
@@ -44,14 +49,12 @@ def collect_detail_items(
             text = (node.attributes.text or "").strip()
             if not text:
                 continue
-            items.append(
-                {
-                    "type": "paragraph",
-                    "id": str(node.id),
-                    "text": text,
-                    "node": node,
-                }
-            )
+            items.append({
+                "type": "paragraph",
+                "id": str(node.id),
+                "text": text,
+                "node": node,
+            })
         elif isinstance(node, TableNode):
             text = (node.attributes.extracted_text or "").strip()
             if not text:
@@ -64,41 +67,55 @@ def collect_detail_items(
                 text = "\n".join(table_lines).strip()
             if not text:
                 continue
-            items.append(
-                {
-                    "type": "table",
-                    "id": str(node.id),
-                    "text": text,
-                    "node": node,
-                }
-            )
+            items.append({
+                "type": "table",
+                "id": str(node.id),
+                "text": text,
+                "node": node,
+            })
     return items
+
+
+def _fallback_to_originals(
+    items: List[Dict[str, Any]],
+    parent: StructureNode,
+) -> List[ParagraphNode]:
+    """Fallback: keep original paragraphs when no valid segments produced."""
+    paragraphs: List[ParagraphNode] = []
+    for it in items:
+        source: KnowledgeNode = it["node"]
+        if isinstance(source, ParagraphNode):
+            paragraphs.append(source)
+        else:
+            paragraphs.append(
+                ParagraphNode(
+                    source_id=parent.source_id,
+                    parent_id=parent.id,
+                    node_type=NodeType.PARAGRAPH,
+                    level_down=0,
+                    level_up=0,
+                    attributes={"text": it["text"]},
+                )
+            )
+    return paragraphs
 
 
 def create_refined_paragraphs_from_segments(
     segments: List[Dict[str, Any]],
     items: List[Dict[str, Any]],
     parent: StructureNode,
+    domain_schema: Optional["DomainSchema"] = None,
 ) -> List[ParagraphNode]:
-    """Create new ParagraphNodes from LLM segments."""
+    """Create new ParagraphNodes from LLM segments.
+    
+    Args:
+        segments: LLM output segments with text, summary, and optional metadata
+        items: Original items for reference
+        parent: Parent StructureNode
+        domain_schema: Optional schema for metadata normalization/validation
+    """
     if not segments:
-        paragraphs: List[ParagraphNode] = []
-        for it in items:
-            source: KnowledgeNode = it["node"]
-            if isinstance(source, ParagraphNode):
-                paragraphs.append(source)
-            else:
-                paragraphs.append(
-                    ParagraphNode(
-                        source_id=parent.source_id,
-                        parent_id=parent.id,
-                        node_type=NodeType.PARAGRAPH,
-                        level_down=0,
-                        level_up=0,
-                        attributes={"text": it["text"]},
-                    )
-                )
-        return paragraphs
+        return _fallback_to_originals(items, parent)
 
     refined: List[ParagraphNode] = []
     for seg in segments:
@@ -108,13 +125,13 @@ def create_refined_paragraphs_from_segments(
             continue
 
         valid_indices = [
-            i - 1
-            for i in indices
+            i - 1 for i in indices
             if isinstance(i, int) and 1 <= i <= len(items)
         ]
         if not valid_indices:
             continue
 
+        # Get page from source nodes
         page = None
         for idx in valid_indices:
             src_node: KnowledgeNode = items[idx]["node"]
@@ -123,10 +140,33 @@ def create_refined_paragraphs_from_segments(
                 if page is not None:
                     break
 
+        # Process summary
         summary = (seg.get("summary") or "").strip()
-        paragraph_text = content
-        if summary:
-            paragraph_text = f"{summary} : {content}"
+        paragraph_text = f"{summary} : {content}" if summary else content
+
+        # Process domain metadata
+        raw_metadata = seg.get("metadata") or {}
+        domain_metadata = {}
+        
+        if raw_metadata and domain_schema:
+            # Normalize using aliases
+            normalized = domain_schema.normalize_metadata(raw_metadata)
+            
+            # Validate against allowed_values
+            errors = domain_schema.validate_metadata(normalized)
+            if errors:
+                logger.debug(
+                    "Filtered invalid metadata",
+                    errors=errors,
+                    raw=raw_metadata,
+                )
+                # Keep only valid fields
+                normalized = {k: v for k, v in normalized.items() if k not in errors}
+            
+            domain_metadata = normalized
+        elif raw_metadata:
+            # No schema, keep as-is
+            domain_metadata = raw_metadata
 
         refined.append(
             ParagraphNode(
@@ -136,11 +176,78 @@ def create_refined_paragraphs_from_segments(
                 level_down=parent.level_down + 1,
                 level_up=1,
                 attributes={"text": paragraph_text},
-                metadata={"page": page},
+                metadata={
+                    "page": page,
+                    "domain_metadata": domain_metadata,
+                },
             )
         )
 
+    # If no valid segments were produced, fallback to originals
     if not refined:
-        return create_refined_paragraphs_from_segments([], items, parent)
+        return _fallback_to_originals(items, parent)
 
     return refined
+
+
+def aggregate_children_metadata(children: List[KnowledgeNode]) -> Dict[str, Any]:
+    """Aggregate domain_metadata from children using union strategy.
+    
+    Collects all unique values for each field across children.
+    Single values stay as-is, multiple unique values become a list.
+    
+    Example:
+        Child 1: {"year": 2024, "major_name": "CNTT"}
+        Child 2: {"year": 2025, "major_name": "CNTT"}
+        Result:  {"year": [2024, 2025], "major_name": "CNTT"}
+    """
+    aggregated: Dict[str, set] = {}
+    
+    for child in children:
+        # Get domain_metadata from child's metadata
+        metadata = getattr(child, "metadata", None)
+        if not metadata:
+            continue
+            
+        domain_meta = getattr(metadata, "domain_metadata", None)
+        if not domain_meta:
+            # Try dict access
+            if isinstance(metadata, dict):
+                domain_meta = metadata.get("domain_metadata", {})
+            else:
+                continue
+        
+        if not domain_meta or not isinstance(domain_meta, dict):
+            continue
+            
+        for key, value in domain_meta.items():
+            if value is None:
+                continue
+            if key not in aggregated:
+                aggregated[key] = set()
+            # Handle list values
+            if isinstance(value, list):
+                for v in value:
+                    if v is not None:
+                        aggregated[key].add(v)
+            else:
+                aggregated[key].add(value)
+    
+    # Convert sets to final format
+    result: Dict[str, Any] = {}
+    for key, values in aggregated.items():
+        if len(values) == 0:
+            continue
+        elif len(values) == 1:
+            # Single value stays as-is (not a list)
+            result[key] = next(iter(values))
+        else:
+            # Multiple values become sorted list
+            try:
+                result[key] = sorted(values)
+            except TypeError:
+                # Cannot sort mixed types
+                result[key] = list(values)
+    
+    return result
+
