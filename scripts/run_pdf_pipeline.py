@@ -1,4 +1,7 @@
-"""Simple async pipeline for PDF upload → ingest → enrich → save → embed → persist embeddings."""
+"""Simple async pipeline for PDF upload → ingest → enrich → save → embed → persist embeddings.
+
+Uses ArangoDB for all storage operations (replaced PostgreSQL + Neo4j).
+"""
 
 from __future__ import annotations
 
@@ -22,15 +25,14 @@ except Exception:
     pass
 
 from loguru import logger
-from postgres_client import parse_node_from_dict
-from workflows.dependencies import init_llm_client, init_postgres_client
+from arango_client import parse_node_from_dict, KnowledgeNodeHandler
+from workflows.dependencies import init_llm_client, init_arango_client
 from workflows.enrich_knowledge_tree import EnrichKnowledgeTreeInput, start_enrich_knowledge_tree
 from workflows.embed_nodes import EmbedNodesInput, start_embed_nodes
 from workflows.embed_nodes.helper import extract_text_for_embedding
 from workflows.ingest_file import start_ingest
-from workflows.save_embeddings_to_postgres import SaveEmbeddingsInput, start_save_embeddings_to_postgres
-from workflows.save_knowledge_to_neo4j import SaveKnowledgeToNeo4jInput, start_save_knowledge_to_neo4j
-from workflows.save_knowledge_to_postgres import SaveKnowledgeInput, start_save_knowledge_to_postgres
+from workflows.save_embeddings_to_arango import SaveEmbeddingsInput, start_save_embeddings_to_arango
+from workflows.save_knowledge_to_arango import SaveKnowledgeInput, start_save_knowledge_to_arango
 from workflows.upload_file import (
     FileUploadInput,
     UploadSourceType,
@@ -43,7 +45,7 @@ async def _maybe_upload_file(
     file_path: Path,
     created_by: UUID,
     source_type: UploadSourceType,
-    pg_client,
+    arango_client,
 ) -> UUID:
     """Upload file to create DataSource; return data_source_id."""
     file_bytes = await asyncio.to_thread(file_path.read_bytes)
@@ -53,7 +55,7 @@ async def _maybe_upload_file(
         source_type=source_type,
         created_by=created_by,
     )
-    upload_result = await start_upload_file(upload_input, pg_client=pg_client)
+    upload_result = await start_upload_file(upload_input, arango_client=arango_client)
     data_source = upload_result.get("data_source") if isinstance(upload_result, dict) else upload_result.data_source
     data_source_id = UUID(data_source["id"]) if isinstance(data_source, dict) else data_source.id
     duplicate = upload_result.get("duplicate", False) if isinstance(upload_result, dict) else upload_result.duplicate
@@ -67,7 +69,7 @@ async def _process_data_source(
     data_source_id: UUID,
     embed_model: str | None,
     embed_batch_size: int,
-    pg_client,
+    arango_client,
 ) -> Dict[str, Any]:
     """Full pipeline for a single data_source_id."""
     ingest_result = await asyncio.to_thread(start_ingest, {"data_source_id": str(data_source_id)})
@@ -86,63 +88,33 @@ async def _process_data_source(
         llm_client=llm_client,
     )
 
-    # Save knowledge to postgres and neo4j in parallel
-    from workflows.dependencies import init_neo4j_client
-    
-    neo4j_client = init_neo4j_client()
-    save_knowledge_task = start_save_knowledge_to_postgres(
+    # Save knowledge to ArangoDB (document + graph)
+    save_knowledge = await start_save_knowledge_to_arango(
         SaveKnowledgeInput(
             enriched_tree=enrich_out["enriched_tree"],
             data_source_id=data_source_id,
         ),
-        pg_client=pg_client,
-    )
-    save_neo4j_task = start_save_knowledge_to_neo4j(
-        SaveKnowledgeToNeo4jInput(
-            enriched_tree=enrich_out["enriched_tree"],
-        ),
-        neo4j_client=neo4j_client,
+        arango_client=arango_client,
     )
     
-    # Run both in parallel, handle errors separately
-    save_knowledge, save_neo4j = await asyncio.gather(
-        save_knowledge_task,
-        save_neo4j_task,
-        return_exceptions=True,
-    )
-    
-    # Handle postgres result
+    # Handle result
     if isinstance(save_knowledge, Exception):
-        logger.error("Failed to save knowledge to postgres", error=str(save_knowledge))
+        logger.error("Failed to save knowledge to ArangoDB", error=str(save_knowledge))
         save_knowledge = {"total_nodes_saved": 0, "partial_success": True}
-    elif isinstance(save_knowledge, dict):
-        pass  # Already a dict
-    else:
+    elif not isinstance(save_knowledge, dict):
         save_knowledge = save_knowledge.model_dump(mode="json") if hasattr(save_knowledge, "model_dump") else save_knowledge.dict()
     
-    # Handle neo4j result
-    if isinstance(save_neo4j, Exception):
-        logger.error("Failed to save knowledge to neo4j", error=str(save_neo4j))
-        save_neo4j = {"total_nodes_saved": 0, "partial_success": True}
-    elif isinstance(save_neo4j, dict):
-        pass  # Already a dict
-    else:
-        save_neo4j = save_neo4j.model_dump(mode="json") if hasattr(save_neo4j, "model_dump") else save_neo4j.dict()
-    
     logger.info(
-        "Knowledge saved",
-        postgres_nodes=save_knowledge.get("total_nodes_saved", 0),
-        neo4j_nodes=save_neo4j.get("total_nodes_saved", 0),
+        "Knowledge saved to ArangoDB",
+        nodes_saved=save_knowledge.get("total_nodes_saved", 0),
+        relationships=save_knowledge.get("relationships_created", {}),
     )
 
-    # Query nodes from database (same as test_embed_nodes.py)
-    from postgres_client.handlers.knowledge_handler import KnowledgeNodeHandler
+    # Query nodes from database
+    handler = KnowledgeNodeHandler(arango_client.db)
+    saved_nodes = handler.get_by_source(data_source_id)
     
-    async with pg_client.sessionmaker() as session:
-        handler = KnowledgeNodeHandler(session)
-        saved_nodes = await handler.get_by_source(data_source_id)
-    
-    # Filter embeddable nodes (same as test)
+    # Filter embeddable nodes
     embeddable_nodes = [
         node for node in saved_nodes if extract_text_for_embedding(node) is not None
     ]
@@ -153,14 +125,9 @@ async def _process_data_source(
             "status": "success",
             "data_source_id": str(data_source_id),
             "knowledge_saved": {
-                "postgres": {
-                    "total_nodes_saved": save_knowledge.get("total_nodes_saved", 0),
-                    "partial_success": save_knowledge.get("partial_success", False),
-                },
-                "neo4j": {
-                    "total_nodes_saved": save_neo4j.get("total_nodes_saved", 0),
-                    "partial_success": save_neo4j.get("partial_success", False),
-                },
+                "total_nodes_saved": save_knowledge.get("total_nodes_saved", 0),
+                "relationships_created": save_knowledge.get("relationships_created", {}),
+                "partial_success": save_knowledge.get("partial_success", False),
             },
             "embeddings_saved": {"structures_saved": 0, "contents_saved": 0},
             "enrich_stats": enrich_out["statistics"],
@@ -176,27 +143,22 @@ async def _process_data_source(
         llm_client=llm_client,
     )
 
-    # Save embeddings
-    save_embed_out = await start_save_embeddings_to_postgres(
+    # Save embeddings to ArangoDB
+    save_embed_out = await start_save_embeddings_to_arango(
         SaveEmbeddingsInput(
             structure_embeddings=embed_out["structure_embeddings"],
             content_embeddings=embed_out["content_embeddings"],
         ),
-        pg_client=pg_client,
+        arango_client=arango_client,
     )
 
     return {
         "status": "success",
         "data_source_id": str(data_source_id),
         "knowledge_saved": {
-            "postgres": {
-                "total_nodes_saved": save_knowledge.get("total_nodes_saved", 0),
-                "partial_success": save_knowledge.get("partial_success", False),
-            },
-            "neo4j": {
-                "total_nodes_saved": save_neo4j.get("total_nodes_saved", 0),
-                "partial_success": save_neo4j.get("partial_success", False),
-            },
+            "total_nodes_saved": save_knowledge.get("total_nodes_saved", 0),
+            "relationships_created": save_knowledge.get("relationships_created", {}),
+            "partial_success": save_knowledge.get("partial_success", False),
         },
         "embeddings_saved": {
             "structures_saved": save_embed_out["structures_saved"],
@@ -216,27 +178,30 @@ async def run_pipeline(
     embed_batch_size: int = 10,
 ) -> Dict[str, Any]:
     """Run the PDF pipeline. If file_path is provided, upload first to get data_source_id."""
-    pg_client = init_postgres_client()
+    arango_client = init_arango_client()
     
-    ds_id = data_source_id
-    if ds_id is None and file_path:
-        if not created_by:
-            raise ValueError("--created-by is required when uploading a file")
-        ds_id = await _maybe_upload_file(
-            file_path=file_path,
-            created_by=created_by,
-            source_type=source_type,
-            pg_client=pg_client,
-        )
-    if ds_id is None:
-        raise ValueError("Either --data-source-id or --file-path must be provided.")
+    try:
+        ds_id = data_source_id
+        if ds_id is None and file_path:
+            if not created_by:
+                raise ValueError("--created-by is required when uploading a file")
+            ds_id = await _maybe_upload_file(
+                file_path=file_path,
+                created_by=created_by,
+                source_type=source_type,
+                arango_client=arango_client,
+            )
+        if ds_id is None:
+            raise ValueError("Either --data-source-id or --file-path must be provided.")
 
-    return await _process_data_source(
-        data_source_id=ds_id,
-        embed_model=embed_model,
-        embed_batch_size=embed_batch_size,
-        pg_client=pg_client,
-    )
+        return await _process_data_source(
+            data_source_id=ds_id,
+            embed_model=embed_model,
+            embed_batch_size=embed_batch_size,
+            arango_client=arango_client,
+        )
+    finally:
+        arango_client.close()
 
 
 def parse_args() -> argparse.Namespace:
@@ -272,4 +237,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

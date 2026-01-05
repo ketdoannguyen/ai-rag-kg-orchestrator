@@ -9,8 +9,7 @@ from config.llm_gateway import build_llm_gateway_client
 from config.settings import get_settings, settings
 from llm_gateway_client import AIGatewayClient
 from minio_client import StorageClient
-from neo4j_client import Neo4jClient
-from postgres_client import PostgresClient
+from arango_client import ArangoClient
 
 
 @lru_cache(maxsize=1)
@@ -45,40 +44,39 @@ def init_llm_client() -> AIGatewayClient:
     return build_llm_gateway_client(cfg)
 
 
-def init_postgres_client(database_url: Optional[str] = None) -> PostgresClient:
-    """Create a Postgres client, defaulting to the configured database URL."""
-    url = database_url or get_settings().DATABASE_URL
-    if not url:
-        raise ValueError("DATABASE_URL must be provided via argument or settings.")
-    return PostgresClient(url=url)
-
-
-def init_neo4j_client(
-    uri: Optional[str] = None,
-    user: Optional[str] = None,
+def init_arango_client(
+    url: Optional[str] = None,
+    database: Optional[str] = None,
+    username: Optional[str] = None,
     password: Optional[str] = None,
-) -> Neo4jClient:
+) -> ArangoClient:
     """
-    Create a Neo4j client, defaulting to configured settings.
+    Create an ArangoDB client, defaulting to configured settings.
     
     Args:
-        uri: Neo4j URI (defaults to settings.NEO4J_URI)
-        user: Neo4j username (defaults to settings.NEO4J_USER)
-        password: Neo4j password (defaults to settings.NEO4J_PASSWORD)
+        url: ArangoDB URL (defaults to settings.ARANGO_URL)
+        database: Database name (defaults to settings.ARANGO_DATABASE)
+        username: Username (defaults to settings.ARANGO_USER)
+        password: Password (defaults to settings.ARANGO_PASSWORD)
     
     Returns:
-        Neo4jClient instance with async driver
+        ArangoClient instance with auto-initialized schema
     """
     cfg = get_settings()
-    neo4j_uri = uri or cfg.NEO4J_URI
-    neo4j_user = user or cfg.NEO4J_USER
-    neo4j_password = password or cfg.NEO4J_PASSWORD
+    arango_url = url or cfg.ARANGO_URL
+    arango_database = database or cfg.ARANGO_DATABASE
+    arango_user = username or cfg.ARANGO_USER
+    arango_password = password or cfg.ARANGO_PASSWORD
     
-    if not neo4j_uri:
-        raise ValueError("NEO4J_URI must be provided via argument or settings.")
-    if not neo4j_user:
-        raise ValueError("NEO4J_USER must be provided via argument or settings.")
-    if not neo4j_password:
-        raise ValueError("NEO4J_PASSWORD must be provided via argument or settings.")
+    if not arango_url:
+        raise ValueError("ARANGO_URL must be provided via argument or settings.")
+    if not arango_database:
+        raise ValueError("ARANGO_DATABASE must be provided via argument or settings.")
     
-    return Neo4jClient(uri=neo4j_uri, user=neo4j_user, password=neo4j_password, use_async=True)
+    return ArangoClient(
+        url=arango_url,
+        database=arango_database,
+        username=arango_user,
+        password=arango_password,
+        auto_init=True,
+    )

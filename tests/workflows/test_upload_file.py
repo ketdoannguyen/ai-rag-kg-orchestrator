@@ -5,10 +5,9 @@ import unittest
 from pathlib import Path
 from uuid import UUID
 
-from workflows.dependencies import get_minio_client, init_postgres_client
+from workflows.dependencies import get_minio_client, init_arango_client
 from workflows.upload_file import FileUploadInput, UploadSourceType, start_upload_file
-from postgres_client.handlers.system_admin_handler import SystemAdminHandler
-from postgres_client.models.system_admin import User
+from arango_client import ArangoClient, SystemAdminHandler, User
 
 
 class UploadFileWorkflowIntegrationTest(unittest.TestCase):
@@ -24,27 +23,26 @@ class UploadFileWorkflowIntegrationTest(unittest.TestCase):
                 f"Sample file '{cls.SAMPLE_FILE}' is required for the integration test."
             )
         cls._storage = get_minio_client()
-        cls._pg_client = init_postgres_client()
-        cls._sessionmaker = cls._pg_client.sessionmaker
-        asyncio.run(cls._ensure_user_exists())
+        cls._arango_client: ArangoClient = init_arango_client()
+        cls._ensure_user_exists()
 
     @classmethod
     def tearDownClass(cls) -> None:
-        if hasattr(cls, "_pg_client"):
-            asyncio.run(cls._pg_client.close())
+        if hasattr(cls, "_arango_client"):
+            cls._arango_client.close()
 
     @classmethod
-    async def _ensure_user_exists(cls) -> None:
-        async with cls._sessionmaker() as session:
-            handler = SystemAdminHandler(session)
-            existing = await handler.users.get_by_id(cls.CREATED_BY)
-            if existing is None:
-                user = User(
-                    id=cls.CREATED_BY,
-                    username="upload_workflow_tester",
-                    hashed_password="temporary",
-                )
-                await handler.users.create(user)
+    def _ensure_user_exists(cls) -> None:
+        """Create test user if not exists (sync operation)."""
+        handler = SystemAdminHandler(cls._arango_client.db)
+        existing = handler.users.get_by_id(cls.CREATED_BY)
+        if existing is None:
+            user = User(
+                id=cls.CREATED_BY,
+                username="upload_workflow_tester",
+                hashed_password="temporary",
+            )
+            handler.users.create(user)
 
     def test_upload_pdf_end_to_end(self) -> None:
         payload = FileUploadInput(
@@ -62,7 +60,7 @@ class UploadFileWorkflowIntegrationTest(unittest.TestCase):
             start_upload_file(
                 payload,
                 storage=self._storage,
-                pg_client=self._pg_client,
+                arango_client=self._arango_client,
                 fail_on_duplicate=False,
             )
         )
