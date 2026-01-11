@@ -42,7 +42,7 @@ async def start_enrich_knowledge_tree(
 
     enricher = KnowledgeTreeEnricher(llm_client=gateway_client)
     result = await enricher.enrich(input_payload)
-    
+
     # Custom serialization to properly handle nested children in enriched_tree
     # Pydantic's model_dump() doesn't correctly serialize children subclasses
     if hasattr(result, "model_dump"):

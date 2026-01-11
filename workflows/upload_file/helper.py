@@ -19,5 +19,3 @@ def log_upload_retry(retry_state: RetryCallState) -> None:
 
 
 __all__ = ["log_upload_retry"]
-
-

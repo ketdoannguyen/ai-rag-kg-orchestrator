@@ -31,7 +31,7 @@ from .helper import (
     count_paragraphs,
     create_refined_paragraphs_from_segments,
     get_title,
-    aggregate_children_metadata,
+    aggregate_children_filter,
 )
 
 from .models import (
@@ -56,7 +56,7 @@ class KnowledgeTreeEnricher:
 
     def __init__(self, llm_client: AIGatewayClient) -> None:
         self.llm_client = llm_client
-    
+
     # ---------------------------------------------------------------------
     # Low-level LLM invocation with retry
     # ---------------------------------------------------------------------
@@ -84,9 +84,7 @@ class KnowledgeTreeEnricher:
         state.stats.paragraphs_before = count_paragraphs(root)
 
         # Global semaphore to limit concurrent section processing / LLM calls
-        semaphore = asyncio.Semaphore(
-            workflow_input.refine_config.max_concurrent_sections
-        )
+        semaphore = asyncio.Semaphore(workflow_input.refine_config.max_concurrent_sections)
 
         # Bottom-up traversal: process all Structure nodes; children first, parent after.
         await self._process_structure_node(
@@ -188,7 +186,11 @@ class KnowledgeTreeEnricher:
             await asyncio.gather(*tasks, return_exceptions=False)
 
         # 2) Refine DETAIL children of current node (paragraphs/tables)
-        refined_children, section_stats, detail_section_summary = await self._refine_detail_children(
+        (
+            refined_children,
+            section_stats,
+            detail_section_summary,
+        ) = await self._refine_detail_children(
             node=node,
             breadcrumb=breadcrumb,
             state=state,
@@ -198,10 +200,10 @@ class KnowledgeTreeEnricher:
         # Replace children with refined version (images + refined paragraphs/tables + structure children)
         node.children = refined_children
 
-        # 2.5) Aggregate domain_metadata from all children (paragraphs + structure nodes)
-        aggregated_metadata = aggregate_children_metadata(node.children)
-        if aggregated_metadata:
-            node.metadata.domain_metadata = aggregated_metadata
+        # 2.5) Aggregate domain_filter from all children (paragraphs + structure nodes)
+        aggregated_filter = aggregate_children_filter(node.children)
+        if aggregated_filter:
+            node.metadata.domain_filter = aggregated_filter
 
         # 3) Enrich current StructureNode with summary that takes into account:
         #    - summaries from STRUCTURE children (stored in state.node_summaries)
@@ -229,7 +231,6 @@ class KnowledgeTreeEnricher:
             "original_detail_count": section_stats.get("original_detail_count", 0),
             "refined_detail_count": section_stats.get("refined_detail_count", 0),
         }
-
 
     # ---------------------------------------------------------------------
     # Detail refinement
@@ -270,10 +271,14 @@ class KnowledgeTreeEnricher:
                 *structure_children,
             ]
             # _enrich_structure_node will read full paragraph text from children directly.
-            return new_children, {
-                "original_detail_count": original_detail_count,
-                "refined_detail_count": original_detail_count,
-            }, None
+            return (
+                new_children,
+                {
+                    "original_detail_count": original_detail_count,
+                    "refined_detail_count": original_detail_count,
+                },
+                None,
+            )
 
         # Case: >=2 detail nodes → call LLM to merge/refine
         logger.info(
@@ -295,10 +300,14 @@ class KnowledgeTreeEnricher:
                 *image_children,
                 *structure_children,
             ]
-            return new_children, {
-                "original_detail_count": original_detail_count,
-                "refined_detail_count": original_detail_count,
-            }, None
+            return (
+                new_children,
+                {
+                    "original_detail_count": original_detail_count,
+                    "refined_detail_count": original_detail_count,
+                },
+                None,
+            )
 
         detail_result = await self._invoke_detail_llm(
             items=collected_items,
@@ -310,11 +319,15 @@ class KnowledgeTreeEnricher:
         segments = detail_result.get("segments", [])
         detail_section_summary = detail_result.get("section_summary")
 
+        # Get domain name from schema if available
+        domain_name = workflow_input.domain_schema.name if workflow_input.domain_schema else None
+
         refined_paragraphs = create_refined_paragraphs_from_segments(
             segments=segments,
             items=collected_items,
             parent=node,
             domain_schema=workflow_input.domain_schema,
+            domain=domain_name,
         )
 
         refined_detail_count = len(refined_paragraphs)
@@ -326,10 +339,14 @@ class KnowledgeTreeEnricher:
             *structure_children,
         ]
 
-        return new_children, {
-            "original_detail_count": original_detail_count,
-            "refined_detail_count": refined_detail_count,
-        }, detail_section_summary
+        return (
+            new_children,
+            {
+                "original_detail_count": original_detail_count,
+                "refined_detail_count": refined_detail_count,
+            },
+            detail_section_summary,
+        )
 
     async def _invoke_detail_llm(
         self,
@@ -519,5 +536,3 @@ class KnowledgeTreeEnricher:
                 extra={"error": str(e)},
             )
             return None
-
-

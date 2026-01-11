@@ -7,12 +7,13 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     """Global application settings loaded from environment or .env file."""
+
     # ArangoDB Configuration
     ARANGO_URL: str = "http://localhost:8529"
-    ARANGO_DATABASE: str = "knowledge_db"
+    ARANGO_DATABASE: str = ""
     ARANGO_USER: str = "root"
     ARANGO_PASSWORD: str = ""
-    
+
     REDIS_URL: str = "redis://localhost:6379/0"
     MINIO_ENDPOINT: str = "http://localhost:9000"
     MINIO_ACCESS_KEY: str = "minio"

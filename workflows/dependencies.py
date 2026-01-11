@@ -52,13 +52,13 @@ def init_arango_client(
 ) -> ArangoClient:
     """
     Create an ArangoDB client, defaulting to configured settings.
-    
+
     Args:
         url: ArangoDB URL (defaults to settings.ARANGO_URL)
         database: Database name (defaults to settings.ARANGO_DATABASE)
         username: Username (defaults to settings.ARANGO_USER)
         password: Password (defaults to settings.ARANGO_PASSWORD)
-    
+
     Returns:
         ArangoClient instance with auto-initialized schema
     """
@@ -67,12 +67,12 @@ def init_arango_client(
     arango_database = database or cfg.ARANGO_DATABASE
     arango_user = username or cfg.ARANGO_USER
     arango_password = password or cfg.ARANGO_PASSWORD
-    
+
     if not arango_url:
         raise ValueError("ARANGO_URL must be provided via argument or settings.")
     if not arango_database:
         raise ValueError("ARANGO_DATABASE must be provided via argument or settings.")
-    
+
     return ArangoClient(
         url=arango_url,
         database=arango_database,

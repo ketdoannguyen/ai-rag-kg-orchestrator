@@ -29,9 +29,7 @@ class ImageHandler:
                 image_url = urljoin(base_url, image_url)
 
             # Download image in a worker thread because requests is blocking.
-            response = await asyncio.to_thread(
-                requests.get, image_url, timeout=30, stream=True
-            )
+            response = await asyncio.to_thread(requests.get, image_url, timeout=30, stream=True)
             response.raise_for_status()
 
             # Determine content type

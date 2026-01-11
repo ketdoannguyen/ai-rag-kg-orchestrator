@@ -1,5 +1,3 @@
 """
 API service package.
 """
-
-

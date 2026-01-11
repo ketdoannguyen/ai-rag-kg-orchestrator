@@ -1,5 +1,3 @@
 """
 Celery tasks.
 """
-
-

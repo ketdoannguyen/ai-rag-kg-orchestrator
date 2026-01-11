@@ -32,16 +32,16 @@ def extract_text_for_embedding(node: KnowledgeNode) -> str | None:
         description = node.attributes.description
         if description and description.strip():
             return description.strip()
-        
+
         # 2. Try summary field (set by enricher on the model)
-        if hasattr(node, 'summary') and node.summary and node.summary.strip():
+        if hasattr(node, "summary") and node.summary and node.summary.strip():
             return node.summary.strip()
-        
+
         # 3. Fallback to title
         title = node.attributes.title
         if title and title.strip():
             return title.strip()
-        
+
         return None
 
     elif isinstance(node, ParagraphNode):
@@ -88,7 +88,9 @@ def collect_embeddable_nodes(nodes: List[KnowledgeNode]) -> List[Tuple[Knowledge
     return embeddable
 
 
-def create_batches(items: List[Tuple[KnowledgeNode, str]], batch_size: int) -> List[List[Tuple[KnowledgeNode, str]]]:
+def create_batches(
+    items: List[Tuple[KnowledgeNode, str]], batch_size: int
+) -> List[List[Tuple[KnowledgeNode, str]]]:
     """
     Split items into batches of specified size.
 

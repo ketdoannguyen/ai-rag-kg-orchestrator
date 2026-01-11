@@ -24,14 +24,14 @@ class SemanticParagraphSplitter:
 
         # First, split by newlines to handle multi-line paragraphs
         lines = text.split("\n")
-        
+
         # Process each line and split by sentence boundaries
         all_sentences = []
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            
+
             # Split by sentence boundaries (., !, ?)
             sentences = self._split_by_sentences(line)
             all_sentences.extend(sentences)

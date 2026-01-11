@@ -126,4 +126,3 @@ __all__ = [
     "TableMetadata",
 ]
 __version__ = "0.1.0"
-

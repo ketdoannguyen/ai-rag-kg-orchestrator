@@ -22,10 +22,10 @@ TEST_ARANGO_PASSWORD = "test"
 def arango_client():
     """
     Create ArangoDB client for the test session.
-    
+
     Creates a fresh test database before tests.
     Drops it after all tests complete UNLESS KEEP_TEST_DB=true.
-    
+
     Environment Variables:
         KEEP_TEST_DB: Set to "true" to preserve test database for inspection.
     """
@@ -37,12 +37,12 @@ def arango_client():
         password=TEST_ARANGO_PASSWORD,
         auto_init=True,
     )
-    
+
     yield client
-    
+
     # Conditional Teardown: Check KEEP_TEST_DB environment variable
     keep_db = os.getenv("KEEP_TEST_DB", "").lower() == "true"
-    
+
     if keep_db:
         print(f"\n✅ Test DB preserved at '{TEST_DATABASE}' for inspection")
         print(f"   URL: {TEST_ARANGO_URL}")
@@ -52,7 +52,7 @@ def arango_client():
     else:
         # Default behavior: drop test database for clean environment
         client.drop_database(confirm=True)
-    
+
     client.close()
 
 
@@ -66,13 +66,13 @@ def db(arango_client):
 def clean_collections(db):
     """Clean all collections before each test."""
     from arango_client.collections import ALL_DOCUMENT_COLLECTIONS, ALL_EDGE_COLLECTIONS
-    
+
     for coll_name in ALL_DOCUMENT_COLLECTIONS + ALL_EDGE_COLLECTIONS:
         if db.has_collection(coll_name):
             db.collection(coll_name).truncate()
-    
+
     yield
-    
+
     # Also clean after test (only if not keeping DB)
     keep_db = os.getenv("KEEP_TEST_DB", "").lower() == "true"
     if not keep_db:

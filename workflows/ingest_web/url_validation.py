@@ -19,13 +19,13 @@ async def validate_urls(
     Validate URLs for web ingestion.
 
     - Check format hợp lệ (regex: ^https?://)
-    - Check domain có accessible không (DNS lookup)  
+    - Check domain có accessible không (DNS lookup)
     - Check robots.txt nếu respect_robots_txt=true
 
     Args:
         urls: List of URLs to validate
         crawl_config: Configuration dict with respect_robots_txt flag
-        
+
     Returns:
         dict with keys:
         - "valid": list[str] - Valid URLs
@@ -67,21 +67,23 @@ async def validate_urls(
                 logger.warning(skip_reason)
 
         if skip_reason:
-            skipped_results.append({
-                "url": url,
-                "skip_reason": skip_reason,
-            })
+            skipped_results.append(
+                {
+                    "url": url,
+                    "skip_reason": skip_reason,
+                }
+            )
 
     return {"valid": valid_urls, "skipped": skipped_results}
 
 
 async def check_robots_txt(url: str, domain: str) -> bool:
     """Check if URL is allowed by robots.txt.
-    
+
     Args:
         url: URL to check
         domain: Domain name for robots.txt lookup
-        
+
     Returns:
         True if URL is allowed, False if disallowed
     """

@@ -21,4 +21,3 @@ __all__ = [
     "extract_json_from_response",
     "calculate_md5",
 ]
-

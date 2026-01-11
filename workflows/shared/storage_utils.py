@@ -103,4 +103,3 @@ async def upload_bytes(
         metadata=metadata,
     )
     return object_name
-

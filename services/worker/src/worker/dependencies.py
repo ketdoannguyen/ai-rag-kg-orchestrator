@@ -21,4 +21,3 @@ def get_ingest_workflow():
         return start_ingest(file_path=file_path)
 
     return runner
-

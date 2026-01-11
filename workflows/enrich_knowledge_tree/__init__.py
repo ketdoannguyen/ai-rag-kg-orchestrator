@@ -10,4 +10,3 @@ __all__ = [
     "KnowledgeTreeEnricher",
     "start_enrich_knowledge_tree",
 ]
-

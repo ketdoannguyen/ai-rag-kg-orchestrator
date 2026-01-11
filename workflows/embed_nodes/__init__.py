@@ -9,4 +9,3 @@ __all__ = [
     "EmbedNodesWorkflow",
     "start_embed_nodes",
 ]
-

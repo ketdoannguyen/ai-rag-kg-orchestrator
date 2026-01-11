@@ -40,7 +40,7 @@ async def start_save_embeddings_to_arango(
 
     workflow = SaveEmbeddingsToArangoWorkflow(arango_client=client)
     result = await workflow.run(input_payload)
-    
+
     if hasattr(result, "model_dump"):
         return result.model_dump(mode="json")
     return result.dict()
@@ -149,13 +149,13 @@ class SaveEmbeddingsToArangoWorkflow:
                 f"Saving embedding with {vector_len} dimensions",
                 node_id=str(embedding.node_id),
             )
-        
+
         # Use update_embedding method which handles both create and update
         result = handler.update_embedding(
             node_id=embedding.node_id,
             vector=embedding.vector,
             text=embedding.text,
         )
-        
+
         if result is None:
             raise ValueError(f"Node {embedding.node_id} not found in database")

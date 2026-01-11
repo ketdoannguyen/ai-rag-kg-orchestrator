@@ -1,5 +1,3 @@
 """
 Worker service package.
 """
-
-

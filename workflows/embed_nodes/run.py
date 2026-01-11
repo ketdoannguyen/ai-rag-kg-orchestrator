@@ -148,7 +148,7 @@ class EmbedNodesWorkflow:
     def _get_node_type_str(self, node: KnowledgeNode) -> str:
         """Get node_type as string."""
         node_type = node.node_type
-        if hasattr(node_type, 'value'):
+        if hasattr(node_type, "value"):
             return node_type.value
         return str(node_type).lower()
 
@@ -171,12 +171,14 @@ class EmbedNodesWorkflow:
             if vectors is None:
                 # Retry exhausted
                 for node, text in batch:
-                    failed_nodes.append({
-                        "node_id": str(node.id),
-                        "node_type": self._get_node_type_str(node),
-                        "error": "Embedding failed after retries",
-                        "retry_count": 3,
-                    })
+                    failed_nodes.append(
+                        {
+                            "node_id": str(node.id),
+                            "node_type": self._get_node_type_str(node),
+                            "error": "Embedding failed after retries",
+                            "retry_count": 3,
+                        }
+                    )
                 return
 
             # Map vectors back to nodes
@@ -187,24 +189,26 @@ class EmbedNodesWorkflow:
                     got=len(vectors),
                 )
                 for node, text in batch:
-                    failed_nodes.append({
-                        "node_id": str(node.id),
-                        "node_type": self._get_node_type_str(node),
-                        "error": "Vector count mismatch",
-                        "retry_count": 0,
-                    })
+                    failed_nodes.append(
+                        {
+                            "node_id": str(node.id),
+                            "node_type": self._get_node_type_str(node),
+                            "error": "Vector count mismatch",
+                            "retry_count": 0,
+                        }
+                    )
                 return
 
             # Create embedding data
             for (node, text), vector in zip(batch, vectors):
                 node_type = self._get_node_type_str(node)
-                
+
                 embedding_data = EmbeddingData(
                     node_id=node.id,
                     vector=vector,
                     text=text,
                 )
-                
+
                 if node_type == "structure":
                     structure_embeddings.append(embedding_data)
                 else:
@@ -217,9 +221,11 @@ class EmbedNodesWorkflow:
                 batch_size=len(batch),
             )
             for node, text in batch:
-                failed_nodes.append({
-                    "node_id": str(node.id),
-                    "node_type": self._get_node_type_str(node),
-                    "error": str(exc),
-                    "retry_count": 3,
-                })
+                failed_nodes.append(
+                    {
+                        "node_id": str(node.id),
+                        "node_type": self._get_node_type_str(node),
+                        "error": str(exc),
+                        "retry_count": 3,
+                    }
+                )

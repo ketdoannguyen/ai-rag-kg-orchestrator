@@ -12,5 +12,3 @@ app.include_router(cms.router)
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
-
-

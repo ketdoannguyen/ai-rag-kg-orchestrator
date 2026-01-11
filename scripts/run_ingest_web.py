@@ -109,6 +109,7 @@ def main() -> None:
     except Exception as e:
         logger.error(f"Error during web ingestion: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
