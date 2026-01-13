@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from loguru import logger
@@ -12,6 +13,7 @@ from arango_client import (
     ImageNode,
     NodeType,
 )
+from config.chunking import MAX_CHUNK_SIZE
 
 if TYPE_CHECKING:
     from config.domains import DomainSchema
@@ -49,12 +51,14 @@ def collect_detail_items(
             text = (node.attributes.text or "").strip()
             if not text:
                 continue
-            items.append({
-                "type": "paragraph",
-                "id": str(node.id),
-                "text": text,
-                "node": node,
-            })
+            items.append(
+                {
+                    "type": "paragraph",
+                    "id": str(node.id),
+                    "text": text,
+                    "node": node,
+                }
+            )
         elif isinstance(node, TableNode):
             text = (node.attributes.extracted_text or "").strip()
             if not text:
@@ -67,12 +71,14 @@ def collect_detail_items(
                 text = "\n".join(table_lines).strip()
             if not text:
                 continue
-            items.append({
-                "type": "table",
-                "id": str(node.id),
-                "text": text,
-                "node": node,
-            })
+            items.append(
+                {
+                    "type": "table",
+                    "id": str(node.id),
+                    "text": text,
+                    "node": node,
+                }
+            )
     return items
 
 
@@ -104,31 +110,43 @@ def create_refined_paragraphs_from_segments(
     items: List[Dict[str, Any]],
     parent: StructureNode,
     domain_schema: Optional["DomainSchema"] = None,
+    domain: str | None = None,
 ) -> List[ParagraphNode]:
     """Create new ParagraphNodes from LLM segments.
-    
+
     Args:
         segments: LLM output segments with text, summary, and optional metadata
         items: Original items for reference
         parent: Parent StructureNode
         domain_schema: Optional schema for metadata normalization/validation
+        domain: Domain identifier to set on created nodes
+
+    Note:
+        This function tracks consumed indices and recovers missing items
+        as separate paragraphs to prevent data loss when LLM doesn't
+        include all source_indices in output.
     """
     if not segments:
         return _fallback_to_originals(items, parent)
 
     refined: List[ParagraphNode] = []
+    # Track which 1-indexed items have been consumed by segments
+    consumed_indices: set[int] = set()
+
     for seg in segments:
         indices = seg.get("source_indices", [])
         content = (seg.get("text") or seg.get("content") or "").strip()
         if not content or not indices:
             continue
 
-        valid_indices = [
-            i - 1 for i in indices
-            if isinstance(i, int) and 1 <= i <= len(items)
-        ]
+        valid_indices = [i - 1 for i in indices if isinstance(i, int) and 1 <= i <= len(items)]
         if not valid_indices:
             continue
+
+        # Mark these indices as consumed (1-indexed for tracking)
+        for i in indices:
+            if isinstance(i, int) and 1 <= i <= len(items):
+                consumed_indices.add(i)
 
         # Get page from source nodes
         page = None
@@ -143,29 +161,31 @@ def create_refined_paragraphs_from_segments(
         summary = (seg.get("summary") or "").strip()
         paragraph_text = f"{summary} : {content}" if summary else content
 
-        # Process domain metadata
-        raw_metadata = seg.get("metadata") or {}
-        domain_metadata = {}
-        
-        if raw_metadata and domain_schema:
+        # Process domain filter from LLM response
+        raw_filter = (
+            seg.get("filter") or seg.get("metadata") or {}
+        )  # fallback to metadata for backward compat
+        domain_filter = {}
+
+        if raw_filter and domain_schema:
             # Normalize using aliases
-            normalized = domain_schema.normalize_metadata(raw_metadata)
-            
+            normalized = domain_schema.normalize_metadata(raw_filter)
+
             # Validate against allowed_values
             errors = domain_schema.validate_metadata(normalized)
             if errors:
                 logger.debug(
-                    "Filtered invalid metadata",
+                    "Filtered invalid filter values",
                     errors=errors,
-                    raw=raw_metadata,
+                    raw=raw_filter,
                 )
                 # Keep only valid fields
                 normalized = {k: v for k, v in normalized.items() if k not in errors}
-            
-            domain_metadata = normalized
-        elif raw_metadata:
+
+            domain_filter = normalized
+        elif raw_filter:
             # No schema, keep as-is
-            domain_metadata = raw_metadata
+            domain_filter = raw_filter
 
         refined.append(
             ParagraphNode(
@@ -173,10 +193,11 @@ def create_refined_paragraphs_from_segments(
                 parent_id=parent.id,
                 node_type=NodeType.PARAGRAPH,
                 level=0,
+                domain=domain,
                 attributes={"text": paragraph_text},
                 metadata={
                     "page": page,
-                    "domain_metadata": domain_metadata,
+                    "domain_filter": domain_filter,
                 },
             )
         )
@@ -185,67 +206,106 @@ def create_refined_paragraphs_from_segments(
     if not refined:
         return _fallback_to_originals(items, parent)
 
+    # Check for missing indices and recover them as separate paragraphs
+    all_indices = set(range(1, len(items) + 1))
+    missing_indices = all_indices - consumed_indices
+
+    if missing_indices:
+        logger.warning(
+            "LLM did not include all source items in segments, recovering missing items",
+            extra={
+                "missing_indices": sorted(missing_indices),
+                "total_items": len(items),
+                "consumed_count": len(consumed_indices),
+            },
+        )
+        # Append missing items as separate paragraphs to prevent data loss
+        for idx in sorted(missing_indices):
+            item = items[idx - 1]  # Convert to 0-indexed
+            source_node: KnowledgeNode = item["node"]
+
+            # Get page from source node
+            page = None
+            if isinstance(source_node, (ParagraphNode, TableNode, ImageNode)):
+                page = getattr(source_node.metadata, "page", None)
+
+            # Preserve original domain_filter if exists
+            original_filter = {}
+            if hasattr(source_node, "metadata") and hasattr(source_node.metadata, "domain_filter"):
+                original_filter = source_node.metadata.domain_filter or {}
+
+            refined.append(
+                ParagraphNode(
+                    source_id=parent.source_id,
+                    parent_id=parent.id,
+                    node_type=NodeType.PARAGRAPH,
+                    level=0,
+                    domain=domain,
+                    attributes={"text": item["text"]},
+                    metadata={
+                        "page": page,
+                        "domain_filter": original_filter,
+                    },
+                )
+            )
+
     return refined
 
 
-def aggregate_children_metadata(children: List[KnowledgeNode]) -> Dict[str, Any]:
-    """Aggregate domain_metadata from children using union strategy.
-    
-    Collects all unique values for each field across children.
-    Single values stay as-is, multiple unique values become a list.
-    
+def aggregate_children_filter(children: List[KnowledgeNode]) -> Dict[str, Any]:
+    """Aggregate domain_filter from direct children using union strategy.
+
+    Collects all unique values for each field across direct children only.
+    ALL values are returned as lists for consistency.
+
     Example:
-        Child 1: {"year": 2024, "major_name": "CNTT"}
-        Child 2: {"year": 2025, "major_name": "CNTT"}
-        Result:  {"year": [2024, 2025], "major_name": "CNTT"}
+        Child 1: {"year": [2024], "major_name": ["CNTT"]}
+        Child 2: {"year": [2025], "major_name": ["CNTT"]}
+        Result:  {"year": [2024, 2025], "major_name": ["CNTT"]}
     """
     aggregated: Dict[str, set] = {}
-    
+
     for child in children:
-        # Get domain_metadata from child's metadata
+        # Get domain_filter from child's metadata (direct children only)
         metadata = getattr(child, "metadata", None)
         if not metadata:
             continue
-            
-        domain_meta = getattr(metadata, "domain_metadata", None)
-        if not domain_meta:
+
+        domain_filter = getattr(metadata, "domain_filter", None)
+        if not domain_filter:
             # Try dict access
             if isinstance(metadata, dict):
-                domain_meta = metadata.get("domain_metadata", {})
+                domain_filter = metadata.get("domain_filter", {})
             else:
                 continue
-        
-        if not domain_meta or not isinstance(domain_meta, dict):
+
+        if not domain_filter or not isinstance(domain_filter, dict):
             continue
-            
-        for key, value in domain_meta.items():
+
+        for key, value in domain_filter.items():
             if value is None:
                 continue
             if key not in aggregated:
                 aggregated[key] = set()
-            # Handle list values
+            # Handle list values (expected format)
             if isinstance(value, list):
                 for v in value:
                     if v is not None:
                         aggregated[key].add(v)
             else:
+                # Handle legacy single values
                 aggregated[key].add(value)
-    
-    # Convert sets to final format
+
+    # Convert sets to lists (ALL values must be lists for consistency)
     result: Dict[str, Any] = {}
     for key, values in aggregated.items():
         if len(values) == 0:
             continue
-        elif len(values) == 1:
-            # Single value stays as-is (not a list)
-            result[key] = next(iter(values))
-        else:
-            # Multiple values become sorted list
-            try:
-                result[key] = sorted(values)
-            except TypeError:
-                # Cannot sort mixed types
-                result[key] = list(values)
-    
-    return result
+        # ALWAYS return as list for consistency with schema type='list'
+        try:
+            result[key] = sorted(values)
+        except TypeError:
+            # Cannot sort mixed types
+            result[key] = list(values)
 
+    return result

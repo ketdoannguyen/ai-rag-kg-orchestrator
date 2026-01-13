@@ -24,8 +24,13 @@ class TestClientConnection:
 
     def test_client_creates_document_collections(self, db):
         """Test that all document collections are created."""
+        # Multi-collection strategy: knowledge nodes split across multiple collections
         expected = [
-            Collections.KNOWLEDGE_NODES,
+            Collections.PARAGRAPH_NODES,
+            Collections.IMAGE_NODES,
+            Collections.TABLE_NODES,
+            Collections.STRUCTURE_NODES,
+            Collections.ROOT_NODES,
             Collections.CHAT_SESSIONS,
             Collections.CHAT_MESSAGES,
             Collections.FEEDBACKS,
