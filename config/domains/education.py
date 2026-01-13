@@ -9,15 +9,15 @@ EDUCATION_SCHEMA = DomainSchema(
     metadata_fields=[
         MetadataField(
             name="year",
-            type="integer",
-            description="Năm tuyển sinh/học",
+            type="list",
+            description="Năm tuyển sinh/học (trả về dạng list, VD: [2024, 2025])",
             allowed_values=[2023, 2024, 2025, 2026],
             extraction_hints=["năm", "niên khóa", "khóa"],
         ),
         MetadataField(
             name="major_name",
-            type="string",
-            description="Tên ngành đã chuẩn hóa",
+            type="list",
+            description="Tên ngành đã chuẩn hóa (trả về dạng list)",
             allowed_values=[
                 "Công nghệ thông tin",
                 "Khoa học máy tính",
@@ -53,8 +53,8 @@ EDUCATION_SCHEMA = DomainSchema(
         ),
         MetadataField(
             name="admission_method",
-            type="string",
-            description="Phương thức xét tuyển",
+            type="list",
+            description="Phương thức xét tuyển (trả về dạng list)",
             allowed_values=[
                 "Học bạ",
                 "THPT",
@@ -72,8 +72,8 @@ EDUCATION_SCHEMA = DomainSchema(
         ),
         MetadataField(
             name="training_system",
-            type="string", 
-            description="Hệ đào tạo",
+            type="list",
+            description="Hệ đào tạo (trả về dạng list)",
             allowed_values=[
                 "Chất lượng cao",
                 "Đại trà",

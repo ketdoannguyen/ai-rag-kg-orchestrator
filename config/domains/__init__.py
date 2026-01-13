@@ -9,11 +9,11 @@ Usage:
     # Get domain from environment (DOMAIN_NAME)
     from config.domains import get_current_domain
     schema = get_current_domain()
-    
+
     # Or get specific domain
     from config.domains import get_domain
     schema = get_domain("education")
-    
+
     # Add new domain:
     # 1. Create config/domains/your_domain.py with YOUR_DOMAIN_SCHEMA
     # 2. Register in DOMAIN_REGISTRY below
@@ -33,8 +33,10 @@ from .base import DomainSchema, MetadataField
 # Lazy loading to avoid circular imports
 # To add new domain: add entry here + create the schema file
 
+
 def _load_education() -> DomainSchema:
     from .education import EDUCATION_SCHEMA
+
     return EDUCATION_SCHEMA
 
 
@@ -50,15 +52,16 @@ DOMAIN_REGISTRY: Dict[str, Callable[[], DomainSchema]] = {
 # Public API
 # =============================================================================
 
+
 def get_domain(name: str) -> DomainSchema:
     """Get domain schema by name.
-    
+
     Args:
         name: Domain name (e.g., "education")
-        
+
     Returns:
         DomainSchema for the requested domain
-        
+
     Raises:
         KeyError: If domain not found
     """
@@ -70,9 +73,9 @@ def get_domain(name: str) -> DomainSchema:
 
 def get_current_domain() -> DomainSchema:
     """Get current domain from environment.
-    
+
     Uses DOMAIN_NAME environment variable, defaults to 'education'.
-    
+
     Returns:
         DomainSchema for current domain
     """
@@ -101,9 +104,11 @@ __all__ = [
     "EDUCATION_SCHEMA",
 ]
 
+
 # Lazy import for convenience (avoids loading all schemas upfront)
 def __getattr__(name: str):
     if name == "EDUCATION_SCHEMA":
         from .education import EDUCATION_SCHEMA
+
         return EDUCATION_SCHEMA
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
