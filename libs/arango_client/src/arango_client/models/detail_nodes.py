@@ -21,24 +21,20 @@ from .enums import NodeType
 class DetailNode(KnowledgeNode):
     """
     Base class for all detail-level nodes (Paragraph, Image, Table).
-    
+
     Detail nodes are leaf nodes containing actual content.
     They share these common fields:
     - embedding: Vector embedding for semantic search
     - text: Content text used for embedding
-    
+
     Detail nodes always have level=0 (leaf level).
     """
 
     # Detail-specific fields (shared by all detail types)
     embedding: list[float] | None = Field(
-        None,
-        description="Content embedding vector for semantic search"
+        None, description="Content embedding vector for semantic search"
     )
-    text: str | None = Field(
-        None,
-        description="Content text used for embedding"
-    )
+    text: str | None = Field(None, description="Content text used for embedding")
 
     def __init__(self, **data: Any) -> None:
         """Initialize detail node with default level=0."""
@@ -51,11 +47,11 @@ class DetailNode(KnowledgeNode):
 class ParagraphNode(DetailNode):
     """
     Paragraph node for DETAIL level.
-    
+
     Attributes:
         - text: The paragraph text content
         - title: Optional paragraph title/heading
-    
+
     Metadata:
         - page: Page number in source document
         - bbox: Bounding box [x1, y1, x2, y2]
@@ -66,30 +62,27 @@ class ParagraphNode(DetailNode):
         default=NodeType.PARAGRAPH,
         description="Always PARAGRAPH for paragraph nodes",
     )
-    attributes: ParagraphAttributes = Field(
-        description="Paragraph attributes"
-    )
+    attributes: ParagraphAttributes = Field(description="Paragraph attributes")
     metadata: ParagraphMetadata = Field(
-        default_factory=ParagraphMetadata,
-        description="Paragraph metadata"
+        default_factory=ParagraphMetadata, description="Paragraph metadata"
     )
 
     def __init__(self, **data: Any) -> None:
         """Initialize and convert dict attributes/metadata to models."""
         if "node_type" not in data:
             data["node_type"] = NodeType.PARAGRAPH
-        
+
         # Convert dict to models if needed
         if "attributes" in data and isinstance(data["attributes"], dict):
             data["attributes"] = ParagraphAttributes(**data["attributes"])
         elif "attributes" not in data:
             data["attributes"] = ParagraphAttributes(text="")
-        
+
         if "metadata" in data and isinstance(data["metadata"], dict):
             data["metadata"] = ParagraphMetadata(**data["metadata"])
         elif "metadata" not in data:
             data["metadata"] = ParagraphMetadata()
-        
+
         super().__init__(**data)
 
     @model_validator(mode="before")
@@ -107,7 +100,7 @@ class ParagraphNode(DetailNode):
 class ImageNode(DetailNode):
     """
     Image node for DETAIL level.
-    
+
     Attributes:
         - url: Image URL (for web sources)
         - file_path: Local file path or MinIO object path
@@ -116,7 +109,7 @@ class ImageNode(DetailNode):
         - width: Image width in pixels
         - height: Image height in pixels
         - extracted_text: Text extracted from image via OCR
-    
+
     Metadata:
         - page: Page number where image is located
         - bbox: Bounding box [x1, y1, x2, y2]
@@ -128,29 +121,25 @@ class ImageNode(DetailNode):
         description="Always IMAGE for image nodes",
     )
     attributes: ImageAttributes = Field(
-        default_factory=ImageAttributes,
-        description="Image attributes"
+        default_factory=ImageAttributes, description="Image attributes"
     )
-    metadata: ImageMetadata = Field(
-        default_factory=ImageMetadata,
-        description="Image metadata"
-    )
+    metadata: ImageMetadata = Field(default_factory=ImageMetadata, description="Image metadata")
 
     def __init__(self, **data: Any) -> None:
         """Initialize and convert dict attributes/metadata to models."""
         if "node_type" not in data:
             data["node_type"] = NodeType.IMAGE
-        
+
         if "attributes" in data and isinstance(data["attributes"], dict):
             data["attributes"] = ImageAttributes(**data["attributes"])
         elif "attributes" not in data:
             data["attributes"] = ImageAttributes()
-        
+
         if "metadata" in data and isinstance(data["metadata"], dict):
             data["metadata"] = ImageMetadata(**data["metadata"])
         elif "metadata" not in data:
             data["metadata"] = ImageMetadata()
-        
+
         super().__init__(**data)
 
     @model_validator(mode="before")
@@ -168,13 +157,13 @@ class ImageNode(DetailNode):
 class TableNode(DetailNode):
     """
     Table node for DETAIL level.
-    
+
     Attributes:
         - headers: Table column headers
         - rows: Table rows (list of cell values)
         - caption: Table caption
         - extracted_text: Text representation of table (markdown or plain text)
-    
+
     Metadata:
         - page: Page number where table is located
         - bbox: Bounding box [x1, y1, x2, y2]
@@ -186,29 +175,25 @@ class TableNode(DetailNode):
         description="Always TABLE for table nodes",
     )
     attributes: TableAttributes = Field(
-        default_factory=TableAttributes,
-        description="Table attributes"
+        default_factory=TableAttributes, description="Table attributes"
     )
-    metadata: TableMetadata = Field(
-        default_factory=TableMetadata,
-        description="Table metadata"
-    )
+    metadata: TableMetadata = Field(default_factory=TableMetadata, description="Table metadata")
 
     def __init__(self, **data: Any) -> None:
         """Initialize and convert dict attributes/metadata to models."""
         if "node_type" not in data:
             data["node_type"] = NodeType.TABLE
-        
+
         if "attributes" in data and isinstance(data["attributes"], dict):
             data["attributes"] = TableAttributes(**data["attributes"])
         elif "attributes" not in data:
             data["attributes"] = TableAttributes()
-        
+
         if "metadata" in data and isinstance(data["metadata"], dict):
             data["metadata"] = TableMetadata(**data["metadata"])
         elif "metadata" not in data:
             data["metadata"] = TableMetadata()
-        
+
         super().__init__(**data)
 
     @model_validator(mode="before")

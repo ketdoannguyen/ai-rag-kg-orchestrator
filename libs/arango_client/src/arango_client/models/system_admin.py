@@ -14,44 +14,15 @@ from .enums import SourceType, UserRole
 class User(BaseModel):
     """Pydantic model for users collection."""
 
-    id: uuid.UUID = Field(
-        default_factory=uuid.uuid4,
-        description="Primary key"
-    )
-    username: str = Field(
-        ...,
-        max_length=50,
-        description="Unique username"
-    )
-    hashed_password: str = Field(
-        ...,
-        max_length=255,
-        description="Hashed password"
-    )
-    full_name: str | None = Field(
-        None,
-        max_length=100,
-        description="Full name of the user"
-    )
-    role: UserRole = Field(
-        default=UserRole.EDITOR,
-        description="User role"
-    )
-    is_active: bool = Field(
-        default=True,
-        description="Whether the user is active"
-    )
-    created_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        description="Creation timestamp"
-    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, description="Primary key")
+    username: str = Field(..., max_length=50, description="Unique username")
+    hashed_password: str = Field(..., max_length=255, description="Hashed password")
+    full_name: str | None = Field(None, max_length=100, description="Full name of the user")
+    role: UserRole = Field(default=UserRole.EDITOR, description="User role")
+    is_active: bool = Field(default=True, description="Whether the user is active")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
 
-    model_config = ConfigDict(
-        use_enum_values=True,
-        json_encoders={
-            uuid.UUID: str
-        }
-    )
+    model_config = ConfigDict(use_enum_values=True, json_encoders={uuid.UUID: str})
 
     def to_document(self) -> dict[str, Any]:
         """Convert to ArangoDB document."""
@@ -73,62 +44,35 @@ class User(BaseModel):
             data["id"] = data.pop("_key")
         data.pop("_id", None)
         data.pop("_rev", None)
-        
+
         if isinstance(data.get("created_at"), str):
             data["created_at"] = datetime.fromisoformat(data["created_at"])
-        
+
         return cls(**data)
 
 
 class DataSource(BaseModel):
     """Pydantic model for data_sources collection."""
 
-    id: uuid.UUID = Field(
-        default_factory=uuid.uuid4,
-        description="Primary key"
-    )
-    name: str = Field(
-        ...,
-        max_length=255,
-        description="Display name (e.g., 'Quy chế 2025.pdf')"
-    )
-    type: SourceType = Field(
-        ...,
-        description="Source type"
-    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, description="Primary key")
+    name: str = Field(..., max_length=255, description="Display name (e.g., 'Quy chế 2025.pdf')")
+    type: SourceType = Field(..., description="Source type")
     config: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Technical configuration (minio_path, url, fanpage_id)"
+        default_factory=dict, description="Technical configuration (minio_path, url, fanpage_id)"
     )
     hash_content: str | None = Field(
-        None,
-        max_length=64,
-        description="MD5 Hash to avoid duplicate uploads"
+        None, max_length=64, description="MD5 Hash to avoid duplicate uploads"
     )
     status: str = Field(
-        default='processing',
-        max_length=20,
-        description="Status: processing, active, error"
+        default="processing", max_length=20, description="Status: processing, active, error"
     )
-    created_by: uuid.UUID | None = Field(
-        None,
-        description="User who created this source"
-    )
-    created_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        description="Creation timestamp"
-    )
+    created_by: uuid.UUID | None = Field(None, description="User who created this source")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        description="Last update timestamp"
+        default_factory=datetime.utcnow, description="Last update timestamp"
     )
 
-    model_config = ConfigDict(
-        use_enum_values=True,
-        json_encoders={
-            uuid.UUID: str
-        }
-    )
+    model_config = ConfigDict(use_enum_values=True, json_encoders={uuid.UUID: str})
 
     def to_document(self) -> dict[str, Any]:
         """Convert to ArangoDB document."""
@@ -152,10 +96,10 @@ class DataSource(BaseModel):
             data["id"] = data.pop("_key")
         data.pop("_id", None)
         data.pop("_rev", None)
-        
+
         if isinstance(data.get("created_at"), str):
             data["created_at"] = datetime.fromisoformat(data["created_at"])
         if isinstance(data.get("updated_at"), str):
             data["updated_at"] = datetime.fromisoformat(data["updated_at"])
-        
+
         return cls(**data)

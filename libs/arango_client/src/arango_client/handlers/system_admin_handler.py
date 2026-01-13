@@ -27,10 +27,10 @@ class UserHandler(BaseHandler[User]):
     def get_by_username(self, username: str) -> Optional[User]:
         """
         Get user by username.
-        
+
         Args:
             username: Username to search for
-            
+
         Returns:
             User instance or None if not found
         """
@@ -45,12 +45,12 @@ class UserHandler(BaseHandler[User]):
     ) -> list[User]:
         """
         Get users by role.
-        
+
         Args:
             role: User role (admin, editor, viewer)
             limit: Maximum number of users to return
             offset: Number of records to skip
-            
+
         Returns:
             List of User instances
         """
@@ -69,11 +69,11 @@ class UserHandler(BaseHandler[User]):
     ) -> list[User]:
         """
         Get all active users.
-        
+
         Args:
             limit: Maximum number of users to return
             offset: Number of records to skip
-            
+
         Returns:
             List of active User instances
         """
@@ -87,10 +87,10 @@ class UserHandler(BaseHandler[User]):
     def deactivate(self, user_id: uuid.UUID | str) -> Optional[User]:
         """
         Deactivate a user.
-        
+
         Args:
             user_id: User ID to deactivate
-            
+
         Returns:
             Updated User instance or None if not found
         """
@@ -99,10 +99,10 @@ class UserHandler(BaseHandler[User]):
     def activate(self, user_id: uuid.UUID | str) -> Optional[User]:
         """
         Activate a user.
-        
+
         Args:
             user_id: User ID to activate
-            
+
         Returns:
             Updated User instance or None if not found
         """
@@ -124,12 +124,12 @@ class DataSourceHandler(BaseHandler[DataSource]):
     ) -> list[DataSource]:
         """
         Get data sources by type.
-        
+
         Args:
             source_type: Source type (pdf, web, facebook, faq_file)
             limit: Maximum number of sources to return
             offset: Number of records to skip
-            
+
         Returns:
             List of DataSource instances
         """
@@ -149,12 +149,12 @@ class DataSourceHandler(BaseHandler[DataSource]):
     ) -> list[DataSource]:
         """
         Get data sources by status.
-        
+
         Args:
             status: Source status (processing, active, error)
             limit: Maximum number of sources to return
             offset: Number of records to skip
-            
+
         Returns:
             List of DataSource instances
         """
@@ -173,12 +173,12 @@ class DataSourceHandler(BaseHandler[DataSource]):
     ) -> list[DataSource]:
         """
         Get data sources by creator.
-        
+
         Args:
             created_by: User ID who created the source
             limit: Maximum number of sources to return
             offset: Number of records to skip
-            
+
         Returns:
             List of DataSource instances
         """
@@ -192,10 +192,10 @@ class DataSourceHandler(BaseHandler[DataSource]):
     def get_by_hash(self, hash_content: str) -> Optional[DataSource]:
         """
         Get data source by content hash (to avoid duplicates).
-        
+
         Args:
             hash_content: MD5 hash of content
-            
+
         Returns:
             DataSource instance or None if not found
         """
@@ -209,11 +209,11 @@ class DataSourceHandler(BaseHandler[DataSource]):
     ) -> Optional[DataSource]:
         """
         Update data source status.
-        
+
         Args:
             source_id: Data source ID
             status: New status (processing, active, error)
-            
+
         Returns:
             Updated DataSource instance or None if not found
         """
@@ -224,7 +224,7 @@ class DataSourceHandler(BaseHandler[DataSource]):
 class SystemAdminHandler:
     """
     Convenience class grouping all system admin-related handlers.
-    
+
     Usage:
         >>> handler = SystemAdminHandler(db)
         >>> user = handler.users.create(User(...))
