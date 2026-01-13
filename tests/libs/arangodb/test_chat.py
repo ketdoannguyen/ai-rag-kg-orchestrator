@@ -4,10 +4,9 @@ Integration tests for ChatHandler.
 Tests chat sessions, messages, and feedback operations.
 """
 
-import uuid
 import pytest
 from arango_client.handlers import ChatHandler
-from arango_client.models import ChatSession, ChatMessage, Feedback
+from arango_client.models import ChatMessage, ChatSession, Feedback
 
 
 @pytest.fixture

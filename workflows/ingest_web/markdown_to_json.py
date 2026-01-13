@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Match
+from re import Match
+from typing import Any
 
 from arango_client import (
-    ParagraphNode,
-    SourceType,
-    StructureNode,
     ParagraphAttributes,
     ParagraphMetadata,
+    ParagraphNode,
+    SourceType,
     StructureAttributes,
     StructureMetadata,
+    StructureNode,
 )
+
 from .code_extraction import clean_title_from_code, extract_code_from_context
-
 from .semantic_splitter import SemanticParagraphSplitter
-
 
 # Code-based semantic level mapping
 # Level 1: ROOT
@@ -437,7 +437,7 @@ class MarkdownToJSONConverter:
 
         # Build mapping
         mapping: dict[int, int] = {}
-        for md_level in heading_codes.keys():
+        for md_level in heading_codes:
             if md_level == roman_level:
                 mapping[md_level] = 4
             elif md_level == number_level:

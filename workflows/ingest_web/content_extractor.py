@@ -116,7 +116,7 @@ class ContentExtractor:
         result = self.extract_with_strategy(html, url)
 
         logger.debug(
-            f"Content extraction completed",
+            "Content extraction completed",
             strategy=result.strategy.value,
             content_length=len(result.content),
             score=f"{result.score:.2f}",

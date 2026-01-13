@@ -2,7 +2,6 @@
 
 from .base import DomainSchema, MetadataField
 
-
 EDUCATION_SCHEMA = DomainSchema(
     name="education",
     display_name="Tuyển sinh Đại học",

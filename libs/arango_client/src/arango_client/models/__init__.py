@@ -1,12 +1,5 @@
 """Pydantic models for ArangoDB."""
 
-from .enums import (
-    FAQStatus,
-    FeedbackStatus,
-    NodeType,
-    SourceType,
-    UserRole,
-)
 from .attributes_metadata import (
     ImageAttributes,
     ImageMetadata,
@@ -17,12 +10,19 @@ from .attributes_metadata import (
     TableAttributes,
     TableMetadata,
 )
-from .knowledge import KnowledgeNode
-from .detail_nodes import DetailNode, ImageNode, ParagraphNode, TableNode
-from .structure_nodes import RootNode, StructureNode
 from .chat import ChatMessage, ChatSession, Feedback
-from .system_admin import DataSource, User
+from .detail_nodes import DetailNode, ImageNode, ParagraphNode, TableNode
+from .enums import (
+    FAQStatus,
+    FeedbackStatus,
+    NodeType,
+    SourceType,
+    UserRole,
+)
+from .knowledge import KnowledgeNode
 from .mining import SuggestedFAQ
+from .structure_nodes import RootNode, StructureNode
+from .system_admin import DataSource, User
 
 __all__ = [
     # Enums

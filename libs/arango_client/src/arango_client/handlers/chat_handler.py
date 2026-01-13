@@ -7,12 +7,11 @@ Handles ChatSession, ChatMessage, and Feedback operations.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional
 
 from arango.database import StandardDatabase
 
 from ..collections.schema import Collections
-from ..models.chat import ChatSession, ChatMessage, Feedback
+from ..models.chat import ChatMessage, ChatSession, Feedback
 from ..models.enums import FeedbackStatus
 from .base_handler import BaseHandler
 
@@ -27,8 +26,8 @@ class ChatSessionHandler(BaseHandler[ChatSession]):
     def get_by_user_identifier(
         self,
         user_identifier: str,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[ChatSession]:
         """
         Get chat sessions by user identifier.
@@ -52,7 +51,7 @@ class ChatSessionHandler(BaseHandler[ChatSession]):
     def get_messages_by_session(
         self,
         session_id: uuid.UUID | str,
-        limit: Optional[int] = None,
+        limit: int | None = None,
     ) -> list[ChatMessage]:
         """
         Get all messages for a chat session.
@@ -78,8 +77,8 @@ class ChatMessageHandler(BaseHandler[ChatMessage]):
     def get_by_session(
         self,
         session_id: uuid.UUID | str,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[ChatMessage]:
         """
         Get messages by session ID.
@@ -104,7 +103,7 @@ class ChatMessageHandler(BaseHandler[ChatMessage]):
         self,
         session_id: uuid.UUID | str,
         role: str,
-        limit: Optional[int] = None,
+        limit: int | None = None,
     ) -> list[ChatMessage]:
         """
         Get messages by session ID and role.
@@ -166,8 +165,8 @@ class FeedbackHandler(BaseHandler[Feedback]):
     def get_by_status(
         self,
         status: FeedbackStatus | str,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[Feedback]:
         """
         Get feedbacks by status.
@@ -190,7 +189,7 @@ class FeedbackHandler(BaseHandler[Feedback]):
 
     def get_pending_feedbacks(
         self,
-        limit: Optional[int] = None,
+        limit: int | None = None,
     ) -> list[Feedback]:
         """
         Get all pending feedbacks.

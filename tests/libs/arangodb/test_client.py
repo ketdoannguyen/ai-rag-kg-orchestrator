@@ -7,10 +7,10 @@ Tests that the client properly connects and auto-creates schema.
 import pytest
 from arango_client import ArangoClient
 from arango_client.collections import (
-    Collections,
-    EdgeCollections,
     KNOWLEDGE_GRAPH_NAME,
     KNOWLEDGE_VECTOR_VIEW_NAME,
+    Collections,
+    EdgeCollections,
 )
 
 

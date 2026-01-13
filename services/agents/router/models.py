@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -60,15 +60,15 @@ class FilterFieldConfig(BaseModel):
         default="",
         description="Human-readable description of this filter field",
     )
-    allowed_values: Optional[List[Any]] = Field(
+    allowed_values: list[Any] | None = Field(
         default=None,
         description="Enum-like list of valid values. LLM must output one of these.",
     )
-    examples: List[Any] = Field(
+    examples: list[Any] = Field(
         default_factory=list,
         description="Example values (used if allowed_values not set)",
     )
-    aliases: Dict[str, Any] = Field(
+    aliases: dict[str, Any] = Field(
         default_factory=dict,
         description="Mapping of abbreviations to normalized values, e.g. {'IT': 'Công nghệ thông tin'}",
     )
@@ -81,16 +81,16 @@ class DomainConfig(BaseModel):
         ...,
         description="Human-readable domain name, e.g., 'Tuyển sinh Đại học'",
     )
-    filter_fields: Dict[str, FilterFieldConfig] = Field(
+    filter_fields: dict[str, FilterFieldConfig] = Field(
         default_factory=dict,
         description="Available filter fields for this domain",
     )
-    custom_intent_descriptions: Optional[Dict[str, str]] = Field(
+    custom_intent_descriptions: dict[str, str] | None = Field(
         default=None,
         description="Optional custom descriptions for each intent",
     )
 
-    def get_filter_fields_dict(self) -> Dict[str, Dict[str, Any]]:
+    def get_filter_fields_dict(self) -> dict[str, dict[str, Any]]:
         """Convert filter_fields to dict format for prompt building."""
         return {name: config.model_dump() for name, config in self.filter_fields.items()}
 
@@ -105,7 +105,7 @@ class RouterInput(BaseModel):
         min_length=1,
         description="The current user query to analyze",
     )
-    conversation_history: List[ChatMessage] = Field(
+    conversation_history: list[ChatMessage] = Field(
         default_factory=list,
         description="Previous messages for context and coreference resolution",
     )
@@ -118,7 +118,7 @@ class RouterInput(BaseModel):
         description="Current year for temporal inference",
     )
 
-    def get_history_as_dicts(self) -> List[Dict[str, str]]:
+    def get_history_as_dicts(self) -> list[dict[str, str]]:
         """Convert conversation history to dict format."""
         return [msg.model_dump() for msg in self.conversation_history]
 
@@ -133,11 +133,11 @@ class SubQuestion(BaseModel):
         ...,
         description="The question text, rewritten for clarity",
     )
-    keywords: List[str] = Field(
+    keywords: list[str] = Field(
         default_factory=list,
         description="Keywords for full-text search (BM25)",
     )
-    filters: Optional[Dict[str, Any]] = Field(
+    filters: dict[str, Any] | None = Field(
         default=None,
         description="Metadata filters for vector/hybrid search",
     )
@@ -164,20 +164,20 @@ class RouterOutput(BaseModel):
         ...,
         description="Rewritten query with resolved references (for display/logging)",
     )
-    sub_questions: List[SubQuestion] = Field(
+    sub_questions: list[SubQuestion] = Field(
         default_factory=list,
         description="Searchable units, each with query/keywords/filters",
     )
 
     # Metadata
-    raw_llm_response: Optional[str] = Field(
+    raw_llm_response: str | None = Field(
         default=None,
         description="Raw LLM response for debugging",
         exclude=True,
     )
 
     @classmethod
-    def create_chit_chat_response(cls, original_query: str) -> "RouterOutput":
+    def create_chit_chat_response(cls, original_query: str) -> RouterOutput:
         """Create a default CHIT_CHAT response."""
         return cls(
             intent=Intent.CHIT_CHAT,
@@ -189,7 +189,7 @@ class RouterOutput(BaseModel):
 class RouterConfig(BaseModel):
     """Configuration for Router Agent behavior."""
 
-    llm_model: Optional[str] = Field(
+    llm_model: str | None = Field(
         default=None,
         description="LLM model to use. None uses gateway's default.",
     )

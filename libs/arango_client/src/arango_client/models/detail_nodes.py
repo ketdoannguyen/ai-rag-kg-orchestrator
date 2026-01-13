@@ -14,8 +14,8 @@ from .attributes_metadata import (
     TableAttributes,
     TableMetadata,
 )
-from .knowledge import KnowledgeNode
 from .enums import NodeType
+from .knowledge import KnowledgeNode
 
 
 class DetailNode(KnowledgeNode):

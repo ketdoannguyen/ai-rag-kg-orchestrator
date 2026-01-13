@@ -11,29 +11,28 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
-
-from loguru import logger
 
 from arango_client import (
     ArangoClient,
     KnowledgeNodeHandler,
     parse_node_from_dict,
-    serialize_tree_to_dict,
 )
+from loguru import logger
+
 from workflows.dependencies import init_arango_client, init_llm_client
-from workflows.ingest_web import WebIngestionInput, WebIngestionStatus, start_ingest_web
+from workflows.embed_nodes import start_embed_nodes
+from workflows.embed_nodes.helper import extract_text_for_embedding
+from workflows.embed_nodes.models import EmbedNodesInput
 from workflows.enrich_knowledge_tree import start_enrich_knowledge_tree
 from workflows.enrich_knowledge_tree.models import EnrichKnowledgeTreeInput
-from workflows.save_knowledge_to_arango import start_save_knowledge_to_arango
-from workflows.save_knowledge_to_arango.models import SaveKnowledgeInput
-from workflows.embed_nodes import start_embed_nodes
-from workflows.embed_nodes.models import EmbedNodesInput
-from workflows.embed_nodes.helper import extract_text_for_embedding
+from workflows.ingest_web import WebIngestionInput, WebIngestionStatus, start_ingest_web
 from workflows.save_embeddings_to_arango import start_save_embeddings_to_arango
 from workflows.save_embeddings_to_arango.models import SaveEmbeddingsInput
+from workflows.save_knowledge_to_arango import start_save_knowledge_to_arango
+from workflows.save_knowledge_to_arango.models import SaveKnowledgeInput
 
 
 class IngestWebPipelineTest(unittest.TestCase):
@@ -63,7 +62,7 @@ class IngestWebPipelineTest(unittest.TestCase):
 
     def _create_output_folder(self) -> Path:
         """Create timestamped output folder for this test run."""
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         output_dir = self.BASE_OUTPUT_DIR / f"web_{timestamp}"
         output_dir.mkdir(parents=True, exist_ok=True)
         return output_dir
@@ -130,7 +129,7 @@ class IngestWebPipelineTest(unittest.TestCase):
         output_dir = self._create_output_folder()
 
         print(f"\n{'=' * 80}")
-        print(f"Full Web Ingestion Pipeline Test")
+        print("Full Web Ingestion Pipeline Test")
         print(f"URL: {self.TEST_URL}")
         print(f"Output folder: {output_dir}")
         print(f"{'=' * 80}")
@@ -331,7 +330,7 @@ class IngestWebPipelineTest(unittest.TestCase):
 
         # ============ Final Summary ============
         summary = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "url": self.TEST_URL,
             "data_source_id": str(data_source_id),
             "output_folder": str(output_dir),
@@ -388,7 +387,7 @@ class IngestWebPipelineTest(unittest.TestCase):
             f"  • Save: {save_result['total_nodes_saved']} nodes + {total_relationships} relationships"
         )
         print(f"  • Embed: {embed_count} embeddings")
-        print(f"  • Verification: ✓ All counts match!")
+        print("  • Verification: ✓ All counts match!")
         print(f"  • Output: {output_dir}")
         print(f"{'=' * 80}\n")
 

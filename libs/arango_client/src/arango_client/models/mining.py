@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, List
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,7 +21,7 @@ class SuggestedFAQ(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, description="Primary key")
 
     # Cluster information
-    cluster_vector: List[float] | None = Field(
+    cluster_vector: list[float] | None = Field(
         None, description="Cluster center vector for deduplication"
     )
     representative_question: str = Field(..., description="Display question for Admin")
@@ -56,7 +56,7 @@ class SuggestedFAQ(BaseModel):
         }
 
     @classmethod
-    def from_document(cls, doc: dict[str, Any]) -> "SuggestedFAQ":
+    def from_document(cls, doc: dict[str, Any]) -> SuggestedFAQ:
         """Create from ArangoDB document."""
         data = dict(doc)
         if "_key" in data:

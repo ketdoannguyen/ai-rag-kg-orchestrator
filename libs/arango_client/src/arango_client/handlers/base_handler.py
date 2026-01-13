@@ -8,13 +8,13 @@ All AQL queries are imported from the centralized aql/ module.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Generic, Optional, Type, TypeVar
+from datetime import UTC, datetime
+from typing import Any, Generic, TypeVar
 
-from arango.database import StandardDatabase
 from arango.collection import StandardCollection
+from arango.database import StandardDatabase
 
-from ..aql import CRUD_GET_ALL, CRUD_GET_BY_FILTER, CRUD_COUNT_WITH_FILTER
+from ..aql import CRUD_COUNT_WITH_FILTER, CRUD_GET_ALL, CRUD_GET_BY_FILTER
 
 # Type variables for generic handler
 ModelT = TypeVar("ModelT")
@@ -42,7 +42,7 @@ class BaseHandler(Generic[ModelT]):
     def __init__(
         self,
         db: StandardDatabase,
-        model_class: Type[ModelT],
+        model_class: type[ModelT],
         collection_name: str,
     ):
         """
@@ -88,7 +88,7 @@ class BaseHandler(Generic[ModelT]):
             return self.model_class.from_document(result["new"])
         return self.model_class(**result["new"])
 
-    def get_by_id(self, id: uuid.UUID | str) -> Optional[ModelT]:
+    def get_by_id(self, id: uuid.UUID | str) -> ModelT | None:
         """
         Get a document by ID.
 
@@ -110,8 +110,8 @@ class BaseHandler(Generic[ModelT]):
 
     def get_all(
         self,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        limit: int | None = None,
+        offset: int | None = None,
         sort_field: str = "created_at",
         sort_desc: bool = True,
     ) -> list[ModelT]:
@@ -152,8 +152,8 @@ class BaseHandler(Generic[ModelT]):
     def get_by_filter(
         self,
         filters: dict[str, Any],
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        limit: int | None = None,
+        offset: int | None = None,
         sort_field: str = "created_at",
         sort_desc: bool = True,
     ) -> list[ModelT]:
@@ -208,7 +208,7 @@ class BaseHandler(Generic[ModelT]):
         self,
         id: uuid.UUID | str,
         update_data: dict[str, Any],
-    ) -> Optional[ModelT]:
+    ) -> ModelT | None:
         """
         Update a document by ID.
 
@@ -227,7 +227,7 @@ class BaseHandler(Generic[ModelT]):
 
         # Add updated_at timestamp if the model supports it
         if "updated_at" not in update_data:
-            update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            update_data["updated_at"] = datetime.now(UTC).isoformat()
 
         # Convert UUIDs to strings
         for field, value in update_data.items():
@@ -243,7 +243,7 @@ class BaseHandler(Generic[ModelT]):
             return self.model_class.from_document(result["new"])
         return self.model_class(**result["new"])
 
-    def update_by_model(self, model: ModelT) -> Optional[ModelT]:
+    def update_by_model(self, model: ModelT) -> ModelT | None:
         """
         Update a document using a Pydantic model.
 
@@ -291,7 +291,7 @@ class BaseHandler(Generic[ModelT]):
         self._collection.delete(key)
         return True
 
-    def count(self, filters: Optional[dict[str, Any]] = None) -> int:
+    def count(self, filters: dict[str, Any] | None = None) -> int:
         """
         Count documents, optionally filtered.
 

@@ -5,14 +5,14 @@ Domain-agnostic prompt templates for query routing.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 def build_router_system_prompt(
     domain_name: str,
-    filter_fields: Dict[str, Dict[str, Any]],
+    filter_fields: dict[str, dict[str, Any]],
     current_year: int,
-    custom_intent_descriptions: Optional[Dict[str, str]] = None,
+    custom_intent_descriptions: dict[str, str] | None = None,
 ) -> str:
     """Build the system prompt for Router Agent."""
     intent_definitions = {
@@ -78,7 +78,7 @@ User: "Học phí IT năm 2024 và 2025 khác nhau?"
 """
 
 
-def _build_filter_description(filter_fields: Dict[str, Dict[str, Any]]) -> str:
+def _build_filter_description(filter_fields: dict[str, dict[str, Any]]) -> str:
     """Build description of available filter fields."""
     if not filter_fields:
         return "(Không có filter)"
@@ -114,7 +114,7 @@ def _build_filter_description(filter_fields: Dict[str, Dict[str, Any]]) -> str:
 
 def build_router_user_prompt(
     user_query: str,
-    conversation_history: Optional[List[Dict[str, str]]] = None,
+    conversation_history: list[dict[str, str]] | None = None,
 ) -> str:
     """Build the user prompt with query and history."""
     parts = []

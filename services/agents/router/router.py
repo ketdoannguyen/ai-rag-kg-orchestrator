@@ -7,8 +7,11 @@ and produces structured search objects for downstream retrieval.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+from llm_gateway_client import AIGatewayClient
+from llm_gateway_client.exceptions import GatewayAPIError
+from llm_gateway_client.models import GatewayChatTurn, GatewayInvokeRequest
 from loguru import logger
 from tenacity import (
     retry,
@@ -16,10 +19,6 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
-
-from llm_gateway_client import AIGatewayClient
-from llm_gateway_client.exceptions import GatewayAPIError
-from llm_gateway_client.models import GatewayChatTurn, GatewayInvokeRequest
 
 from services.prompts.router import (
     build_router_system_prompt,
@@ -55,12 +54,12 @@ class RouterAgent:
         ```
     """
 
-    __slots__ = ("llm_client", "config")
+    __slots__ = ("config", "llm_client")
 
     def __init__(
         self,
         llm_client: AIGatewayClient,
-        config: Optional[RouterConfig] = None,
+        config: RouterConfig | None = None,
     ) -> None:
         self.llm_client = llm_client
         self.config = config or RouterConfig()
@@ -142,9 +141,9 @@ class RouterAgent:
 
     async def route_batch(
         self,
-        inputs: List[RouterInput],
+        inputs: list[RouterInput],
         max_concurrency: int = 10,
-    ) -> List[RouterOutput]:
+    ) -> list[RouterOutput]:
         """Route multiple queries with concurrency control."""
         logger.info("Routing batch", size=len(inputs), max_concurrency=max_concurrency)
 
@@ -159,7 +158,7 @@ class RouterAgent:
             return_exceptions=True,
         )
 
-        outputs: List[RouterOutput] = []
+        outputs: list[RouterOutput] = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.error("Batch item {} failed: {}", i, str(result))
@@ -173,8 +172,8 @@ class RouterAgent:
 async def route_query(
     llm_client: AIGatewayClient,
     user_query: str,
-    domain_config: Dict[str, Any],
-    conversation_history: Optional[List[Dict[str, str]]] = None,
+    domain_config: dict[str, Any],
+    conversation_history: list[dict[str, str]] | None = None,
 ) -> RouterOutput:
     """Convenience function to route a single query from dict config."""
     # Build domain config

@@ -37,7 +37,7 @@ class User(BaseModel):
         }
 
     @classmethod
-    def from_document(cls, doc: dict[str, Any]) -> "User":
+    def from_document(cls, doc: dict[str, Any]) -> User:
         """Create from ArangoDB document."""
         data = dict(doc)
         if "_key" in data:
@@ -89,7 +89,7 @@ class DataSource(BaseModel):
         }
 
     @classmethod
-    def from_document(cls, doc: dict[str, Any]) -> "DataSource":
+    def from_document(cls, doc: dict[str, Any]) -> DataSource:
         """Create from ArangoDB document."""
         data = dict(doc)
         if "_key" in data:

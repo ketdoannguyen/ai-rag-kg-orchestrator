@@ -40,7 +40,7 @@ class AIGatewayClient:
             embed=len(self.embedding_registry.entries),
         )
 
-    def bind_tools(self, tools: list[dict[str, Any]]) -> "AIGatewayClient":
+    def bind_tools(self, tools: list[dict[str, Any]]) -> AIGatewayClient:
         """Return a new client instance with default tools applied to every request."""
         combined_tools = [*self.default_tools, *tools]
         return AIGatewayClient(

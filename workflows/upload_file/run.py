@@ -7,32 +7,33 @@ import shutil
 import tempfile
 import uuid
 import zipfile
-from datetime import datetime, timedelta, timezone
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
-from config.settings import settings
-from loguru import logger
-from minio_client import StorageClient
 from arango_client import (
     ArangoClient,
-    SystemAdminHandler,
-    SourceType,
     DataSource,
+    SourceType,
+    SystemAdminHandler,
 )
-
+from loguru import logger
+from minio_client import StorageClient
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from config.settings import settings
 from workflows.dependencies import get_minio_client, init_arango_client
 from workflows.shared import calculate_md5
 from workflows.shared.storage_utils import ensure_bucket_with_retry, upload_file
-from .helper import log_upload_retry
+
 from .exceptions import (
     DatabaseError,
     DuplicateFileError,
     FileValidationError,
     StorageUploadError,
 )
+from .helper import log_upload_retry
 from .models import (
     FileUploadInput,
     FileUploadResult,
@@ -366,7 +367,7 @@ class FileUploadWorkflow:
                 expires_in=self._presigned_ttl,
             )
             # Use timezone-aware UTC timestamp
-            expires_at = datetime.now(timezone.utc) + timedelta(seconds=self._presigned_ttl)
+            expires_at = datetime.now(UTC) + timedelta(seconds=self._presigned_ttl)
             return url, expires_at
         except Exception as exc:  # pragma: no cover - depends on MinIO features
             self._log.warning(
@@ -440,4 +441,4 @@ class FileUploadWorkflow:
         return f"{user_id}/{file_id}/{filename}"
 
 
-__all__ = ["start_upload_file", "start_upload_file_sync", "FileUploadWorkflow"]
+__all__ = ["FileUploadWorkflow", "start_upload_file", "start_upload_file_sync"]

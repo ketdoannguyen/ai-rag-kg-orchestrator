@@ -6,9 +6,8 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, validator
-
 from arango_client import DataSource
+from pydantic import BaseModel, Field, validator
 
 
 class UploadSourceType(str, Enum):
@@ -83,10 +82,10 @@ class StoredObject:
 
 
 __all__ = [
-    "UploadSourceType",
     "FileUploadInput",
-    "MinioInfo",
     "FileUploadResult",
-    "ValidatedFile",
+    "MinioInfo",
     "StoredObject",
+    "UploadSourceType",
+    "ValidatedFile",
 ]

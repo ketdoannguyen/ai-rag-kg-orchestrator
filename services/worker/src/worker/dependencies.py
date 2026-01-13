@@ -1,11 +1,12 @@
 from functools import lru_cache
 
-from config.settings import get_settings
 from arango_client import ArangoClient
+
+from config.settings import get_settings
 from workflows.ingest_file import start_ingest
 
 
-@lru_cache()
+@lru_cache
 def get_arango_client() -> ArangoClient:
     settings = get_settings()
     return ArangoClient(

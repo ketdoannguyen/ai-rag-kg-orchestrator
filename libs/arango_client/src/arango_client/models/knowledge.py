@@ -52,7 +52,7 @@ class KnowledgeNode(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_level(self) -> "KnowledgeNode":
+    def validate_level(self) -> KnowledgeNode:
         """Basic invariant for level."""
         if self.level < 0:
             raise ValueError(f"level must be >= 0, got {self.level}")
@@ -109,7 +109,7 @@ class KnowledgeNode(BaseModel):
         return data
 
     @classmethod
-    def from_document(cls, doc: dict[str, Any]) -> "KnowledgeNode":
+    def from_document(cls, doc: dict[str, Any]) -> KnowledgeNode:
         """
         Create Pydantic model from ArangoDB document.
 

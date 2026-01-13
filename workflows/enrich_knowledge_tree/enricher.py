@@ -3,42 +3,38 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple
-
-from loguru import logger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
-
-from llm_gateway_client import AIGatewayClient
-from llm_gateway_client.models import GatewayChatTurn, GatewayInvokeRequest
+from typing import Any
 
 from arango_client import (
+    ImageNode,
     KnowledgeNode,
     ParagraphNode,
     StructureNode,
     TableNode,
-    ImageNode,
 )
-
-from workflows.shared.file_utils import extract_json_from_response
+from llm_gateway_client import AIGatewayClient
+from llm_gateway_client.models import GatewayChatTurn, GatewayInvokeRequest
+from loguru import logger
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from services.prompts.enrichment import (
     build_detail_merge_prompt,
     build_structure_enrich_prompt,
 )
+from workflows.shared.file_utils import extract_json_from_response
 
 from .helper import (
+    aggregate_children_filter,
     collect_detail_items,
     count_paragraphs,
     create_refined_paragraphs_from_segments,
     get_title,
-    aggregate_children_filter,
 )
-
 from .models import (
+    ChangesSummary,
     EnrichKnowledgeTreeInput,
     EnrichKnowledgeTreeOutput,
     EnrichStatistics,
-    ChangesSummary,
 )
 
 
@@ -46,7 +42,7 @@ from .models import (
 class _EnrichState:
     """Mutable state shared across the traversal."""
 
-    node_summaries: Dict[str, str] = field(default_factory=dict)
+    node_summaries: dict[str, str] = field(default_factory=dict)
     stats: EnrichStatistics = field(default_factory=EnrichStatistics)
     changes: ChangesSummary = field(default_factory=ChangesSummary)
 
@@ -133,7 +129,7 @@ class KnowledgeTreeEnricher:
     async def _process_structure_node(
         self,
         node: StructureNode,
-        breadcrumb: List[str],
+        breadcrumb: list[str],
         state: _EnrichState,
         workflow_input: EnrichKnowledgeTreeInput,
         semaphore: asyncio.Semaphore,
@@ -155,7 +151,7 @@ class KnowledgeTreeEnricher:
     async def _process_structure_node_inner(
         self,
         node: StructureNode,
-        breadcrumb: List[str],
+        breadcrumb: list[str],
         state: _EnrichState,
         workflow_input: EnrichKnowledgeTreeInput,
         semaphore: asyncio.Semaphore,
@@ -165,7 +161,7 @@ class KnowledgeTreeEnricher:
             return
 
         # 1) Process all STRUCTURE children concurrently (bottom-up)
-        structure_children: List[StructureNode] = [
+        structure_children: list[StructureNode] = [
             c for c in node.children if isinstance(c, StructureNode)
         ]
 
@@ -238,18 +234,18 @@ class KnowledgeTreeEnricher:
     async def _refine_detail_children(
         self,
         node: StructureNode,
-        breadcrumb: List[str],
+        breadcrumb: list[str],
         state: _EnrichState,
         workflow_input: EnrichKnowledgeTreeInput,
-    ) -> Tuple[List[KnowledgeNode], Dict[str, int], str | None]:
+    ) -> tuple[list[KnowledgeNode], dict[str, int], str | None]:
         """Refine DETAIL children (Paragraph/Table) of a StructureNode.
 
         Returns:
             (new_children, section_stats, detail_section_summary)
         """
-        detail_nodes: List[KnowledgeNode] = []
-        structure_children: List[KnowledgeNode] = []
-        image_children: List[KnowledgeNode] = []
+        detail_nodes: list[KnowledgeNode] = []
+        structure_children: list[KnowledgeNode] = []
+        image_children: list[KnowledgeNode] = []
 
         for child in node.children:
             if isinstance(child, (ParagraphNode, TableNode)):
@@ -265,7 +261,7 @@ class KnowledgeTreeEnricher:
         original_detail_count = len(detail_nodes)
         if original_detail_count <= 1:
             # Children order: details (unchanged) + images + structure children
-            new_children: List[KnowledgeNode] = [
+            new_children: list[KnowledgeNode] = [
                 *detail_nodes,
                 *image_children,
                 *structure_children,
@@ -295,7 +291,7 @@ class KnowledgeTreeEnricher:
 
         if not collected_items:
             # Nothing textual to refine
-            new_children: List[KnowledgeNode] = [
+            new_children: list[KnowledgeNode] = [
                 *detail_nodes,
                 *image_children,
                 *structure_children,
@@ -333,7 +329,7 @@ class KnowledgeTreeEnricher:
         refined_detail_count = len(refined_paragraphs)
 
         # Rebuild children: refined paragraphs + images + structure children
-        new_children: List[KnowledgeNode] = [
+        new_children: list[KnowledgeNode] = [
             *refined_paragraphs,
             *image_children,
             *structure_children,
@@ -350,11 +346,11 @@ class KnowledgeTreeEnricher:
 
     async def _invoke_detail_llm(
         self,
-        items: List[Dict[str, Any]],
-        breadcrumb: List[str],
+        items: list[dict[str, Any]],
+        breadcrumb: list[str],
         workflow_input: EnrichKnowledgeTreeInput,
         state: _EnrichState,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Call LLM to merge/refine detail items.
 
         Returns dict with:
@@ -388,7 +384,7 @@ class KnowledgeTreeEnricher:
         try:
             response = await self._invoke_with_retry(request)
             state.stats.detail_llm_calls += 1
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.error(
                 "Detail-level LLM call failed; keeping original detail nodes",
                 extra={"error": str(e)},
@@ -413,7 +409,7 @@ class KnowledgeTreeEnricher:
                 },
             )
             return {"segments": segments, "section_summary": section_summary}
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.error(
                 "Failed to parse detail LLM response; keeping original detail nodes",
                 extra={"error": str(e)},
@@ -426,12 +422,12 @@ class KnowledgeTreeEnricher:
     async def _enrich_structure_node(
         self,
         node: StructureNode,
-        breadcrumb: List[str],
+        breadcrumb: list[str],
         state: _EnrichState,
         workflow_input: EnrichKnowledgeTreeInput,
     ) -> str | None:
         """Generate a full summary for a StructureNode, leveraging children summaries."""
-        children_content: List[Dict[str, Any]] = []
+        children_content: list[dict[str, Any]] = []
 
         for child in node.children:
             if isinstance(child, ParagraphNode):
@@ -507,7 +503,7 @@ class KnowledgeTreeEnricher:
         try:
             response = await self._invoke_with_retry(request)
             state.stats.structure_llm_calls += 1
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.error(
                 "Structure-level LLM call failed; falling back to None summary",
                 extra={"error": str(e)},
@@ -530,7 +526,7 @@ class KnowledgeTreeEnricher:
                 },
             )
             return summary
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.error(
                 "Failed to parse structure LLM response; returning None",
                 extra={"error": str(e)},

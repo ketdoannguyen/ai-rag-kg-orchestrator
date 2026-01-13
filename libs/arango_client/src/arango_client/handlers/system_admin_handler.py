@@ -7,13 +7,12 @@ Handles User and DataSource operations.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional
 
 from arango.database import StandardDatabase
 
 from ..collections.schema import Collections
-from ..models.system_admin import User, DataSource
-from ..models.enums import UserRole, SourceType
+from ..models.enums import SourceType, UserRole
+from ..models.system_admin import DataSource, User
 from .base_handler import BaseHandler
 
 
@@ -24,7 +23,7 @@ class UserHandler(BaseHandler[User]):
         """Initialize User handler."""
         super().__init__(db, User, Collections.USERS)
 
-    def get_by_username(self, username: str) -> Optional[User]:
+    def get_by_username(self, username: str) -> User | None:
         """
         Get user by username.
 
@@ -40,8 +39,8 @@ class UserHandler(BaseHandler[User]):
     def get_by_role(
         self,
         role: UserRole | str,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[User]:
         """
         Get users by role.
@@ -64,8 +63,8 @@ class UserHandler(BaseHandler[User]):
 
     def get_active_users(
         self,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[User]:
         """
         Get all active users.
@@ -84,7 +83,7 @@ class UserHandler(BaseHandler[User]):
             sort_desc=True,
         )
 
-    def deactivate(self, user_id: uuid.UUID | str) -> Optional[User]:
+    def deactivate(self, user_id: uuid.UUID | str) -> User | None:
         """
         Deactivate a user.
 
@@ -96,7 +95,7 @@ class UserHandler(BaseHandler[User]):
         """
         return self.update(user_id, {"is_active": False})
 
-    def activate(self, user_id: uuid.UUID | str) -> Optional[User]:
+    def activate(self, user_id: uuid.UUID | str) -> User | None:
         """
         Activate a user.
 
@@ -119,8 +118,8 @@ class DataSourceHandler(BaseHandler[DataSource]):
     def get_by_type(
         self,
         source_type: SourceType | str,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[DataSource]:
         """
         Get data sources by type.
@@ -144,8 +143,8 @@ class DataSourceHandler(BaseHandler[DataSource]):
     def get_by_status(
         self,
         status: str,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[DataSource]:
         """
         Get data sources by status.
@@ -168,8 +167,8 @@ class DataSourceHandler(BaseHandler[DataSource]):
     def get_by_creator(
         self,
         created_by: uuid.UUID | str,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[DataSource]:
         """
         Get data sources by creator.
@@ -189,7 +188,7 @@ class DataSourceHandler(BaseHandler[DataSource]):
             sort_desc=True,
         )
 
-    def get_by_hash(self, hash_content: str) -> Optional[DataSource]:
+    def get_by_hash(self, hash_content: str) -> DataSource | None:
         """
         Get data source by content hash (to avoid duplicates).
 
@@ -206,7 +205,7 @@ class DataSourceHandler(BaseHandler[DataSource]):
         self,
         source_id: uuid.UUID | str,
         status: str,
-    ) -> Optional[DataSource]:
+    ) -> DataSource | None:
         """
         Update data source status.
 

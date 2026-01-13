@@ -4,31 +4,33 @@ import asyncio
 import json
 import shutil
 import warnings
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from config.settings import settings
-from loguru import logger
 from arango_client import (
     ArangoClient,
+    SourceType,
+    SystemAdminHandler,
+    compute_tree_statistics,
+    serialize_tree_to_dict,
     set_parent_ids,
     set_positions,
-    compute_tree_statistics,
     validate_tree_and_attach_source,
-    serialize_tree_to_dict,
-    SystemAdminHandler,
-    DataSource as DataSourceModel,
-    SourceType,
 )
-from typing import TYPE_CHECKING
+from arango_client import (
+    DataSource as DataSourceModel,
+)
+from loguru import logger
 
+from config.settings import settings
 from workflows.dependencies import get_minio_client, init_arango_client
 from workflows.shared import calculate_md5
+
 from .marker_client import MarkerClient
-from .parser import TextbookParser
 from .models import FileIngestionInput, FileIngestionResult, FileIngestionStatus
+from .parser import TextbookParser
 
 if TYPE_CHECKING:
     from minio_client import StorageClient  # type: ignore[import-not-found]
@@ -113,9 +115,9 @@ class FileIngestionWorkflow:
         7. Update DataSource metadata
         """
         # Use timezone-aware UTC for job IDs and timing
-        job_id = datetime.now(timezone.utc).strftime("%H-%M-%S")
+        job_id = datetime.now(UTC).strftime("%H-%M-%S")
         self._logger = logger.bind(job_id=job_id, workflow="ingest_file")
-        ingestion_start_time = datetime.now(timezone.utc)
+        ingestion_start_time = datetime.now(UTC)
 
         self._workspace_root.mkdir(parents=True, exist_ok=True)
         job_dir = self._workspace_root / job_id
@@ -221,7 +223,7 @@ class FileIngestionWorkflow:
             sys_handler.sources.update(
                 data_source_id,
                 {
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                     "status": "active",
                 },
             )

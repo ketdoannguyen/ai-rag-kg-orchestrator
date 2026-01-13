@@ -9,7 +9,7 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 from uuid import UUID
 
 # Ensure repo root on sys.path when running as script
@@ -24,12 +24,13 @@ try:
 except Exception:
     pass
 
+from arango_client import KnowledgeNodeHandler, parse_node_from_dict
 from loguru import logger
-from arango_client import parse_node_from_dict, KnowledgeNodeHandler
-from workflows.dependencies import init_llm_client, init_arango_client
-from workflows.enrich_knowledge_tree import EnrichKnowledgeTreeInput, start_enrich_knowledge_tree
+
+from workflows.dependencies import init_arango_client, init_llm_client
 from workflows.embed_nodes import EmbedNodesInput, start_embed_nodes
 from workflows.embed_nodes.helper import extract_text_for_embedding
+from workflows.enrich_knowledge_tree import EnrichKnowledgeTreeInput, start_enrich_knowledge_tree
 from workflows.ingest_file import start_ingest
 from workflows.save_embeddings_to_arango import (
     SaveEmbeddingsInput,
@@ -84,7 +85,7 @@ async def _process_data_source(
     embed_model: str | None,
     embed_batch_size: int,
     arango_client,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Full pipeline for a single data_source_id."""
     ingest_result = await asyncio.to_thread(start_ingest, {"data_source_id": str(data_source_id)})
     status = (
@@ -211,7 +212,7 @@ async def run_pipeline(
     source_type: UploadSourceType = UploadSourceType.FILE,
     embed_model: str | None = None,
     embed_batch_size: int = 10,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run the PDF pipeline. If file_path is provided, upload first to get data_source_id."""
     arango_client = init_arango_client()
 

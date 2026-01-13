@@ -5,9 +5,10 @@ import unittest
 from pathlib import Path
 from uuid import UUID
 
+from arango_client import ArangoClient, SystemAdminHandler, User
+
 from workflows.dependencies import get_minio_client, init_arango_client
 from workflows.upload_file import FileUploadInput, UploadSourceType, start_upload_file
-from arango_client import ArangoClient, SystemAdminHandler, User
 
 
 class UploadFileWorkflowIntegrationTest(unittest.TestCase):

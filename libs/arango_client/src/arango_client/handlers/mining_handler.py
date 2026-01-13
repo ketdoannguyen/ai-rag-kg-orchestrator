@@ -8,14 +8,13 @@ All AQL queries are imported from the centralized aql/ module.
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 from arango.database import StandardDatabase
 
 from ..aql import MINING_GET_BY_FREQUENCY, MINING_INCREMENT_FREQUENCY
 from ..collections.schema import Collections
-from ..models.mining import SuggestedFAQ
 from ..models.enums import FAQStatus
+from ..models.mining import SuggestedFAQ
 from .base_handler import BaseHandler
 
 
@@ -29,8 +28,8 @@ class SuggestedFAQHandler(BaseHandler[SuggestedFAQ]):
     def get_by_status(
         self,
         status: FAQStatus | str,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[SuggestedFAQ]:
         """Get suggested FAQs by status."""
         status_value = status.value if isinstance(status, FAQStatus) else status
@@ -41,18 +40,18 @@ class SuggestedFAQHandler(BaseHandler[SuggestedFAQ]):
             sort_desc=True,
         )
 
-    def get_pending(self, limit: Optional[int] = None) -> list[SuggestedFAQ]:
+    def get_pending(self, limit: int | None = None) -> list[SuggestedFAQ]:
         """Get all pending suggested FAQs."""
         return self.get_by_status(FAQStatus.PENDING, limit=limit)
 
-    def get_approved(self, limit: Optional[int] = None) -> list[SuggestedFAQ]:
+    def get_approved(self, limit: int | None = None) -> list[SuggestedFAQ]:
         """Get all approved suggested FAQs."""
         return self.get_by_status(FAQStatus.APPROVED, limit=limit)
 
     def get_by_frequency(
         self,
         min_frequency: int = 1,
-        limit: Optional[int] = None,
+        limit: int | None = None,
     ) -> list[SuggestedFAQ]:
         """
         Get suggested FAQs by minimum frequency.
@@ -74,19 +73,19 @@ class SuggestedFAQHandler(BaseHandler[SuggestedFAQ]):
         )
         return [SuggestedFAQ.from_document(doc) for doc in cursor]
 
-    def approve(self, faq_id: uuid.UUID | str) -> Optional[SuggestedFAQ]:
+    def approve(self, faq_id: uuid.UUID | str) -> SuggestedFAQ | None:
         """Approve a suggested FAQ."""
         return self.update(faq_id, {"status": FAQStatus.APPROVED.value})
 
-    def reject(self, faq_id: uuid.UUID | str) -> Optional[SuggestedFAQ]:
+    def reject(self, faq_id: uuid.UUID | str) -> SuggestedFAQ | None:
         """Reject a suggested FAQ."""
         return self.update(faq_id, {"status": FAQStatus.REJECTED.value})
 
-    def archive(self, faq_id: uuid.UUID | str) -> Optional[SuggestedFAQ]:
+    def archive(self, faq_id: uuid.UUID | str) -> SuggestedFAQ | None:
         """Archive a suggested FAQ."""
         return self.update(faq_id, {"status": FAQStatus.ARCHIVED.value})
 
-    def increment_frequency(self, faq_id: uuid.UUID | str) -> Optional[SuggestedFAQ]:
+    def increment_frequency(self, faq_id: uuid.UUID | str) -> SuggestedFAQ | None:
         """
         Increment frequency count for a suggested FAQ.
 
@@ -114,7 +113,7 @@ class SuggestedFAQHandler(BaseHandler[SuggestedFAQ]):
         self,
         faq_id: uuid.UUID | str,
         answer_draft: str,
-    ) -> Optional[SuggestedFAQ]:
+    ) -> SuggestedFAQ | None:
         """Update answer draft for a suggested FAQ."""
         return self.update(faq_id, {"answer_draft": answer_draft})
 

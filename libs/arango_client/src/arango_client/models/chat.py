@@ -33,7 +33,7 @@ class ChatSession(BaseModel):
         }
 
     @classmethod
-    def from_document(cls, doc: dict[str, Any]) -> "ChatSession":
+    def from_document(cls, doc: dict[str, Any]) -> ChatSession:
         """Create from ArangoDB document."""
         data = dict(doc)
         if "_key" in data:
@@ -75,7 +75,7 @@ class ChatMessage(BaseModel):
         }
 
     @classmethod
-    def from_document(cls, doc: dict[str, Any]) -> "ChatMessage":
+    def from_document(cls, doc: dict[str, Any]) -> ChatMessage:
         """Create from ArangoDB document."""
         data = dict(doc)
         if "_key" in data:
@@ -115,7 +115,7 @@ class Feedback(BaseModel):
         }
 
     @classmethod
-    def from_document(cls, doc: dict[str, Any]) -> "Feedback":
+    def from_document(cls, doc: dict[str, Any]) -> Feedback:
         """Create from ArangoDB document."""
         data = dict(doc)
         if "_key" in data:

@@ -6,7 +6,7 @@ Used by both RouterAgent (query extraction) and KnowledgeTreeEnricher (content e
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -23,15 +23,15 @@ class MetadataField(BaseModel):
         default="",
         description="Human-readable description for LLM prompts",
     )
-    allowed_values: Optional[List[Any]] = Field(
+    allowed_values: list[Any] | None = Field(
         default=None,
         description="Enum-like list of valid values. If set, extracted values must match.",
     )
-    aliases: Dict[str, Any] = Field(
+    aliases: dict[str, Any] = Field(
         default_factory=dict,
         description="Mapping of abbreviations to normalized values, e.g. {'IT': 'Công nghệ thông tin'}",
     )
-    extraction_hints: List[str] = Field(
+    extraction_hints: list[str] = Field(
         default_factory=list,
         description="Keywords that hint at this field in content, e.g. ['ngành', 'khoa']",
     )
@@ -93,12 +93,12 @@ class DomainSchema(BaseModel):
 
     name: str = Field(..., description="Domain identifier, e.g. 'education'")
     display_name: str = Field(..., description="Human-readable name, e.g. 'Tuyển sinh Đại học'")
-    metadata_fields: List[MetadataField] = Field(
+    metadata_fields: list[MetadataField] = Field(
         default_factory=list,
         description="List of metadata fields for this domain",
     )
 
-    def get_field(self, name: str) -> Optional[MetadataField]:
+    def get_field(self, name: str) -> MetadataField | None:
         """Get a metadata field by name."""
         for f in self.metadata_fields:
             if f.name == name:
@@ -129,7 +129,7 @@ class DomainSchema(BaseModel):
 
         return "\n".join(lines)
 
-    def normalize_metadata(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+    def normalize_metadata(self, raw: dict[str, Any]) -> dict[str, Any]:
         """Normalize extracted metadata using aliases."""
         result = {}
         for key, value in raw.items():
@@ -140,12 +140,12 @@ class DomainSchema(BaseModel):
                 result[key] = value
         return result
 
-    def validate_metadata(self, data: Dict[str, Any]) -> Dict[str, List[str]]:
+    def validate_metadata(self, data: dict[str, Any]) -> dict[str, list[str]]:
         """Validate metadata against allowed_values.
 
         Returns dict of field_name -> list of validation errors.
         """
-        errors: Dict[str, List[str]] = {}
+        errors: dict[str, list[str]] = {}
         for field in self.metadata_fields:
             value = data.get(field.name)
             if value is not None and not field.validate_value(value):

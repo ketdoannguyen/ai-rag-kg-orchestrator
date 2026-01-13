@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, List
+from typing import Any
 
+from arango_client import KnowledgeNode, StructureNode
 from pydantic import BaseModel, Field
-
-from arango_client import StructureNode, KnowledgeNode
 
 
 class SaveKnowledgeInput(BaseModel):
@@ -42,15 +41,15 @@ class SaveKnowledgeOutput(BaseModel):
         default=0,
         description="Number of detail nodes (paragraph/image/table) saved",
     )
-    relationships_created: Dict[str, int] = Field(
+    relationships_created: dict[str, int] = Field(
         default_factory=dict,
         description="Count of each relationship type created",
     )
-    saved_nodes: List[KnowledgeNode] = Field(
+    saved_nodes: list[KnowledgeNode] = Field(
         default_factory=list,
         description="List of all saved nodes",
     )
-    failed_nodes: List[Dict[str, Any]] = Field(
+    failed_nodes: list[dict[str, Any]] = Field(
         default_factory=list,
         description="List of nodes that failed to save",
     )

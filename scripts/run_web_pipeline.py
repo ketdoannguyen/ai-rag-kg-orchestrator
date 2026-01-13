@@ -7,8 +7,9 @@ import argparse
 import asyncio
 import sys
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, List, Sequence
+from typing import Any
 from uuid import UUID
 
 # Ensure repo root on sys.path when running as script (before local imports)
@@ -16,28 +17,27 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
-from loguru import logger
 from arango_client import (
     ArangoClient,
     KnowledgeNodeHandler,
     parse_node_from_dict,
-    set_parent_ids,
 )
+from loguru import logger
+
 from config.domains import get_current_domain
-from workflows.dependencies import init_llm_client, init_arango_client
+from workflows.dependencies import init_arango_client, init_llm_client
+from workflows.embed_nodes import EmbedNodesInput, start_embed_nodes
+from workflows.embed_nodes.helper import extract_text_for_embedding
 from workflows.enrich_knowledge_tree import (
     EnrichKnowledgeTreeInput,
     start_enrich_knowledge_tree,
 )
-from workflows.embed_nodes import EmbedNodesInput, start_embed_nodes
-from workflows.embed_nodes.helper import extract_text_for_embedding
 from workflows.ingest_web import start_ingest_web
-from workflows.save_knowledge_to_arango import SaveKnowledgeInput, start_save_knowledge_to_arango
 from workflows.save_embeddings_to_arango import (
     SaveEmbeddingsInput,
     start_save_embeddings_to_arango,
 )
-
+from workflows.save_knowledge_to_arango import SaveKnowledgeInput, start_save_knowledge_to_arango
 
 llm_client = init_llm_client()
 arango_client = init_arango_client()
@@ -164,7 +164,7 @@ async def run_pipeline(
     embed_model: str | None = None,
     embed_batch_size: int = 10,
     max_concurrent_urls: int | None = None,
-) -> List[dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Run the full web pipeline for given URLs."""
     ingest_input: dict[str, Any] = {
         "urls": list(urls),
@@ -190,7 +190,7 @@ async def run_pipeline(
                 embed_batch_size=embed_batch_size,
                 arango_client=arango_client,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("Pipeline failed for one URL")
             return {"status": "error", "error": str(exc)}
 

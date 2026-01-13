@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
+from arango_client import KnowledgeNode, StructureNode, serialize_tree_to_dict
 from llm_gateway_client import AIGatewayClient
-from arango_client import StructureNode, KnowledgeNode, serialize_tree_to_dict
 
 from workflows.dependencies import init_llm_client
 
 from .enricher import KnowledgeTreeEnricher
-from .models import EnrichKnowledgeTreeInput, EnrichKnowledgeTreeOutput
+from .models import EnrichKnowledgeTreeInput
 
 
 async def start_enrich_knowledge_tree(
-    payload: EnrichKnowledgeTreeInput | Dict[str, Any] | KnowledgeNode,
+    payload: EnrichKnowledgeTreeInput | dict[str, Any] | KnowledgeNode,
     *,
     llm_client: AIGatewayClient | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Entry point for the enrich_knowledge_tree workflow.
 

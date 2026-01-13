@@ -8,32 +8,31 @@ Run with: pytest tests/libs/arangodb/test_handlers.py -v
 """
 
 import uuid
-import pytest
 
+import pytest
+from arango_client.collections import RelationshipTypes
 from arango_client.handlers import (
-    KnowledgeHandler,
-    SearchHandler,
     ChatHandler,
+    KnowledgeHandler,
     MiningHandler,
+    SearchHandler,
     SystemAdminHandler,
 )
 from arango_client.models import (
-    ParagraphNode,
-    StructureNode,
-    ChatSession,
     ChatMessage,
+    ChatSession,
+    DataSource,
+    FAQStatus,
     Feedback,
+    FeedbackStatus,
+    NodeType,
+    ParagraphNode,
+    SourceType,
+    StructureNode,
     SuggestedFAQ,
     User,
-    DataSource,
-    NodeType,
-    FAQStatus,
-    FeedbackStatus,
-    SourceType,
     UserRole,
 )
-from arango_client.collections import RelationshipTypes
-
 
 # =============================================================================
 # Fixtures

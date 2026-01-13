@@ -12,34 +12,33 @@ import asyncio
 import json
 import unittest
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-from config.settings import settings
-from loguru import logger
-
 from arango_client import (
     ArangoClient,
-    SystemAdminHandler,
     KnowledgeNodeHandler,
+    SystemAdminHandler,
     User,
     parse_node_from_dict,
-    serialize_tree_to_dict,
 )
+from loguru import logger
+
+from config.settings import settings
 from workflows.dependencies import get_minio_client, init_arango_client, init_llm_client
-from workflows.upload_file import FileUploadInput, UploadSourceType, start_upload_file
-from workflows.ingest_file import FileIngestionInput, FileIngestionStatus
-from workflows.ingest_file.run import FileIngestionWorkflow
+from workflows.embed_nodes import start_embed_nodes
+from workflows.embed_nodes.helper import extract_text_for_embedding
+from workflows.embed_nodes.models import EmbedNodesInput
 from workflows.enrich_knowledge_tree import start_enrich_knowledge_tree
 from workflows.enrich_knowledge_tree.models import EnrichKnowledgeTreeInput
-from workflows.save_knowledge_to_arango import start_save_knowledge_to_arango
-from workflows.save_knowledge_to_arango.models import SaveKnowledgeInput
-from workflows.embed_nodes import start_embed_nodes
-from workflows.embed_nodes.models import EmbedNodesInput
-from workflows.embed_nodes.helper import extract_text_for_embedding
+from workflows.ingest_file import FileIngestionInput, FileIngestionStatus
+from workflows.ingest_file.run import FileIngestionWorkflow
 from workflows.save_embeddings_to_arango import start_save_embeddings_to_arango
 from workflows.save_embeddings_to_arango.models import SaveEmbeddingsInput
+from workflows.save_knowledge_to_arango import start_save_knowledge_to_arango
+from workflows.save_knowledge_to_arango.models import SaveKnowledgeInput
+from workflows.upload_file import FileUploadInput, UploadSourceType, start_upload_file
 
 
 class IngestFilePipelineTest(unittest.TestCase):
@@ -112,7 +111,7 @@ class IngestFilePipelineTest(unittest.TestCase):
 
     def _create_output_folder(self) -> Path:
         """Create timestamped output folder for this test run."""
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         output_dir = self.BASE_OUTPUT_DIR / timestamp
         output_dir.mkdir(parents=True, exist_ok=True)
         return output_dir
@@ -131,7 +130,7 @@ class IngestFilePipelineTest(unittest.TestCase):
         output_dir = self._create_output_folder()
 
         print(f"\n{'=' * 80}")
-        print(f"Full PDF Ingestion Pipeline Test")
+        print("Full PDF Ingestion Pipeline Test")
         print(f"Output folder: {output_dir}")
         print(f"{'=' * 80}")
 
@@ -324,7 +323,7 @@ class IngestFilePipelineTest(unittest.TestCase):
 
         # ============ Final Summary ============
         summary = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "data_source_id": str(data_source_id),
             "source_file": self.SAMPLE_FILE.name,
             "output_folder": str(output_dir),

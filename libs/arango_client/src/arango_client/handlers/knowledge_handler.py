@@ -12,36 +12,34 @@ All AQL queries are imported from the centralized aql/ module.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Optional, Type, Union
+from datetime import UTC, datetime
+from typing import Any, Union
 
 from arango.database import StandardDatabase
 
 from ..aql import (
     CRUD_GET_BY_FILTER,
-    GET_DIRECT_CHILDREN,
-    GET_DESCENDANTS,
     GET_ANCESTORS,
-    DELETE_SUBTREE,
-    GET_SIBLINGS,
+    GET_DESCENDANTS,
+    GET_DIRECT_CHILDREN,
     GET_NEXT_SIBLING,
-    GET_PREV_SIBLING,
     GET_NODES_AT_LEVEL,
+    GET_PREV_SIBLING,
+    GET_SIBLINGS,
 )
 from ..collections.schema import (
+    KNOWLEDGE_COLLECTIONS,
+    KNOWLEDGE_GRAPH_NAME,
     Collections,
     EdgeCollections,
     RelationshipTypes,
-    KNOWLEDGE_GRAPH_NAME,
-    KNOWLEDGE_COLLECTIONS,
 )
-from ..models.knowledge import KnowledgeNode
-from ..models.detail_nodes import ParagraphNode, ImageNode, TableNode
-from ..models.structure_nodes import StructureNode, RootNode
+from ..models.detail_nodes import ImageNode, ParagraphNode, TableNode
 from ..models.enums import NodeType
+from ..models.knowledge import KnowledgeNode
+from ..models.structure_nodes import RootNode, StructureNode
 from ..utils import doc_to_knowledge_node
 from .base_handler import BaseHandler
-
 
 # Type alias for all knowledge node types
 KnowledgeNodeType = Union[
@@ -122,8 +120,8 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
     def get_by_id(
         self,
         id: uuid.UUID | str,
-        node_class: Optional[Type[KnowledgeNodeType]] = None,
-    ) -> Optional[KnowledgeNodeType]:
+        node_class: type[KnowledgeNodeType] | None = None,
+    ) -> KnowledgeNodeType | None:
         """Get a knowledge node by ID, searching across all collections."""
         key = str(id)
 
@@ -136,7 +134,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
 
         return None
 
-    def _find_node_collection(self, node_id: uuid.UUID | str) -> Optional[str]:
+    def _find_node_collection(self, node_id: uuid.UUID | str) -> str | None:
         """Find which collection contains the given node ID."""
         key = str(node_id)
         for collection_name in KNOWLEDGE_COLLECTIONS:
@@ -148,8 +146,8 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
     def get_by_filter(
         self,
         filters: dict[str, Any],
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        limit: int | None = None,
+        offset: int | None = None,
         sort_field: str = "created_at",
         sort_desc: bool = True,
     ) -> list[KnowledgeNodeType]:
@@ -191,8 +189,8 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
     def get_by_source(
         self,
         source_id: uuid.UUID | str,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[KnowledgeNodeType]:
         """Get knowledge nodes by source ID."""
         return self.get_by_filter(
@@ -205,8 +203,8 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
     def get_by_node_type(
         self,
         node_type: NodeType | str,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[KnowledgeNodeType]:
         """Get knowledge nodes by node type."""
         type_value = node_type.value if isinstance(node_type, NodeType) else node_type
@@ -225,8 +223,8 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         self,
         node_id: uuid.UUID | str,
         vector: list[float],
-        text: Optional[str] = None,
-    ) -> Optional[KnowledgeNodeType]:
+        text: str | None = None,
+    ) -> KnowledgeNodeType | None:
         """
         Update embedding for any knowledge node.
 
@@ -240,7 +238,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         """
         update_data = {
             "embedding": vector,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
         if text is not None:
             node = self.get_by_id(node_id)
@@ -255,7 +253,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         self,
         node: KnowledgeNodeType,
         vector: list[float],
-        text: Optional[str] = None,
+        text: str | None = None,
     ) -> KnowledgeNodeType:
         """Create a node with embedding in a single operation."""
         node.embedding = vector
@@ -276,8 +274,8 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         from_id: uuid.UUID | str,
         to_id: uuid.UUID | str,
         relationship_type: str,
-        from_collection: Optional[str] = None,
-        to_collection: Optional[str] = None,
+        from_collection: str | None = None,
+        to_collection: str | None = None,
     ) -> dict[str, Any]:
         """Create a relationship (edge) between two nodes."""
         # Find collections if not provided
@@ -290,15 +288,15 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
             if to_collection is None:
                 raise ValueError(f"Node {to_id} not found in any collection")
 
-        from_vertex = f"{from_collection}/{str(from_id)}"
-        to_vertex = f"{to_collection}/{str(to_id)}"
+        from_vertex = f"{from_collection}/{from_id!s}"
+        to_vertex = f"{to_collection}/{to_id!s}"
 
         edge_doc = {
             "_key": str(uuid.uuid4()),
             "_from": from_vertex,
             "_to": to_vertex,
             "type": relationship_type,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
 
         result = self._edge_collection.insert(edge_doc, return_new=True)
@@ -335,7 +333,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
     def get_children(
         self,
         node_id: uuid.UUID | str,
-        relationship_types: Optional[list[str]] = None,
+        relationship_types: list[str] | None = None,
     ) -> list[KnowledgeNodeType]:
         """Get direct children of a node via graph traversal."""
         if relationship_types is None:
@@ -347,7 +345,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         collection = self._find_node_collection(node_id)
         if collection is None:
             return []
-        start_vertex = f"{collection}/{str(node_id)}"
+        start_vertex = f"{collection}/{node_id!s}"
 
         cursor = self.db.aql.execute(
             GET_DIRECT_CHILDREN,
@@ -364,7 +362,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         self,
         node_id: uuid.UUID | str,
         max_depth: int = 100,
-        relationship_types: Optional[list[str]] = None,
+        relationship_types: list[str] | None = None,
     ) -> list[KnowledgeNodeType]:
         """Get all descendants of a node (deep traversal)."""
         if relationship_types is None:
@@ -376,7 +374,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         collection = self._find_node_collection(node_id)
         if collection is None:
             return []
-        start_vertex = f"{collection}/{str(node_id)}"
+        start_vertex = f"{collection}/{node_id!s}"
 
         cursor = self.db.aql.execute(
             GET_DESCENDANTS,
@@ -399,7 +397,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         collection = self._find_node_collection(node_id)
         if collection is None:
             return []
-        start_vertex = f"{collection}/{str(node_id)}"
+        start_vertex = f"{collection}/{node_id!s}"
 
         cursor = self.db.aql.execute(
             GET_ANCESTORS,
@@ -416,7 +414,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
 
         return [doc_to_knowledge_node(doc) for doc in cursor]
 
-    def get_parent(self, node_id: uuid.UUID | str) -> Optional[KnowledgeNodeType]:
+    def get_parent(self, node_id: uuid.UUID | str) -> KnowledgeNodeType | None:
         """Get the parent of a node."""
         ancestors = self.get_ancestors(node_id, max_depth=1)
         return ancestors[0] if ancestors else None
@@ -426,8 +424,6 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         collection = self._find_node_collection(node_id)
         if collection is None:
             return {"deleted_nodes": 0, "deleted_edges": 0}
-
-        start_vertex = f"{collection}/{str(node_id)}"
 
         # Get all descendants first
         descendants = self.get_descendants(node_id)
@@ -491,7 +487,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         collection = self._find_node_collection(node_id)
         if collection is None:
             return []
-        start_vertex = f"{collection}/{str(node_id)}"
+        start_vertex = f"{collection}/{node_id!s}"
 
         cursor = self.db.aql.execute(
             GET_SIBLINGS,
@@ -503,7 +499,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
 
         return [doc_to_knowledge_node(doc) for doc in cursor]
 
-    def get_next_sibling(self, node_id: uuid.UUID | str) -> Optional[KnowledgeNodeType]:
+    def get_next_sibling(self, node_id: uuid.UUID | str) -> KnowledgeNodeType | None:
         """Get the next sibling via NEXT_SIBLING relationship.
 
         Args:
@@ -515,7 +511,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         collection = self._find_node_collection(node_id)
         if collection is None:
             return None
-        start_vertex = f"{collection}/{str(node_id)}"
+        start_vertex = f"{collection}/{node_id!s}"
 
         cursor = self.db.aql.execute(
             GET_NEXT_SIBLING,
@@ -528,7 +524,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         results = list(cursor)
         return doc_to_knowledge_node(results[0]) if results else None
 
-    def get_prev_sibling(self, node_id: uuid.UUID | str) -> Optional[KnowledgeNodeType]:
+    def get_prev_sibling(self, node_id: uuid.UUID | str) -> KnowledgeNodeType | None:
         """Get the previous sibling via NEXT_SIBLING relationship (reverse).
 
         Args:
@@ -540,7 +536,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         collection = self._find_node_collection(node_id)
         if collection is None:
             return None
-        start_vertex = f"{collection}/{str(node_id)}"
+        start_vertex = f"{collection}/{node_id!s}"
 
         cursor = self.db.aql.execute(
             GET_PREV_SIBLING,

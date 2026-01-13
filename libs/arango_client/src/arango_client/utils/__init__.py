@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Type, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -21,9 +21,9 @@ _model_cache = {}
 def _get_models():
     """Lazy import models to avoid circular imports."""
     if not _model_cache:
+        from ..models.detail_nodes import ImageNode, ParagraphNode, TableNode
         from ..models.knowledge import KnowledgeNode
-        from ..models.detail_nodes import ParagraphNode, ImageNode, TableNode
-        from ..models.structure_nodes import StructureNode, RootNode
+        from ..models.structure_nodes import RootNode, StructureNode
 
         _model_cache.update(
             {
@@ -40,8 +40,8 @@ def _get_models():
 
 def doc_to_knowledge_node(
     doc: dict[str, Any],
-    node_class: Type["KnowledgeNode"] | None = None,
-) -> "KnowledgeNode":
+    node_class: type[KnowledgeNode] | None = None,
+) -> KnowledgeNode:
     """
     Convert ArangoDB document to appropriate KnowledgeNode subclass.
 
@@ -84,7 +84,7 @@ def doc_to_knowledge_node(
         return models["KnowledgeNode"].from_document(doc)
 
 
-def parse_node_from_dict(data: dict | "KnowledgeNode") -> "KnowledgeNode":
+def parse_node_from_dict(data: dict | KnowledgeNode) -> KnowledgeNode:
     """
     Parse a dictionary or KnowledgeNode into the correct KnowledgeNode subtype.
 
@@ -148,7 +148,7 @@ def parse_node_from_dict(data: dict | "KnowledgeNode") -> "KnowledgeNode":
         return models["StructureNode"].model_validate(node_data)
 
 
-def set_parent_ids(node: "KnowledgeNode", parent_id: uuid.UUID | None = None) -> None:
+def set_parent_ids(node: KnowledgeNode, parent_id: uuid.UUID | None = None) -> None:
     """
     Recursively set parent_id for all nodes in the tree.
 
@@ -163,7 +163,7 @@ def set_parent_ids(node: "KnowledgeNode", parent_id: uuid.UUID | None = None) ->
             set_parent_ids(child, parent_id=node.id)
 
 
-def set_positions(node: "KnowledgeNode", breadcrumb: list[str] | None = None) -> None:
+def set_positions(node: KnowledgeNode, breadcrumb: list[str] | None = None) -> None:
     """
     Recursively set position (breadcrumb path) for all nodes in the tree.
 
@@ -204,7 +204,7 @@ def set_positions(node: "KnowledgeNode", breadcrumb: list[str] | None = None) ->
             set_positions(child, breadcrumb=new_breadcrumb)
 
 
-def serialize_tree_to_dict(node: "KnowledgeNode") -> dict[str, Any]:
+def serialize_tree_to_dict(node: KnowledgeNode) -> dict[str, Any]:
     """
     Recursively serialize a knowledge tree to dictionary.
 
@@ -228,7 +228,7 @@ def serialize_tree_to_dict(node: "KnowledgeNode") -> dict[str, Any]:
 
 
 def validate_tree_and_attach_source(
-    root: "KnowledgeNode",
+    root: KnowledgeNode,
     data_source_id: UUID,
 ) -> None:
     """
@@ -248,11 +248,10 @@ def validate_tree_and_attach_source(
         ValueError: If validation fails with detailed error messages
     """
     errors: list[str] = []
-    path_constants: dict[tuple, int] = {}
 
     def walk(
-        node: "KnowledgeNode",
-        parent: "KnowledgeNode | None",
+        node: KnowledgeNode,
+        parent: KnowledgeNode | None,
         path: list[UUID] | None = None,
     ) -> None:
         nonlocal errors
@@ -264,13 +263,12 @@ def validate_tree_and_attach_source(
         if parent is None:
             if node.parent_id is not None:
                 errors.append("Root node must have parent_id=None")
-        else:
-            if node.parent_id is None:
-                errors.append("Non-root node must have parent_id set")
-            elif node.parent_id != parent.id:
-                errors.append(
-                    f"Node {node.id} has parent_id={node.parent_id} but parent is {parent.id}"
-                )
+        elif node.parent_id is None:
+            errors.append("Non-root node must have parent_id set")
+        elif node.parent_id != parent.id:
+            errors.append(
+                f"Node {node.id} has parent_id={node.parent_id} but parent is {parent.id}"
+            )
 
         # Validate level (arango_client uses 'level' instead of 'level_down'/'level_up')
         node_level = getattr(node, "level", 0)
@@ -318,7 +316,7 @@ def validate_tree_and_attach_source(
 
 
 def compute_tree_statistics(
-    root_node: "KnowledgeNode",
+    root_node: KnowledgeNode,
     *,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
@@ -345,7 +343,7 @@ def compute_tree_statistics(
     total_paragraphs = 0
     total_content_length = 0
 
-    def walk(node: "KnowledgeNode") -> None:
+    def walk(node: KnowledgeNode) -> None:
         nonlocal total_nodes, total_paragraphs, total_content_length
         total_nodes += 1
         # Use 'level' attribute (arango_client) instead of 'level_down' (postgres_client)
@@ -403,11 +401,11 @@ def compute_tree_statistics(
 
 
 __all__ = [
+    "compute_tree_statistics",
     "doc_to_knowledge_node",
     "parse_node_from_dict",
+    "serialize_tree_to_dict",
     "set_parent_ids",
     "set_positions",
-    "serialize_tree_to_dict",
     "validate_tree_and_attach_source",
-    "compute_tree_statistics",
 ]

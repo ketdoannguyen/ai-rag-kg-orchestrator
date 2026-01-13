@@ -6,9 +6,9 @@ from .run import FileUploadWorkflow, start_upload_file, start_upload_file_sync
 __all__ = [
     "FileUploadInput",
     "FileUploadResult",
+    "FileUploadWorkflow",
     "MinioInfo",
     "UploadSourceType",
-    "FileUploadWorkflow",
     "start_upload_file",
     "start_upload_file_sync",
 ]

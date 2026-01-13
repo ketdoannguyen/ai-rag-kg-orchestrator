@@ -5,29 +5,27 @@ Sử dụng arango_client models mới.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
-from loguru import logger
-from llm_gateway_client import AIGatewayClient
-from llm_gateway_client.models import EmbeddingRequest
 from arango_client import (
     KnowledgeNode,
-    StructureNode,
-    NodeType,
 )
+from llm_gateway_client import AIGatewayClient
+from llm_gateway_client.models import EmbeddingRequest
+from loguru import logger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from workflows.dependencies import init_llm_client
 
-from .models import EmbedNodesInput, EmbedNodesOutput, EmbeddingData
-from .helper import collect_embeddable_nodes, create_batches, extract_text_for_embedding
+from .helper import collect_embeddable_nodes, create_batches
+from .models import EmbeddingData, EmbedNodesInput, EmbedNodesOutput
 
 
 async def start_embed_nodes(
-    payload: EmbedNodesInput | Dict[str, Any],
+    payload: EmbedNodesInput | dict[str, Any],
     *,
     llm_client: AIGatewayClient | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Entry point for the embed_nodes workflow.
 
@@ -91,9 +89,9 @@ class EmbedNodesWorkflow:
         self._log.info("Created batches", batch_count=len(batches), batch_size=payload.batch_size)
 
         # Process batches
-        structure_embeddings: List[EmbeddingData] = []
-        content_embeddings: List[EmbeddingData] = []
-        failed_nodes: List[Dict[str, Any]] = []
+        structure_embeddings: list[EmbeddingData] = []
+        content_embeddings: list[EmbeddingData] = []
+        failed_nodes: list[dict[str, Any]] = []
 
         for batch_idx, batch in enumerate(batches):
             self._log.debug("Processing batch", batch_index=batch_idx + 1, batch_size=len(batch))
@@ -133,9 +131,9 @@ class EmbedNodesWorkflow:
     )
     async def _embed_batch_with_retry(
         self,
-        texts: List[str],
+        texts: list[str],
         model: str | None,
-    ) -> List[List[float]] | None:
+    ) -> list[list[float]] | None:
         """Embed a batch of texts with retry logic."""
         try:
             request = EmbeddingRequest(input=texts, model=model)
@@ -154,11 +152,11 @@ class EmbedNodesWorkflow:
 
     async def _process_batch(
         self,
-        batch: List[tuple[KnowledgeNode, str]],
+        batch: list[tuple[KnowledgeNode, str]],
         model: str | None,
-        structure_embeddings: List[EmbeddingData],
-        content_embeddings: List[EmbeddingData],
-        failed_nodes: List[Dict[str, Any]],
+        structure_embeddings: list[EmbeddingData],
+        content_embeddings: list[EmbeddingData],
+        failed_nodes: list[dict[str, Any]],
     ) -> None:
         """Process a single batch of nodes."""
         # Extract texts from batch

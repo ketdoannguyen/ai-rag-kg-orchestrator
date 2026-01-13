@@ -1,20 +1,20 @@
 """Handlers for ArangoDB operations."""
 
 from .base_handler import BaseHandler
-from .knowledge_handler import KnowledgeNodeHandler, KnowledgeHandler
 from .chat_handler import (
-    ChatSessionHandler,
-    ChatMessageHandler,
-    FeedbackHandler,
     ChatHandler,
+    ChatMessageHandler,
+    ChatSessionHandler,
+    FeedbackHandler,
 )
+from .knowledge_handler import KnowledgeHandler, KnowledgeNodeHandler
+from .mining_handler import MiningHandler, SuggestedFAQHandler
+from .search_handler import SearchHandler, SearchResult
 from .system_admin_handler import (
-    UserHandler,
     DataSourceHandler,
     SystemAdminHandler,
+    UserHandler,
 )
-from .mining_handler import SuggestedFAQHandler, MiningHandler
-from .search_handler import SearchHandler, SearchResult
 
 __all__ = [
     # Base

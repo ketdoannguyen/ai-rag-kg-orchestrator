@@ -23,13 +23,14 @@ from loguru import logger
 async def main() -> None:
     """Run test LLM and embedding calls to verify Langfuse tracing."""
     # Import after env is loaded
-    from config.settings import get_settings
-    from workflows.dependencies import init_llm_client
     from llm_gateway_client.models import (
         EmbeddingRequest,
         GatewayChatTurn,
         GatewayInvokeRequest,
     )
+
+    from config.settings import get_settings
+    from workflows.dependencies import init_llm_client
 
     settings = get_settings()
 

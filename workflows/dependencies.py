@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Optional
+
+from arango_client import ArangoClient
+from llm_gateway_client import AIGatewayClient
+from minio_client import StorageClient
 
 from config.llm_gateway import build_llm_gateway_client
 from config.settings import get_settings, settings
-from llm_gateway_client import AIGatewayClient
-from minio_client import StorageClient
-from arango_client import ArangoClient
 
 
 @lru_cache(maxsize=1)
@@ -45,10 +45,10 @@ def init_llm_client() -> AIGatewayClient:
 
 
 def init_arango_client(
-    url: Optional[str] = None,
-    database: Optional[str] = None,
-    username: Optional[str] = None,
-    password: Optional[str] = None,
+    url: str | None = None,
+    database: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
 ) -> ArangoClient:
     """
     Create an ArangoDB client, defaulting to configured settings.

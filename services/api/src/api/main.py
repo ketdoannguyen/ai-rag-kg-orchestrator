@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from .routers import chat, ingest, cms
+from .routers import chat, cms, ingest
 
 app = FastAPI(title="RAG KG Orchestrator API")
 
