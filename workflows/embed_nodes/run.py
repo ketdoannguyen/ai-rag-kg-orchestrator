@@ -1,4 +1,7 @@
-"""Implementation of embed_nodes workflow."""
+"""Implementation of embed_nodes workflow.
+
+Sử dụng arango_client models mới.
+"""
 
 from __future__ import annotations
 
@@ -7,15 +10,16 @@ from typing import Any, Dict, List
 from loguru import logger
 from llm_gateway_client import AIGatewayClient
 from llm_gateway_client.models import EmbeddingRequest
-from postgres_client.models.knowledge import KnowledgeNode
-from postgres_client.models.embeddings import EmbeddingStructure, EmbeddingContent
-from postgres_client.models.structure_nodes import StructureNode
-from postgres_client.models.enums import NodeType
+from arango_client import (
+    KnowledgeNode,
+    StructureNode,
+    NodeType,
+)
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from workflows.dependencies import init_llm_client
 
-from .models import EmbedNodesInput, EmbedNodesOutput
+from .models import EmbedNodesInput, EmbedNodesOutput, EmbeddingData
 from .helper import collect_embeddable_nodes, create_batches, extract_text_for_embedding
 
 
@@ -87,8 +91,8 @@ class EmbedNodesWorkflow:
         self._log.info("Created batches", batch_count=len(batches), batch_size=payload.batch_size)
 
         # Process batches
-        structure_embeddings: List[EmbeddingStructure] = []
-        content_embeddings: List[EmbeddingContent] = []
+        structure_embeddings: List[EmbeddingData] = []
+        content_embeddings: List[EmbeddingData] = []
         failed_nodes: List[Dict[str, Any]] = []
 
         for batch_idx, batch in enumerate(batches):
@@ -125,7 +129,7 @@ class EmbedNodesWorkflow:
         retry=retry_if_exception_type(Exception),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
-        reraise=False,  # Don't raise, track failures instead
+        reraise=False,
     )
     async def _embed_batch_with_retry(
         self,
@@ -139,14 +143,21 @@ class EmbedNodesWorkflow:
             return response.embeddings
         except Exception as exc:
             self._log.warning("Embedding batch failed", error=str(exc), text_count=len(texts))
-            raise  # Re-raise to trigger retry
+            raise
+
+    def _get_node_type_str(self, node: KnowledgeNode) -> str:
+        """Get node_type as string."""
+        node_type = node.node_type
+        if hasattr(node_type, 'value'):
+            return node_type.value
+        return str(node_type).lower()
 
     async def _process_batch(
         self,
         batch: List[tuple[KnowledgeNode, str]],
         model: str | None,
-        structure_embeddings: List[EmbeddingStructure],
-        content_embeddings: List[EmbeddingContent],
+        structure_embeddings: List[EmbeddingData],
+        content_embeddings: List[EmbeddingData],
         failed_nodes: List[Dict[str, Any]],
     ) -> None:
         """Process a single batch of nodes."""
@@ -158,58 +169,48 @@ class EmbedNodesWorkflow:
         try:
             vectors = await self._embed_batch_with_retry(texts, model)
             if vectors is None:
-                # Retry exhausted, mark all nodes in batch as failed
+                # Retry exhausted
                 for node, text in batch:
                     failed_nodes.append({
                         "node_id": str(node.id),
-                        "node_type": node.node_type.value,
+                        "node_type": self._get_node_type_str(node),
                         "error": "Embedding failed after retries",
                         "retry_count": 3,
                     })
                 return
 
-            # Map vectors back to nodes and create embedding models
+            # Map vectors back to nodes
             if len(vectors) != len(nodes):
                 self._log.error(
                     "Vector count mismatch",
                     expected=len(nodes),
                     got=len(vectors),
                 )
-                # Mark all as failed
                 for node, text in batch:
                     failed_nodes.append({
                         "node_id": str(node.id),
-                        "node_type": node.node_type.value,
+                        "node_type": self._get_node_type_str(node),
                         "error": "Vector count mismatch",
                         "retry_count": 0,
                     })
                 return
 
-            # Create embedding models
-            for node, vector in zip(nodes, vectors):
-                text = extract_text_for_embedding(node)
-                if not text:
-                    continue
-
-                if isinstance(node, StructureNode):
-                    # Structure node: create EmbeddingStructure
-                    embedding = EmbeddingStructure(
-                        node_id=node.id,
-                        summary_text=text,
-                        vector=vector,
-                    )
-                    structure_embeddings.append(embedding)
+            # Create embedding data
+            for (node, text), vector in zip(batch, vectors):
+                node_type = self._get_node_type_str(node)
+                
+                embedding_data = EmbeddingData(
+                    node_id=node.id,
+                    vector=vector,
+                    text=text,
+                )
+                
+                if node_type == "structure":
+                    structure_embeddings.append(embedding_data)
                 else:
-                    # Detail node: create EmbeddingContent
-                    embedding = EmbeddingContent(
-                        node_id=node.id,
-                        chunk_text=text,
-                        vector=vector,
-                    )
-                    content_embeddings.append(embedding)
+                    content_embeddings.append(embedding_data)
 
         except Exception as exc:
-            # Retry exhausted, mark all nodes in batch as failed
             self._log.error(
                 "Batch embedding failed after retries",
                 error=str(exc),
@@ -218,8 +219,7 @@ class EmbedNodesWorkflow:
             for node, text in batch:
                 failed_nodes.append({
                     "node_id": str(node.id),
-                    "node_type": node.node_type.value,
+                    "node_type": self._get_node_type_str(node),
                     "error": str(exc),
                     "retry_count": 3,
                 })
-

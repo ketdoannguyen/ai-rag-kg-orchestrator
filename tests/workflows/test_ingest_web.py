@@ -1,203 +1,371 @@
+"""Integration tests for web ingestion pipeline.
+
+Full pipeline: ingest_web → enrich_knowledge_tree → save_knowledge_to_arango → embed_nodes → save_embeddings
+
+Output JSON files for manual inspection and pipeline efficiency evaluation.
+All output files are organized in timestamped folders for easy management.
+"""
+
 from __future__ import annotations
 
 import asyncio
 import json
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
-from workflows.dependencies import init_postgres_client
+from loguru import logger
+
+from arango_client import ArangoClient, KnowledgeNodeHandler, parse_node_from_dict, serialize_tree_to_dict
+from workflows.dependencies import init_arango_client, init_llm_client
 from workflows.ingest_web import WebIngestionInput, WebIngestionStatus, start_ingest_web
-from postgres_client import PostgresClient
-from postgres_client.handlers.system_admin_handler import SystemAdminHandler
-from postgres_client.models.system_admin import User
+from workflows.enrich_knowledge_tree import start_enrich_knowledge_tree
+from workflows.enrich_knowledge_tree.models import EnrichKnowledgeTreeInput
+from workflows.save_knowledge_to_arango import start_save_knowledge_to_arango
+from workflows.save_knowledge_to_arango.models import SaveKnowledgeInput
+from workflows.embed_nodes import start_embed_nodes
+from workflows.embed_nodes.models import EmbedNodesInput
+from workflows.embed_nodes.helper import extract_text_for_embedding
+from workflows.save_embeddings_to_arango import start_save_embeddings_to_arango
+from workflows.save_embeddings_to_arango.models import SaveEmbeddingsInput
 
 
-class IngestWebWorkflowIntegrationTest(unittest.TestCase):
-    """Integration test for ingest_web workflow using real database and real crawling.
+class IngestWebPipelineTest(unittest.TestCase):
+    """Full pipeline integration test for web ingestion.
 
-    This test performs actual web crawling without mocking, interacting with:
-    - Real PostgreSQL database
-    - Real web URLs (crawl4ai)
-    - Real content extraction and knowledge tree building
+    Pipeline: ingest_web → enrich → save → embed → save_embeddings
 
-    Test URLs:
-    - https://tuyensinh.vku.udn.vn/cntt-ks
-    - https://tuyensinh.vku.udn.vn/pt-tuyenthang
+    Output files are organized in timestamped folders for easy management.
     """
 
-    TEST_URLS = [
-        "https://tuyensinh.vku.udn.vn/cntt-ks",
-        "https://tuyensinh.vku.udn.vn/pt-tuyenthang",
-    ]
+    # Test configuration
+    TEST_URL = "https://vietnamnet.vn/giao-vien-tphcm-se-nhan-hang-chuc-trieu-dong-dip-tet-cao-nhat-gan-100-trieu-2479008.html"
     CREATED_BY = UUID("550e8400-e29b-41d4-a716-446655440000")
-    OUTPUT_DIR = Path("tests/workflows/output")
+    BASE_OUTPUT_DIR = Path("tests/workflows/output")
 
     @classmethod
     def setUpClass(cls) -> None:
-        """Set up test environment: initialize database client and ensure test user exists."""
-        cls._pg_client: PostgresClient = init_postgres_client()
-        cls._sessionmaker = cls._pg_client.sessionmaker
-        asyncio.run(cls._ensure_user_exists())
+        """Set up test fixtures."""
+        cls._arango_client: ArangoClient = init_arango_client()
+        cls._llm_client = init_llm_client()
 
     @classmethod
     def tearDownClass(cls) -> None:
-        """Clean up: close database connection."""
-        if hasattr(cls, "_pg_client"):
-            asyncio.run(cls._pg_client.close())
+        """Clean up resources."""
+        if hasattr(cls, "_arango_client"):
+            cls._arango_client.close()
 
-    @classmethod
-    async def _ensure_user_exists(cls) -> None:
-        """Ensure test user exists in database."""
-        async with cls._sessionmaker() as session:
-            handler = SystemAdminHandler(session)
-            existing = await handler.users.get_by_id(cls.CREATED_BY)
-            if existing is None:
-                user = User(
-                    id=cls.CREATED_BY,
-                    username="ingest_web_workflow_tester",
-                    hashed_password="temporary",
-                )
-                await handler.users.create(user)
-                print(f"✓ Created test user: {cls.CREATED_BY}")
+    def _create_output_folder(self) -> Path:
+        """Create timestamped output folder for this test run."""
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        output_dir = self.BASE_OUTPUT_DIR / f"web_{timestamp}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return output_dir
 
-    async def _fetch_datasource(self, source_id: UUID):
-        """Fetch DataSource from database by ID."""
-        async with self._sessionmaker() as session:
-            handler = SystemAdminHandler(session)
-            return await handler.sources.get_by_id(source_id)
+    def _save_json(self, data: dict, filepath: Path) -> None:
+        """Save data to JSON file."""
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+        logger.info(f"Saved: {filepath}")
 
-    def test_ingest_web_urls_real_crawl(self) -> None:
-        """Test web ingestion workflow with real URLs and real crawling.
+    def _count_tree_nodes(self, node: dict) -> dict:
+        """Count nodes in tree by type."""
+        from collections import Counter
+        counts = Counter()
+        
+        def _count(n):
+            counts[n.get("node_type", "unknown")] += 1
+            for child in n.get("children", []):
+                _count(child)
+        
+        _count(node)
+        return dict(counts)
 
-        This test:
-        1. Creates WebIngestionInput with test URLs
-        2. Runs the complete workflow (validate, crawl, extract, build tree, save)
-        3. Verifies results for each URL
-        4. Checks DataSource records in database
-        5. Saves output to JSON files for inspection
-        """
-        # Step 1: Create input payload
-        payload = WebIngestionInput(
-            urls=self.TEST_URLS,
-            created_by=self.CREATED_BY,
-            crawl_config={"respect_robots_txt": True},
-            max_concurrent_urls=2,  # Process both URLs concurrently
-            max_url_retries=2,
-            per_url_timeout_seconds=120.0,
+    def _cleanup_nodes_by_source(self, data_source_id: UUID) -> tuple[int, int]:
+        """Clean up nodes from data source using direct AQL. Returns (nodes_deleted, edges_deleted)."""
+        old_nodes = self._arango_client.db.aql.execute(
+            "FOR n IN knowledge_nodes FILTER n.source_id == @source_id RETURN n._key",
+            bind_vars={"source_id": str(data_source_id)}
         )
+        old_keys = list(old_nodes)
+        
+        if not old_keys:
+            return 0, 0
+        
+        # Delete edges first
+        edge_result = self._arango_client.db.aql.execute(
+            """
+            FOR e IN knowledge_edges
+                LET from_key = PARSE_IDENTIFIER(e._from).key
+                LET to_key = PARSE_IDENTIFIER(e._to).key
+                FILTER from_key IN @keys OR to_key IN @keys
+                REMOVE e IN knowledge_edges
+                RETURN 1
+            """,
+            bind_vars={"keys": old_keys}
+        )
+        edges_deleted = len(list(edge_result))
+        
+        # Delete nodes
+        node_result = self._arango_client.db.aql.execute(
+            "FOR n IN knowledge_nodes FILTER n.source_id == @source_id REMOVE n IN knowledge_nodes RETURN 1",
+            bind_vars={"source_id": str(data_source_id)}
+        )
+        nodes_deleted = len(list(node_result))
+        
+        return nodes_deleted, edges_deleted
 
+    def test_full_pipeline(self) -> None:
+        """Test full pipeline: ingest_web → enrich → save → embed → save_embeddings.
+
+        All output files are saved to a timestamped folder for easy inspection.
+        """
+        output_dir = self._create_output_folder()
+        
         print(f"\n{'='*80}")
-        print(f"Testing web ingestion with {len(self.TEST_URLS)} URLs")
+        print(f"Full Web Ingestion Pipeline Test")
+        print(f"URL: {self.TEST_URL}")
+        print(f"Output folder: {output_dir}")
         print(f"{'='*80}")
 
-        # Step 2: Run the workflow
-        result = asyncio.run(start_ingest_web(payload, pg_client=self._pg_client))
-
-        # Step 3: Basic assertions
-        self.assertIsNotNone(result)
-        self.assertIn("results", result)
-        self.assertEqual(len(result["results"]), len(self.TEST_URLS))
-
-        # Step 4: Verify each URL result
-        data_source_ids = []
-        for i, url_result in enumerate(result["results"]):
-            url = self.TEST_URLS[i]
-            print(f"\n--- Result for URL {i+1}: {url} ---")
-            print(f"Status: {url_result['status']}")
-
-            if url_result["status"] == WebIngestionStatus.SUCCESS:
-                self.assertIsNotNone(url_result["data_source"])
-                self.assertIsNotNone(url_result["root_node"])
-                self.assertIsNotNone(url_result["statistics"])
-
-                data_source_id = UUID(url_result["data_source"]["id"])
-                data_source_ids.append(data_source_id)
-
-                # Verify DataSource in database
-                datasource = asyncio.run(self._fetch_datasource(data_source_id))
-                self.assertIsNotNone(datasource)
-                # type can be enum or string depending on serialization, check case-insensitive
-                type_value = datasource.type.value if hasattr(datasource.type, "value") else datasource.type
-                self.assertEqual(type_value.upper() if isinstance(type_value, str) else str(type_value).upper(), "WEB")
-                self.assertEqual(datasource.status, "processing")
-                self.assertEqual(datasource.created_by, self.CREATED_BY)
-
-                # Verify root node structure
-                root_node = url_result["root_node"]
-                node_type = root_node.get("node_type", "").upper()
-                self.assertEqual(node_type, "STRUCTURE")
-                self.assertGreater(len(root_node.get("children", [])), 0)
-
-                # Verify statistics
-                stats = url_result["statistics"]
-                self.assertGreater(stats.get("total_nodes", 0), 0)
-                self.assertIn("nodes_by_level", stats)
-                self.assertIn("crawl_duration_seconds", stats)
-
-                print(f"  ✓ DataSource ID: {data_source_id}")
-                print(f"  ✓ Total nodes: {stats.get('total_nodes', 0)}")
-                print(f"  ✓ Crawl duration: {stats.get('crawl_duration_seconds', 0):.2f}s")
-
-            elif url_result["status"] == WebIngestionStatus.ERROR:
-                print(f"  ✗ Error: {url_result.get('error_message', 'Unknown error')}")
-                # Even on error, DataSource might be created
-                if url_result.get("data_source"):
-                    data_source_id = UUID(url_result["data_source"]["id"])
-                    datasource = asyncio.run(self._fetch_datasource(data_source_id))
-                    if datasource:
-                        self.assertEqual(datasource.status, "error")
-
-            elif url_result["status"] == WebIngestionStatus.SKIPPED:
-                print(f"  ⊘ Skipped: {url_result.get('error_message', 'Unknown reason')}")
-
-        # Step 5: Verify at least one URL succeeded
-        succeeded_count = sum(
-            1 for r in result["results"] if r["status"] == WebIngestionStatus.SUCCESS
-        )
-        self.assertGreater(
-            succeeded_count,
-            0,
-            "At least one URL should be successfully ingested",
+        # ============ Stage 1: Ingest Web ============
+        print("\n[Stage 1/6] Ingesting web content...")
+        ingest_result = asyncio.run(
+            start_ingest_web(
+                WebIngestionInput(
+                    urls=[self.TEST_URL],
+                    created_by=self.CREATED_BY,
+                    crawl_config={"respect_robots_txt": False},
+                    max_url_retries=2,
+                    per_url_timeout_seconds=60.0,
+                ),
+                arango_client=self._arango_client,
+            )
         )
 
-        # Step 6: Save output to JSON files for inspection
-        self._save_test_output(result, data_source_ids)
+        self._save_json(ingest_result, output_dir / "1_ingest_result.json")
+        
+        url_result = ingest_result["results"][0]
+        self.assertEqual(url_result["status"], WebIngestionStatus.SUCCESS)
+        
+        root_node_dict = url_result["root_node"]
+        data_source_id = UUID(url_result["data_source"]["id"])
+        
+        # Save raw tree
+        self._save_json(root_node_dict, output_dir / "1_ingest_tree.json")
+        
+        ingest_tree_counts = self._count_tree_nodes(root_node_dict)
+        ingest_total = sum(ingest_tree_counts.values())
+        print(f"  ✓ DataSource ID: {data_source_id}")
+        print(f"  ✓ Parsed: {ingest_total} nodes ({ingest_tree_counts})")
+
+        # Parse for next stage
+        root_node = parse_node_from_dict(root_node_dict)
+
+        # ============ Stage 2: Enrich Knowledge Tree ============
+        print("\n[Stage 2/6] Enriching knowledge tree...")
+        enrich_result = asyncio.run(
+            start_enrich_knowledge_tree(
+                EnrichKnowledgeTreeInput(knowledge_tree=root_node),
+                llm_client=self._llm_client,
+            )
+        )
+
+        self._save_json(enrich_result, output_dir / "2_enrich_result.json")
+        self._save_json(enrich_result["enriched_tree"], output_dir / "2_enriched_tree.json")
+
+        enrich_stats = enrich_result["statistics"]
+        enriched_tree_counts = self._count_tree_nodes(enrich_result["enriched_tree"])
+        enriched_total = sum(enriched_tree_counts.values())
+        
+        print(f"  ✓ Paragraphs: {enrich_stats['paragraphs_before']} → {enrich_stats['paragraphs_after']}")
+        print(f"  ✓ Structures enriched: {enrich_stats['structures_enriched']}")
+        print(f"  ✓ Enriched tree: {enriched_total} nodes ({enriched_tree_counts})")
+        print(f"  ✓ LLM calls: detail={enrich_stats['detail_llm_calls']}, structure={enrich_stats['structure_llm_calls']}")
+
+        # Parse enriched tree for next stage
+        enriched_tree = parse_node_from_dict(enrich_result["enriched_tree"])
+
+        # ============ Stage 3: Save to ArangoDB ============
+        print("\n[Stage 3/6] Saving to ArangoDB...")
+        
+        # Cleanup old nodes if any
+        old_nodes_deleted, old_edges_deleted = self._cleanup_nodes_by_source(data_source_id)
+        if old_nodes_deleted > 0:
+            print(f"  → Cleaned up: {old_nodes_deleted} old nodes, {old_edges_deleted} edges")
+
+        save_result = asyncio.run(
+            start_save_knowledge_to_arango(
+                SaveKnowledgeInput(
+                    enriched_tree=enriched_tree,
+                    data_source_id=data_source_id,
+                ),
+                arango_client=self._arango_client,
+            )
+        )
+
+        self._save_json(save_result, output_dir / "3_save_result.json")
+        
+        relationships = save_result.get("relationships_created", {})
+        total_relationships = sum(relationships.values())
+        print(f"  ✓ Nodes saved: {save_result['total_nodes_saved']}")
+        print(f"  ✓ Relationships: {relationships} (total: {total_relationships})")
+
+        # Verify: enriched_tree nodes == saved nodes
+        self.assertEqual(
+            save_result["total_nodes_saved"], 
+            enriched_total,
+            f"Mismatch: enriched tree has {enriched_total} nodes but saved {save_result['total_nodes_saved']}"
+        )
+
+        # ============ Stage 4: Embed Nodes ============
+        print("\n[Stage 4/6] Embedding nodes...")
+        node_handler = KnowledgeNodeHandler(self._arango_client.db)
+        saved_nodes = node_handler.get_by_source(data_source_id)
+        
+        # Verify: DB nodes == saved nodes
+        self.assertEqual(
+            len(saved_nodes),
+            save_result["total_nodes_saved"],
+            f"Mismatch: DB has {len(saved_nodes)} nodes but save result says {save_result['total_nodes_saved']}"
+        )
+        
+        embeddable = [n for n in saved_nodes if extract_text_for_embedding(n)]
+        print(f"  → Embeddable nodes: {len(embeddable)}/{len(saved_nodes)}")
+
+        embed_result = None
+        embed_count = 0
+        structure_embs = []
+        content_embs = []
+        
+        if embeddable:
+            embed_result = asyncio.run(
+                start_embed_nodes(
+                    EmbedNodesInput(nodes=embeddable, batch_size=10),
+                    llm_client=self._llm_client,
+                )
+            )
+            
+            self._save_json(embed_result, output_dir / "4_embed_result.json")
+            
+            structure_embs = embed_result.get("structure_embeddings", [])
+            content_embs = embed_result.get("content_embeddings", [])
+            embed_count = len(structure_embs) + len(content_embs)
+            print(f"  ✓ Embeddings created: {embed_count} (structure={len(structure_embs)}, content={len(content_embs)})")
+
+            # Verify: embeddings == embeddable nodes (1:1)
+            self.assertEqual(
+                embed_count,
+                len(embeddable),
+                f"Mismatch: {len(embeddable)} embeddable nodes but created {embed_count} embeddings"
+            )
+
+            # ============ Stage 5: Save Embeddings ============
+            print("\n[Stage 5/6] Saving embeddings to ArangoDB...")
+            emb_save_result = asyncio.run(
+                start_save_embeddings_to_arango(
+                    SaveEmbeddingsInput(
+                        structure_embeddings=structure_embs,
+                        content_embeddings=content_embs,
+                    ),
+                    arango_client=self._arango_client,
+                )
+            )
+            
+            self._save_json(emb_save_result, output_dir / "5_save_embeddings_result.json")
+            
+            emb_saved_total = emb_save_result["structures_saved"] + emb_save_result["contents_saved"]
+            print(f"  ✓ Saved: {emb_saved_total} (structure={emb_save_result['structures_saved']}, content={emb_save_result['contents_saved']})")
+            
+            # Verify: saved embeddings == created embeddings
+            self.assertEqual(
+                emb_saved_total,
+                embed_count,
+                f"Mismatch: created {embed_count} embeddings but saved {emb_saved_total}"
+            )
+        else:
+            print("  ⚠ No embeddable nodes found, skipping embedding stages")
+
+        # ============ Stage 6: Final Verification ============
+        print("\n[Stage 6/6] Verifying database state...")
+        
+        final_nodes = node_handler.get_by_source(data_source_id)
+        from collections import Counter
+        final_types = Counter(str(n.node_type) if hasattr(n.node_type, 'value') else n.node_type for n in final_nodes)
+        
+        print(f"  ✓ Final DB state: {len(final_nodes)} nodes ({dict(final_types)})")
+        
+        # Final verification
+        self.assertEqual(
+            len(final_nodes),
+            enriched_total,
+            f"Final verification failed: expected {enriched_total} nodes, found {len(final_nodes)}"
+        )
+
+        # ============ Final Summary ============
+        summary = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "url": self.TEST_URL,
+            "data_source_id": str(data_source_id),
+            "output_folder": str(output_dir),
+            "pipeline_stages": {
+                "1_ingest": {
+                    "status": "success",
+                    "parsed_nodes": ingest_total,
+                    "by_type": ingest_tree_counts,
+                },
+                "2_enrich": {
+                    "status": "success",
+                    "paragraphs_before": enrich_stats["paragraphs_before"],
+                    "paragraphs_after": enrich_stats["paragraphs_after"],
+                    "structures_enriched": enrich_stats["structures_enriched"],
+                    "enriched_nodes": enriched_total,
+                    "by_type": enriched_tree_counts,
+                    "llm_calls": enrich_stats["detail_llm_calls"] + enrich_stats["structure_llm_calls"],
+                },
+                "3_save": {
+                    "status": "success",
+                    "nodes_saved": save_result["total_nodes_saved"],
+                    "relationships": relationships,
+                },
+                "4_embed": {
+                    "status": "success" if embed_count > 0 else "skipped",
+                    "embeddable_nodes": len(embeddable),
+                    "embeddings_created": embed_count,
+                    "structure": len(structure_embs),
+                    "content": len(content_embs),
+                },
+                "5_save_embeddings": {
+                    "status": "success" if embed_count > 0 else "skipped",
+                    "saved": emb_saved_total if embed_count > 0 else 0,
+                },
+                "6_verification": {
+                    "status": "success",
+                    "final_node_count": len(final_nodes),
+                    "expected": enriched_total,
+                    "match": len(final_nodes) == enriched_total,
+                },
+            },
+        }
+        
+        self._save_json(summary, output_dir / "pipeline_summary.json")
 
         print(f"\n{'='*80}")
-        print(f"Test completed: {succeeded_count}/{len(self.TEST_URLS)} URLs succeeded")
+        print("Pipeline Summary")
+        print(f"{'='*80}")
+        print(f"  • URL: {self.TEST_URL}")
+        print(f"  • Data Source ID: {data_source_id}")
+        print(f"  • Ingest: {ingest_total} nodes → Enrich: {enriched_total} nodes")
+        print(f"  • Save: {save_result['total_nodes_saved']} nodes + {total_relationships} relationships")
+        print(f"  • Embed: {embed_count} embeddings")
+        print(f"  • Verification: ✓ All counts match!")
+        print(f"  • Output: {output_dir}")
         print(f"{'='*80}\n")
 
-    def _save_test_output(self, result: dict, data_source_ids: list[UUID]) -> None:
-        """Save workflow output to JSON files for manual inspection.
-
-        Saves the complete WebIngestionResult in the same format as the model definition.
-        """
-        # Create output directory if it doesn't exist
-        self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-        # Generate timestamp for unique filenames
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        ids_str = "_".join([ds_id.hex[:8] for ds_id in data_source_ids[:3]])
-        base_filename = f"ingest_web_result_{timestamp}_{ids_str}"
-
-        # Save complete WebIngestionResult
-        result_path = self.OUTPUT_DIR / f"{base_filename}.json"
-        with open(result_path, "w", encoding="utf-8") as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
-        print(f"\n✅ Saved complete WebIngestionResult to: {result_path}")
-
-        # Save individual results for each URL
-        for i, url_result in enumerate(result["results"]):
-            url = self.TEST_URLS[i]
-            url_safe = url.replace("https://", "").replace("/", "_").replace("?", "_")[:50]
-            url_result_path = self.OUTPUT_DIR / f"{base_filename}_{url_safe}.json"
-            with open(url_result_path, "w", encoding="utf-8") as f:
-                json.dump(url_result, f, indent=2, ensure_ascii=False)
-            print(f"✅ Saved result for {url} to: {url_result_path}")
+        # Final assertions
+        self.assertGreater(save_result["total_nodes_saved"], 0)
 
 
 if __name__ == "__main__":
     unittest.main()
-

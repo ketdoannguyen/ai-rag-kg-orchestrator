@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from llm_gateway_client import AIGatewayClient
-from postgres_client.models.knowledge import KnowledgeNode
+from arango_client import StructureNode, KnowledgeNode, serialize_tree_to_dict
 
 from workflows.dependencies import init_llm_client
 
@@ -33,7 +33,7 @@ async def start_enrich_knowledge_tree(
     """
     if isinstance(payload, EnrichKnowledgeTreeInput):
         input_payload = payload
-    elif isinstance(payload, KnowledgeNode):
+    elif isinstance(payload, (KnowledgeNode, StructureNode)):
         input_payload = EnrichKnowledgeTreeInput(knowledge_tree=payload)
     else:
         input_payload = EnrichKnowledgeTreeInput(**payload)
@@ -43,6 +43,12 @@ async def start_enrich_knowledge_tree(
     enricher = KnowledgeTreeEnricher(llm_client=gateway_client)
     result = await enricher.enrich(input_payload)
     
+    # Custom serialization to properly handle nested children in enriched_tree
+    # Pydantic's model_dump() doesn't correctly serialize children subclasses
     if hasattr(result, "model_dump"):
-        return result.model_dump(mode="json")
+        output_dict = result.model_dump(mode="json")
+        # Re-serialize enriched_tree using serialize_tree_to_dict for proper children
+        if result.enriched_tree is not None:
+            output_dict["enriched_tree"] = serialize_tree_to_dict(result.enriched_tree)
+        return output_dict
     return result.dict()

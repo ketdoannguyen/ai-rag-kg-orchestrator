@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from postgres_client.models.knowledge import KnowledgeNode
+from arango_client import KnowledgeNode, StructureNode
 
 if TYPE_CHECKING:
     from config.domains import DomainSchema
@@ -49,9 +49,9 @@ class EnrichKnowledgeTreeInput(BaseModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
-    knowledge_tree: KnowledgeNode = Field(
+    knowledge_tree: StructureNode = Field(
         ...,
-        description="Root KnowledgeNode (STRUCTURE) of the tree to enrich.",
+        description="Root StructureNode of the tree to enrich.",
     )
     refine_config: RefineConfig = Field(
         default_factory=RefineConfig,
@@ -96,7 +96,7 @@ class ChangesSummary(BaseModel):
 class EnrichKnowledgeTreeOutput(BaseModel):
     """Output model for enrich_knowledge_tree workflow."""
 
-    enriched_tree: KnowledgeNode = Field(
+    enriched_tree: StructureNode = Field(
         ...,
         description="Root node of the enriched tree.",
     )

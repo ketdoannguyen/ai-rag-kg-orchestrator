@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-from postgres_client.models.knowledge import KnowledgeNode
-from postgres_client.models.structure_nodes import StructureNode
-from postgres_client.models.detail_nodes import ParagraphNode, ImageNode, TableNode
-from postgres_client.models.enums import NodeType
+from arango_client import (
+    KnowledgeNode,
+    StructureNode,
+    ParagraphNode,
+    ImageNode,
+    TableNode,
+)
 
 
 def extract_text_for_embedding(node: KnowledgeNode) -> str | None:
@@ -24,10 +27,21 @@ def extract_text_for_embedding(node: KnowledgeNode) -> str | None:
         Text to embed, or None if node has no embeddable text
     """
     if isinstance(node, StructureNode):
-        # Structure nodes: use description (summary from enrich_knowledge_tree)
+        # Structure nodes: priority order - description, summary, title
+        # 1. Try description (summary field in attributes)
         description = node.attributes.description
         if description and description.strip():
             return description.strip()
+        
+        # 2. Try summary field (set by enricher on the model)
+        if hasattr(node, 'summary') and node.summary and node.summary.strip():
+            return node.summary.strip()
+        
+        # 3. Fallback to title
+        title = node.attributes.title
+        if title and title.strip():
+            return title.strip()
+        
         return None
 
     elif isinstance(node, ParagraphNode):
@@ -90,4 +104,3 @@ def create_batches(items: List[Tuple[KnowledgeNode, str]], batch_size: int) -> L
         batch = items[i : i + batch_size]
         batches.append(batch)
     return batches
-

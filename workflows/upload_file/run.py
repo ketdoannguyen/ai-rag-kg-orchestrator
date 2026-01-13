@@ -14,14 +14,16 @@ from typing import Any, Awaitable, Callable
 from config.settings import settings
 from loguru import logger
 from minio_client import StorageClient
-from postgres_client import PostgresClient
-from postgres_client.handlers.system_admin_handler import SystemAdminHandler
-from postgres_client.models.enums import SourceType
-from postgres_client.models.system_admin import DataSource
+from arango_client import (
+    ArangoClient,
+    SystemAdminHandler,
+    SourceType,
+    DataSource,
+)
 
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from workflows.dependencies import get_minio_client, init_postgres_client
+from workflows.dependencies import get_minio_client, init_arango_client
 from workflows.shared import calculate_md5
 from workflows.shared.storage_utils import ensure_bucket_with_retry, upload_file
 from .helper import log_upload_retry
@@ -55,7 +57,7 @@ async def start_upload_file(
     payload: FileUploadInput | dict[str, Any],
     *,
     storage: StorageClient | None = None,
-    pg_client: PostgresClient | None = None,
+    arango_client: ArangoClient | None = None,
     antivirus_scanner: AntivirusScanner | None = None,
     fail_on_duplicate: bool = False,
 ) -> dict[str, Any]:
@@ -65,19 +67,19 @@ async def start_upload_file(
     Args:
         payload: Workflow input (Pydantic model or plain dict)
         storage: Optional MinIO client (defaults to shared singleton)
-        pg_client: Optional Postgres client (defaults to settings.DATABASE_URL)
+        arango_client: Optional ArangoDB client (defaults to settings)
         antivirus_scanner: Optional coroutine that raises on infection
         fail_on_duplicate: If True, raise DuplicateFileError instead of reusing record
     """
 
     input_payload = payload if isinstance(payload, FileUploadInput) else FileUploadInput(**payload)
     storage_client = storage or get_minio_client()
-    postgres_client = pg_client or init_postgres_client()
+    db_client = arango_client or init_arango_client()
 
     workflow = FileUploadWorkflow(
         storage=storage_client,
         bucket=settings.MINIO_KNOWLEDGE_BUCKET or settings.MINIO_BUCKET,
-        pg_client=postgres_client,
+        arango_client=db_client,
         antivirus_scanner=antivirus_scanner,
         fail_on_duplicate=fail_on_duplicate,
     )
@@ -91,7 +93,7 @@ def start_upload_file_sync(
     payload: FileUploadInput | dict[str, Any],
     *,
     storage: StorageClient | None = None,
-    pg_client: PostgresClient | None = None,
+    arango_client: ArangoClient | None = None,
     antivirus_scanner: AntivirusScanner | None = None,
     fail_on_duplicate: bool = False,
 ) -> dict[str, Any]:
@@ -103,7 +105,7 @@ def start_upload_file_sync(
         start_upload_file(
             payload,
             storage=storage,
-            pg_client=pg_client,
+            arango_client=arango_client,
             antivirus_scanner=antivirus_scanner,
             fail_on_duplicate=fail_on_duplicate,
         )
@@ -123,14 +125,14 @@ class FileUploadWorkflow:
         *,
         storage: StorageClient,
         bucket: str,
-        pg_client: PostgresClient,
+        arango_client: ArangoClient,
         antivirus_scanner: AntivirusScanner | None = None,
         fail_on_duplicate: bool = False,
         presigned_ttl_seconds: int = DEFAULT_PRESIGNED_TTL_SECONDS,
     ) -> None:
         self._storage = storage
         self._bucket = bucket
-        self._sessionmaker = pg_client.sessionmaker
+        self._arango_client = arango_client
         self._antivirus_scanner = antivirus_scanner
         self._fail_on_duplicate = fail_on_duplicate
         self._presigned_ttl = presigned_ttl_seconds
@@ -147,45 +149,46 @@ class FileUploadWorkflow:
 
         await ensure_bucket_with_retry(self._storage, self._bucket)
 
-        async with self._sessionmaker() as session:
-            handler = SystemAdminHandler(session)
-            existing = await handler.sources.get_by_hash(file_hash)
-            if existing:
-                self._log.warning(
-                    "Duplicate file detected",
-                    data_source_id=str(existing.id),
-                    filename=payload.filename,
-                )
-                if self._fail_on_duplicate:
-                    raise DuplicateFileError(
-                        f"File '{payload.filename}' already uploaded as data_source={existing.id}"
-                    )
-                minio_info = await self._build_minio_info_from_config(existing.config, file_hash)
-                return FileUploadResult(data_source=existing, minio_info=minio_info, duplicate=True)
-
-            stored_object = await self._upload_to_storage(
-                payload=payload,
-                validated=validated,
-                hash_content=file_hash,
+        # ArangoClient uses sync operations - create handler
+        handler = SystemAdminHandler(self._arango_client.db)
+        
+        existing = handler.sources.get_by_hash(file_hash)
+        if existing:
+            self._log.warning(
+                "Duplicate file detected",
+                data_source_id=str(existing.id),
+                filename=payload.filename,
             )
-
-            data_source_model = self._build_data_source(
-                payload=payload,
-                validated=validated,
-                hash_content=file_hash,
-                minio_path=stored_object.object_name,
-                file_id=stored_object.file_id,
-            )
-
-            try:
-                saved = await handler.sources.create(data_source_model)
-            except Exception as exc:  # pragma: no cover - defensive cleanup
-                self._log.error(
-                    "Failed to persist DataSource, cleaning up uploaded object",
-                    error=str(exc),
+            if self._fail_on_duplicate:
+                raise DuplicateFileError(
+                    f"File '{payload.filename}' already uploaded as data_source={existing.id}"
                 )
-                await self._cleanup_object(stored_object.object_name)
-                raise DatabaseError("Could not save data_source record") from exc
+            minio_info = await self._build_minio_info_from_config(existing.config, file_hash)
+            return FileUploadResult(data_source=existing, minio_info=minio_info, duplicate=True)
+
+        stored_object = await self._upload_to_storage(
+            payload=payload,
+            validated=validated,
+            hash_content=file_hash,
+        )
+
+        data_source_model = self._build_data_source(
+            payload=payload,
+            validated=validated,
+            hash_content=file_hash,
+            minio_path=stored_object.object_name,
+            file_id=stored_object.file_id,
+        )
+
+        try:
+            saved = handler.sources.create(data_source_model)
+        except Exception as exc:  # pragma: no cover - defensive cleanup
+            self._log.error(
+                "Failed to persist DataSource, cleaning up uploaded object",
+                error=str(exc),
+            )
+            await self._cleanup_object(stored_object.object_name)
+            raise DatabaseError("Could not save data_source record") from exc
 
         minio_info = await self._build_minio_info(
             bucket=self._bucket,

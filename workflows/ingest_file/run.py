@@ -11,12 +11,20 @@ from uuid import UUID
 
 from config.settings import settings
 from loguru import logger
-from postgres_client import PostgresClient, set_parent_ids, set_positions
-from postgres_client.handlers.system_admin_handler import SystemAdminHandler
-from postgres_client.utils import compute_tree_statistics, validate_tree_and_attach_source
+from arango_client import (
+    ArangoClient,
+    set_parent_ids,
+    set_positions,
+    compute_tree_statistics,
+    validate_tree_and_attach_source,
+    serialize_tree_to_dict,
+    SystemAdminHandler,
+    DataSource as DataSourceModel,
+    SourceType,
+)
 from typing import TYPE_CHECKING
 
-from workflows.dependencies import get_minio_client, init_postgres_client
+from workflows.dependencies import get_minio_client, init_arango_client
 from workflows.shared import calculate_md5
 from .marker_client import MarkerClient
 from .parser import TextbookParser
@@ -30,7 +38,7 @@ def start_ingest(
     payload: FileIngestionInput | dict[str, Any] | UUID | str,
     *,
     storage: StorageClient | None = None,
-    pg_client: PostgresClient | None = None,
+    arango_client: ArangoClient | None = None,
 ) -> dict[str, Any]:
     """
     Entry point for the ingest_file workflow.
@@ -55,13 +63,13 @@ def start_ingest(
     )
 
     storage_client = storage or get_minio_client()
-    postgres_client = pg_client or init_postgres_client()
+    db_client = arango_client or init_arango_client()
 
     workflow = FileIngestionWorkflow(
         storage=storage_client,
         workspace_root=Path(settings.INGEST_FILE_WORKDIR),
         marker_client=marker_client,
-        pg_client=postgres_client,
+        arango_client=db_client,
     )
 
     result = asyncio.run(workflow.run(input_payload))
@@ -84,12 +92,12 @@ class FileIngestionWorkflow:
         storage: StorageClient,
         workspace_root: Path,
         marker_client: MarkerClient,
-        pg_client: PostgresClient,
+        arango_client: ArangoClient,
     ) -> None:
         self._storage = storage
         self._workspace_root = workspace_root
         self._marker_client = marker_client
-        self._pg_client = pg_client
+        self._arango_client = arango_client
         self._logger = logger.bind(job_id=None, workflow="ingest_file")
 
     async def run(self, payload: FileIngestionInput) -> FileIngestionResult:
@@ -116,149 +124,146 @@ class FileIngestionWorkflow:
         data_source_id = UUID(payload.data_source_id)
 
         try:
-            async with self._pg_client.sessionmaker() as session:
-                sys_handler = SystemAdminHandler(session)
+            # ArangoClient uses sync operations - no need for async context
+            sys_handler = SystemAdminHandler(self._arango_client.db)
 
-                # Bước 1: Load DataSource - Lấy thông tin nguồn
-                data_source = await sys_handler.sources.get_by_id(data_source_id)
-                if not data_source:
-                    raise ValueError(f"DataSource not found: {data_source_id}")
+            # Bước 1: Load DataSource - Lấy thông tin nguồn
+            data_source = sys_handler.sources.get_by_id(data_source_id)
+            if not data_source:
+                raise ValueError(f"DataSource not found: {data_source_id}")
 
-                if data_source.status == "active":
-                    raise ValueError(
-                        f"DataSource {data_source_id} is already ingested (status=active)"
-                    )
-
-                config = data_source.config or {}
-                minio_bucket = config.get("minio_bucket")
-                minio_path = config.get("minio_path")
-                if not minio_bucket or not minio_path:
-                    raise ValueError(
-                        f"DataSource {data_source_id} is missing minio_bucket/minio_path in config"
-                    )
-
-                self._logger.info(
-                    "Loaded DataSource for ingestion",
-                    data_source_id=str(data_source_id),
-                    bucket=minio_bucket,
-                    path=minio_path,
+            if data_source.status == "active":
+                raise ValueError(
+                    f"DataSource {data_source_id} is already ingested (status=active)"
                 )
 
-                # Bước 2: Download File from MinIO - Tải file về
-                local_filename = config.get("original_filename") or "source.pdf"
-                local_path = job_dir / local_filename
-                await self._storage.download_file(
-                    bucket_name=minio_bucket,
-                    object_name=minio_path,
-                    destination=local_path,
+            config = data_source.config or {}
+            minio_bucket = config.get("minio_bucket")
+            minio_path = config.get("minio_path")
+            if not minio_bucket or not minio_path:
+                raise ValueError(
+                    f"DataSource {data_source_id} is missing minio_bucket/minio_path in config"
                 )
 
-                file_bytes = await asyncio.to_thread(local_path.read_bytes)
+            self._logger.info(
+                "Loaded DataSource for ingestion",
+                data_source_id=str(data_source_id),
+                bucket=minio_bucket,
+                path=minio_path,
+            )
 
-                # Bước 3: Verify Hash - Kiểm tra tính toàn vẹn
-                calculated_hash = calculate_md5(file_bytes)
-                if data_source.hash_content and calculated_hash != data_source.hash_content:
-                    raise ValueError(
-                        "Integrity check failed: downloaded file hash does not match DataSource.hash_content"
-                    )
+            # Bước 2: Download File from MinIO - Tải file về
+            local_filename = config.get("original_filename") or "source.pdf"
+            local_path = job_dir / local_filename
+            await self._storage.download_file(
+                bucket_name=minio_bucket,
+                object_name=minio_path,
+                destination=local_path,
+            )
 
-                self._logger.info(
-                    "Integrity check passed",
-                    expected_hash=data_source.hash_content,
-                    actual_hash=calculated_hash,
+            file_bytes = await asyncio.to_thread(local_path.read_bytes)
+
+            # Bước 3: Verify Hash - Kiểm tra tính toàn vẹn
+            calculated_hash = calculate_md5(file_bytes)
+            if data_source.hash_content and calculated_hash != data_source.hash_content:
+                raise ValueError(
+                    "Integrity check failed: downloaded file hash does not match DataSource.hash_content"
                 )
 
-                # Bước 4: Parse File - Phân tích nội dung (Marker)
-                marker_result = await asyncio.to_thread(
-                    self._marker_client.convert_pdf, local_path
-                )
-                payload_dict: dict[str, Any] = marker_result.get("payload", {})
-                raw_json = payload_dict.get("json")
-                if raw_json is None:
-                    raise ValueError("Marker output does not contain 'json' payload")
+            self._logger.info(
+                "Integrity check passed",
+                expected_hash=data_source.hash_content,
+                actual_hash=calculated_hash,
+            )
 
-                # Persist raw JSON locally for parser only (không upload MinIO)
-                raw_json_path = job_dir / "marker_raw.json"
-                await asyncio.to_thread(
-                    raw_json_path.write_text,
-                    json.dumps(raw_json, ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
+            # Bước 4: Parse File - Phân tích nội dung (Marker)
+            marker_result = await asyncio.to_thread(
+                self._marker_client.convert_pdf, local_path
+            )
+            payload_dict: dict[str, Any] = marker_result.get("payload", {})
+            raw_json = payload_dict.get("json")
+            if raw_json is None:
+                raise ValueError("Marker output does not contain 'json' payload")
 
-                # Bước 5: Build Knowledge Tree - Tạo cây phân cấp (in-memory)
-                processed_json_path = job_dir / "processed.json"
-                parser = TextbookParser(
-                    input_path=str(raw_json_path),
-                    output_path=str(processed_json_path),
-                    page_offset=5,
-                    extract_images=True,
-                    bucket=minio_bucket,
-                )
+            # Persist raw JSON locally for parser only (không upload MinIO)
+            raw_json_path = job_dir / "marker_raw.json"
+            await asyncio.to_thread(
+                raw_json_path.write_text,
+                json.dumps(raw_json, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
 
-                await parser.parse()
+            # Bước 5: Build Knowledge Tree - Tạo cây phân cấp (in-memory)
+            processed_json_path = job_dir / "processed.json"
+            parser = TextbookParser(
+                input_path=str(raw_json_path),
+                output_path=str(processed_json_path),
+                page_offset=5,
+                extract_images=True,
+                bucket=minio_bucket,
+            )
 
-                # Set parent IDs & positions cho toàn bộ cây
-                set_parent_ids(parser.root)
-                set_positions(parser.root)
+            await parser.parse()
 
-                # Gán source_id + validate tree theo rule
-                validate_tree_and_attach_source(parser.root, data_source_id)
+            # Set parent IDs & positions cho toàn bộ cây
+            set_parent_ids(parser.root)
+            set_positions(parser.root)
 
-                # Bước 7: Calculate Statistics - Thống kê
-                statistics = compute_tree_statistics(
-                    parser.root,
-                    start_time=ingestion_start_time,
-                )
+            # Gán source_id + validate tree theo rule
+            validate_tree_and_attach_source(parser.root, data_source_id)
 
-                # Bước 8: Update DataSource metadata (không persist tree vào DB)
-                updated_data_source = await sys_handler.sources.update(  # noqa: F841
-                    data_source_id,
-                    {
-                        "updated_at": datetime.now(timezone.utc),
-                        "status": "active",
-                    },
-                )
+            # Bước 7: Calculate Statistics - Thống kê
+            statistics = compute_tree_statistics(
+                parser.root,
+                start_time=ingestion_start_time,
+            )
 
-                # Reload DataSource to get updated version
-                final_data_source = await sys_handler.sources.get_by_id(data_source_id)
-                if not final_data_source:
-                    raise ValueError(f"DataSource {data_source_id} not found after update")
+            # Bước 8: Update DataSource metadata (không persist tree vào DB)
+            # ArangoClient sync operations - convert datetime to ISO string
+            sys_handler.sources.update(
+                data_source_id,
+                {
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "status": "active",
+                },
+            )
 
-                self._logger.info(
-                    "File ingestion completed successfully (in-memory tree only)",
-                    data_source_id=str(data_source_id),
-                    total_nodes=statistics.get("total_nodes", 0),
-                )
+            # Reload DataSource to get updated version
+            final_data_source = sys_handler.sources.get_by_id(data_source_id)
+            if not final_data_source:
+                raise ValueError(f"DataSource {data_source_id} not found after update")
 
-                # Convert root_node to dict to avoid Pydantic serialization warnings
-                # This ensures attributes/metadata Pydantic models are properly serialized
-                # Suppress Pydantic serialization warnings for nested models (they are correctly converted to dict)
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", UserWarning)
-                    root_node_dict = parser.root.model_dump(mode="json") if parser.root else None
+            self._logger.info(
+                "File ingestion completed successfully (in-memory tree only)",
+                data_source_id=str(data_source_id),
+                total_nodes=statistics.get("total_nodes", 0),
+            )
 
-                return FileIngestionResult(
-                    status=FileIngestionStatus.COMPLETE,
-                    job_id=job_id,
-                    data_source=final_data_source,
-                    root_node=root_node_dict,
-                    statistics=statistics,
-                )
+            # Convert root_node to dict using serialize_tree_to_dict for proper children serialization
+            # model_dump() doesn't handle nested subclass children correctly
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                root_node_dict = serialize_tree_to_dict(parser.root) if parser.root else None
+
+            return FileIngestionResult(
+                status=FileIngestionStatus.COMPLETE,
+                job_id=job_id,
+                data_source=final_data_source,
+                root_node=root_node_dict,
+                statistics=statistics,
+            )
         except Exception as exc:
             self._logger.exception("File ingestion failed")
             # Try to get DataSource even on failure
             data_source_on_error = None
             try:
-                async with self._pg_client.sessionmaker() as session:
-                    sys_handler = SystemAdminHandler(session)
-                    data_source_on_error = await sys_handler.sources.get_by_id(data_source_id)
+                sys_handler = SystemAdminHandler(self._arango_client.db)
+                data_source_on_error = sys_handler.sources.get_by_id(data_source_id)
             except Exception:
                 pass
 
             # If we can't get DataSource, create a minimal one with just the ID
             if not data_source_on_error:
-                from postgres_client.models.system_admin import DataSource as DataSourceModel
-                from postgres_client.models.enums import SourceType
                 data_source_on_error = DataSourceModel(
                     id=data_source_id,
                     name="Unknown",
@@ -283,4 +288,3 @@ class FileIngestionWorkflow:
                 shutil.rmtree(job_dir, ignore_errors=True)
             except Exception:
                 pass
-

@@ -4,14 +4,14 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from loguru import logger
 
-from postgres_client.models import (
+from arango_client import (
     KnowledgeNode,
     ParagraphNode,
     StructureNode,
     TableNode,
     ImageNode,
+    NodeType,
 )
-from postgres_client.models.enums import NodeType
 
 if TYPE_CHECKING:
     from config.domains import DomainSchema
@@ -92,8 +92,7 @@ def _fallback_to_originals(
                     source_id=parent.source_id,
                     parent_id=parent.id,
                     node_type=NodeType.PARAGRAPH,
-                    level_down=0,
-                    level_up=0,
+                    level=0,
                     attributes={"text": it["text"]},
                 )
             )
@@ -173,8 +172,7 @@ def create_refined_paragraphs_from_segments(
                 source_id=parent.source_id,
                 parent_id=parent.id,
                 node_type=NodeType.PARAGRAPH,
-                level_down=parent.level_down + 1,
-                level_up=1,
+                level=0,
                 attributes={"text": paragraph_text},
                 metadata={
                     "page": page,

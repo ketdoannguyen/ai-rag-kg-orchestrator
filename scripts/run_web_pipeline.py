@@ -1,4 +1,4 @@
-"""Simple async pipeline for web ingestion → enrich → save → embed → persist embeddings.
+"""Simple async pipeline for web ingestion → enrich → save → embed.
 python -m scripts.run_web_pipeline  --urls  https://tuyensinh.vku.udn.vn/cntt-ks https://tuyensinh.vku.udn.vn/pt-tuyenthang --created-by 550e8400-e29b-41d4-a716-446655440000 """
 from __future__ import annotations
 
@@ -16,10 +16,14 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
 from loguru import logger
-from postgres_client import parse_node_from_dict
-from postgres_client.handlers.knowledge_handler import KnowledgeNodeHandler
+from arango_client import (
+    ArangoClient,
+    KnowledgeNodeHandler,
+    parse_node_from_dict,
+    set_parent_ids,
+)
 from config.domains import get_current_domain
-from workflows.dependencies import init_llm_client, init_postgres_client, init_neo4j_client
+from workflows.dependencies import init_llm_client, init_arango_client
 from workflows.enrich_knowledge_tree import (
     EnrichKnowledgeTreeInput,
     start_enrich_knowledge_tree,
@@ -27,22 +31,21 @@ from workflows.enrich_knowledge_tree import (
 from workflows.embed_nodes import EmbedNodesInput, start_embed_nodes
 from workflows.embed_nodes.helper import extract_text_for_embedding
 from workflows.ingest_web import start_ingest_web
-from workflows.save_embeddings_to_postgres import SaveEmbeddingsInput, start_save_embeddings_to_postgres
-from workflows.save_knowledge_to_neo4j import SaveKnowledgeToNeo4jInput, start_save_knowledge_to_neo4j
-from workflows.save_knowledge_to_postgres import SaveKnowledgeInput, start_save_knowledge_to_postgres
+from workflows.save_knowledge_to_arango import SaveKnowledgeInput, start_save_knowledge_to_arango
+from workflows.save_embeddings_to_arango import SaveEmbeddingsInput, start_save_embeddings_to_arango
 
 
 llm_client = init_llm_client()
-neo4j_client = init_neo4j_client()
-pg_client = init_postgres_client()
+arango_client = init_arango_client()
 domain_schema = get_current_domain()  # Get domain from DOMAIN_NAME env var
+
 
 async def _process_single_result(
     result: dict[str, Any],
     *,
     embed_model: str | None,
     embed_batch_size: int,
-    pg_client,
+    arango_client: ArangoClient,
 ) -> dict[str, Any]:
     """Handle the downstream steps for one successful web ingestion result."""
     status = result.get("status")
@@ -54,72 +57,47 @@ async def _process_single_result(
 
     data_source_id = UUID(data_source["id"]) if isinstance(data_source, dict) else data_source.id
     
-    # Parse root_node from dict (same as test)
+    # Parse root_node from dict
     root_node = parse_node_from_dict(root_node_dict)
 
     # Enrich knowledge tree with domain schema for metadata extraction
     enrich_out = await start_enrich_knowledge_tree(
         EnrichKnowledgeTreeInput(
             knowledge_tree=root_node,
-            domain_schema=domain_schema,  # Pass domain schema for metadata extraction
+            domain_schema=domain_schema,
         ),
         llm_client=llm_client,
     )
 
+    # Parse enriched_tree từ dict để giữ children (KnowledgeNode base không có children)
+    enriched_tree = parse_node_from_dict(enrich_out["enriched_tree"])
 
-    # Save knowledge to postgres and neo4j in parallel
-    save_knowledge_task = start_save_knowledge_to_postgres(
+    # Save knowledge to ArangoDB (handles both document and graph)
+    save_result = await start_save_knowledge_to_arango(
         SaveKnowledgeInput(
-            enriched_tree=enrich_out["enriched_tree"],
+            enriched_tree=enriched_tree,
             data_source_id=data_source_id,
         ),
-        pg_client=pg_client,
-    )
-    save_neo4j_task = start_save_knowledge_to_neo4j(
-        SaveKnowledgeToNeo4jInput(
-            enriched_tree=enrich_out["enriched_tree"],
-        ),
-        neo4j_client=neo4j_client,
+        arango_client=arango_client,
     )
     
-    # Run both in parallel, handle errors separately
-    save_knowledge, save_neo4j = await asyncio.gather(
-        save_knowledge_task,
-        save_neo4j_task,
-        return_exceptions=True,
-    )
-    
-    # Handle postgres result
-    if isinstance(save_knowledge, Exception):
-        logger.error("Failed to save knowledge to postgres", error=str(save_knowledge))
-        save_knowledge = {"total_nodes_saved": 0, "partial_success": True}
-    elif isinstance(save_knowledge, dict):
-        pass  # Already a dict
-    else:
-        save_knowledge = save_knowledge.model_dump(mode="json") if hasattr(save_knowledge, "model_dump") else save_knowledge.dict()
-    
-    # Handle neo4j result
-    if isinstance(save_neo4j, Exception):
-        logger.error("Failed to save knowledge to neo4j", error=str(save_neo4j))
-        save_neo4j = {"total_nodes_saved": 0, "partial_success": True}
-    elif isinstance(save_neo4j, dict):
-        pass  # Already a dict
-    else:
-        save_neo4j = save_neo4j.model_dump(mode="json") if hasattr(save_neo4j, "model_dump") else save_neo4j.dict()
+    # Handle save result
+    if isinstance(save_result, Exception):
+        logger.error("Failed to save knowledge to ArangoDB", error=str(save_result))
+        save_result = {"total_nodes_saved": 0, "partial_success": True}
+    elif not isinstance(save_result, dict):
+        save_result = save_result.model_dump(mode="json") if hasattr(save_result, "model_dump") else save_result.dict()
     
     logger.info(
-        "Knowledge saved",
-        postgres_nodes=save_knowledge.get("total_nodes_saved", 0),
-        neo4j_nodes=save_neo4j.get("total_nodes_saved", 0),
+        "Knowledge saved to ArangoDB",
+        total_nodes=save_result.get("total_nodes_saved", 0),
     )
 
-    # Query nodes from database (same as test_embed_nodes.py)
+    # Query nodes from database using ArangoDB handler
+    handler = KnowledgeNodeHandler(arango_client.db)
+    saved_nodes = handler.get_by_source(data_source_id)
     
-    async with pg_client.sessionmaker() as session:
-        handler = KnowledgeNodeHandler(session)
-        saved_nodes = await handler.get_by_source(data_source_id)
-    
-    # Filter embeddable nodes (same as test)
+    # Filter embeddable nodes
     embeddable_nodes = [
         node for node in saved_nodes if extract_text_for_embedding(node) is not None
     ]
@@ -130,14 +108,8 @@ async def _process_single_result(
             "status": "success",
             "data_source_id": str(data_source_id),
             "knowledge_saved": {
-                "postgres": {
-                    "total_nodes_saved": save_knowledge.get("total_nodes_saved", 0),
-                    "partial_success": save_knowledge.get("partial_success", False),
-                },
-                "neo4j": {
-                    "total_nodes_saved": save_neo4j.get("total_nodes_saved", 0),
-                    "partial_success": save_neo4j.get("partial_success", False),
-                },
+                "total_nodes_saved": save_result.get("total_nodes_saved", 0),
+                "partial_success": save_result.get("partial_success", False),
             },
             "embeddings_saved": {"structures_saved": 0, "contents_saved": 0},
             "enrich_stats": enrich_out["statistics"],
@@ -154,30 +126,24 @@ async def _process_single_result(
     )
 
     # Save embeddings
-    save_embed_out = await start_save_embeddings_to_postgres(
+    save_embed_out = await start_save_embeddings_to_arango(
         SaveEmbeddingsInput(
             structure_embeddings=embed_out["structure_embeddings"],
             content_embeddings=embed_out["content_embeddings"],
         ),
-        pg_client=pg_client,
+        arango_client=arango_client,
     )
 
     return {
         "status": "success",
         "data_source_id": str(data_source_id),
         "knowledge_saved": {
-            "postgres": {
-                "total_nodes_saved": save_knowledge.get("total_nodes_saved", 0),
-                "partial_success": save_knowledge.get("partial_success", False),
-            },
-            "neo4j": {
-                "total_nodes_saved": save_neo4j.get("total_nodes_saved", 0),
-                "partial_success": save_neo4j.get("partial_success", False),
-            },
+            "total_nodes_saved": save_result.get("total_nodes_saved", 0),
+            "partial_success": save_result.get("partial_success", False),
         },
         "embeddings_saved": {
-            "structures_saved": save_embed_out["structures_saved"],
-            "contents_saved": save_embed_out["contents_saved"],
+            "structures_saved": save_embed_out.get("structures_saved", 0),
+            "contents_saved": save_embed_out.get("contents_saved", 0),
         },
         "enrich_stats": enrich_out["statistics"],
     }
@@ -199,7 +165,7 @@ async def run_pipeline(
     if max_concurrent_urls:
         ingest_input["max_concurrent_urls"] = max_concurrent_urls
 
-    ingest_result = await start_ingest_web(ingest_input, pg_client=pg_client)
+    ingest_result = await start_ingest_web(ingest_input, arango_client=arango_client)
     results = ingest_result.get("results", []) if isinstance(ingest_result, dict) else ingest_result.results
 
     async def process_with_error_handling(res: dict[str, Any] | Any) -> dict[str, Any]:
@@ -210,7 +176,7 @@ async def run_pipeline(
                 res_dict,
                 embed_model=embed_model,
                 embed_batch_size=embed_batch_size,
-                pg_client=pg_client,
+                arango_client=arango_client,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Pipeline failed for one URL")
@@ -249,4 +215,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

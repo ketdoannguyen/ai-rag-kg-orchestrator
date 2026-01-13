@@ -183,6 +183,7 @@ class AIGatewayClient:
             response = await aembedding(
                 model=request.model or embedding_config.model,
                 input=request.input,
+                encoding_format="float",
                 **params,
             )
             response_dict = self._to_dict(response)

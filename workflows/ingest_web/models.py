@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, NonNegativeInt, validator
 
-from postgres_client.models.system_admin import DataSource
+from arango_client import DataSource
 
 
 class WebIngestionStatus(str, Enum):

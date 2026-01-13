@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, NonNegativeInt
 
-from postgres_client.models.system_admin import DataSource
+from arango_client import DataSource
 
 
 class FileIngestionStatus(str, Enum):

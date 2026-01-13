@@ -11,7 +11,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from llm_gateway_client import AIGatewayClient
 from llm_gateway_client.models import GatewayChatTurn, GatewayInvokeRequest
 
-from postgres_client.models import (
+from arango_client import (
     KnowledgeNode,
     ParagraphNode,
     StructureNode,

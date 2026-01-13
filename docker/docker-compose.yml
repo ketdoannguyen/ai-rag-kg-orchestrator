@@ -1,25 +1,6 @@
 version: "3.9"
 
 services:
-  postgres:
-    image: pgvector/pgvector:pg15
-    env_file:
-      - .env.dev
-    ports:
-      - "5432:5432"
-    volumes:
-      - ../docker/data/postgres:/var/lib/postgresql/data
-
-  neo4j:
-    image: neo4j:5
-    env_file:
-      - .env.dev
-    ports:
-      - "7687:7687"
-      - "7474:7474"
-    volumes:
-      - ../docker/data/neo4j:/data
-
   redis:
     image: redis:7
     ports:
@@ -37,3 +18,12 @@ services:
       - "9001:9001"
     volumes:
       - ../docker/data/minio:/data
+
+  arangodb:
+    image: arangodb:3.12
+    environment:
+      - ARANGO_ROOT_PASSWORD=test
+    ports:
+      - "8529:8529"
+    volumes:
+      - ../docker/data/arangodb_clean:/var/lib/arangodb3

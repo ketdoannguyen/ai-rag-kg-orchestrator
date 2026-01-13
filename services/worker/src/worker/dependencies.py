@@ -1,22 +1,24 @@
 from functools import lru_cache
 
 from config.settings import get_settings
-from ingest_file import start_ingest
-from postgres_client import PostgresClient
+from arango_client import ArangoClient
+from workflows.ingest_file import start_ingest
 
 
 @lru_cache()
-def get_postgres_client() -> PostgresClient:
+def get_arango_client() -> ArangoClient:
     settings = get_settings()
-    return PostgresClient(url=settings.DATABASE_URL)
+    return ArangoClient(
+        url=settings.ARANGO_URL,
+        database=settings.ARANGO_DATABASE,
+        username=settings.ARANGO_USER,
+        password=settings.ARANGO_PASSWORD,
+    )
 
 
 def get_ingest_workflow():
-    settings = get_settings()
-
     def runner(file_path: str) -> dict:
-        return start_ingest(file_path=file_path, database_url=settings.DATABASE_URL)
+        return start_ingest(file_path=file_path)
 
     return runner
-
 

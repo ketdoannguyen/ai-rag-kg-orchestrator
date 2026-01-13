@@ -5,18 +5,16 @@ from __future__ import annotations
 import re
 from typing import Any, Match
 
-from postgres_client.models import (
+from arango_client import (
     ParagraphNode,
     SourceType,
     StructureNode,
-)
-from postgres_client.models.attributes_metadata import (
     ParagraphAttributes,
     ParagraphMetadata,
     StructureAttributes,
     StructureMetadata,
 )
-from postgres_client import clean_title_from_code, extract_code_from_context
+from .code_extraction import clean_title_from_code, extract_code_from_context
 
 from .semantic_splitter import SemanticParagraphSplitter
 
@@ -108,13 +106,26 @@ class MarkdownToJSONConverter:
         Uses two-pass algorithm:
         - Pass 1: Discover heading-to-level mapping based on code patterns
         - Pass 2: Build tree with semantic levels
+        
+        If markdown has no headings, uses synthetic structure generation.
         """
         lines = markdown.split("\n")
         metadata = metadata or {}
 
-        # Extract title from first H1 or first line
+        # Extract title from first H1 or first line or bold text
         if not title:
             title = self._extract_title(lines) or "Untitled Document"
+
+        # Check if markdown has any headings
+        if not self._has_headings(lines):
+            # Use synthetic structure generation for flat content
+            return self._build_tree_from_flat_content(
+                lines=lines,
+                title=title,
+                url=url,
+                file_path=file_path,
+                metadata=metadata,
+            )
 
         # Pass 1: Discover heading level mapping based on codes
         heading_level_map = self._discover_heading_level_mapping(lines)
@@ -209,14 +220,165 @@ class MarkdownToJSONConverter:
         )
         root_section = StructureNode(
             node_type="structure",
-            level_down=1,
-            level_up=1,  # Will be recomputed later based on tree depth
+            level=1,
             attributes=StructureAttributes(title=title),
             metadata=root_metadata,
             children=root_children,
         )
 
         return root_section
+
+    def _has_headings(self, lines: list[str]) -> bool:
+        """Check if markdown has any proper headings (#)."""
+        for line in lines:
+            if re.match(r"^#{1,6}\s+.+$", line.strip()):
+                return True
+        return False
+
+    def _build_tree_from_flat_content(
+        self,
+        lines: list[str],
+        title: str,
+        url: str | None,
+        file_path: str | None,
+        metadata: dict[str, Any],
+    ) -> StructureNode:
+        """Build tree from flat content without headings.
+        
+        Uses synthetic structure based on:
+        - Bold text (**text**) as potential section titles
+        - List item groups as sections
+        - Paragraph chunking for long content
+        """
+        root_children: list[StructureNode | ParagraphNode] = []
+        current_section: StructureNode | None = None
+        current_paragraph_lines: list[str] = []
+        
+        def flush_paragraph():
+            nonlocal current_paragraph_lines
+            if current_paragraph_lines:
+                text = "\n".join(current_paragraph_lines)
+                paragraphs = self._create_paragraph(text)
+                if paragraphs:
+                    if current_section:
+                        current_section.children.extend(paragraphs)
+                    else:
+                        root_children.extend(paragraphs)
+                current_paragraph_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Check for bold text that could be a section title
+            bold_match = re.match(r"^\*\*(.+?)\*\*\s*:?\s*(.*)$", line)
+            if bold_match:
+                bold_text = bold_match.group(1).strip()
+                rest = bold_match.group(2).strip()
+                
+                # If bold text is substantial and at start, treat as section
+                if len(bold_text) >= 3 and len(bold_text) <= 100:
+                    flush_paragraph()
+                    
+                    # Create new section
+                    current_section = StructureNode(
+                        node_type="structure",
+                        level=2,
+                        attributes=StructureAttributes(title=bold_text),
+                        metadata=StructureMetadata(),
+                        children=[],
+                    )
+                    root_children.append(current_section)
+                    
+                    # Add rest as paragraph if exists
+                    if rest:
+                        current_paragraph_lines.append(rest)
+                    continue
+            
+            # Check if line is a list item
+            list_match = re.match(r"^[\*\-\+]\s+(.+)$", line)
+            numbered_match = re.match(r"^\d+[\.\)]\s+(.+)$", line)
+            
+            if list_match or numbered_match:
+                # Add to current paragraph (list items)
+                current_paragraph_lines.append(line)
+            else:
+                # Regular content
+                current_paragraph_lines.append(line)
+                
+                # Chunk if paragraph is getting long
+                if len("\n".join(current_paragraph_lines)) > 1000:
+                    flush_paragraph()
+        
+        # Flush remaining content
+        flush_paragraph()
+        
+        # If no sections were created, chunk content semantically
+        if not any(isinstance(child, StructureNode) for child in root_children):
+            root_children = self._chunk_flat_content(root_children)
+        
+        # Create root section
+        root_metadata = StructureMetadata(
+            url=url,
+            file_path=file_path,
+            **metadata if metadata else {},
+        )
+        return StructureNode(
+            node_type="structure",
+            level=1,
+            attributes=StructureAttributes(title=title),
+            metadata=root_metadata,
+            children=root_children,
+        )
+
+    def _chunk_flat_content(
+        self,
+        children: list[StructureNode | ParagraphNode],
+    ) -> list[StructureNode | ParagraphNode]:
+        """Chunk flat paragraphs into semantic groups."""
+        if len(children) <= 5:
+            return children
+        
+        # Group paragraphs into chunks of ~5 items
+        chunks: list[list[ParagraphNode]] = []
+        current_chunk: list[ParagraphNode] = []
+        
+        for child in children:
+            if isinstance(child, ParagraphNode):
+                current_chunk.append(child)
+                if len(current_chunk) >= 5:
+                    chunks.append(current_chunk)
+                    current_chunk = []
+            else:
+                # Keep structure nodes as-is
+                if current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = []
+                chunks.append([child])  # type: ignore
+        
+        if current_chunk:
+            chunks.append(current_chunk)
+        
+        # Convert chunks to sections if we have multiple
+        if len(chunks) <= 1:
+            return children
+        
+        result: list[StructureNode | ParagraphNode] = []
+        for i, chunk in enumerate(chunks):
+            if len(chunk) == 1 and isinstance(chunk[0], StructureNode):
+                result.append(chunk[0])
+            else:
+                section = StructureNode(
+                    node_type="structure",
+                    level=2,
+                    attributes=StructureAttributes(title=f"Section {i + 1}"),
+                    metadata=StructureMetadata(),
+                    children=list(chunk),
+                )
+                result.append(section)
+        
+        return result
 
     def _discover_heading_level_mapping(self, lines: list[str]) -> dict[int, int]:
         """Pass 1: Discover heading-to-semantic-level mapping based on codes.
@@ -340,8 +502,7 @@ class MarkdownToJSONConverter:
 
         return StructureNode(
             node_type="structure",
-            level_down=actual_level,
-            level_up=1,
+            level=actual_level,
             attributes=attrs,
         )
 
@@ -462,4 +623,12 @@ class MarkdownToJSONConverter:
             cleaned_lines.append(line)
 
         cleaned_text = "\n".join(cleaned_lines).strip()
+        
+        # Remove markdown formatting (*, _, `) from headings/titles only if they wrap the whole line
+        # But here we want to be safe, so let's just remove bold/italic markers if they look like artifacts
+        # E.g. "**Title**" -> "Title"
+        cleaned_text = re.sub(r'^\*\*(.+?)\*\*$', r'\1', cleaned_text)
+        cleaned_text = re.sub(r'^\*(.+?)\*$', r'\1', cleaned_text)
+        cleaned_text = re.sub(r'^__(.+?)__$', r'\1', cleaned_text)
+        
         return cleaned_text

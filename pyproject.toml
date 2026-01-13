@@ -21,8 +21,8 @@ dependencies = [
     "marker-pdf>=1.6.1",
     "crawl4ai>=0.7.7",
     "alembic>=1.17.2",
-    "pgvector>=0.4.1",
     "tenacity>=9.1.0",
+    "pyvis>=0.3.2",
 ]
 
 [project.optional-dependencies]
@@ -50,9 +50,8 @@ packages = []
 members = [
     ".",
     # Libs (Layer 1)
-    "libs/postgres_client",
-    "libs/neo4j_client",
     "libs/llm_gateway_client",
+    "libs/arango_client",
     "libs/minio_client",
 
     # Services (Layer 3)
@@ -61,9 +60,8 @@ members = [
 ]
 
 [tool.uv.sources]
-postgres-client = { workspace = true }
-neo4j-client = { workspace = true }
 llm-gateway-client = { workspace = true }
+arango-client = { workspace = true }
 minio-client = { workspace = true }
 api-service = { workspace = true }
 worker-service = { workspace = true }

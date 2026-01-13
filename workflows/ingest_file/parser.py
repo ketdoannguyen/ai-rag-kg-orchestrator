@@ -10,20 +10,19 @@ from typing import Any, Dict, List, Optional
 
 from config.settings import settings
 from loguru import logger
-from postgres_client.models import (
+from arango_client import (
     ImageNode,
     ParagraphNode,
     StructureNode,
-)
-from postgres_client.models.attributes_metadata import (
     ImageAttributes,
     ImageMetadata,
     ParagraphAttributes,
     ParagraphMetadata,
     StructureAttributes,
     StructureMetadata,
+    set_parent_ids,
+    set_positions,
 )
-from postgres_client import set_parent_ids, set_positions
 
 from workflows.dependencies import get_minio_client
 
@@ -51,12 +50,10 @@ class TextbookParser:
         self._job_id = datetime.utcnow().strftime("%H-%M-%S")
         self._object_root = f"textbook/{self._date_prefix}/{self._job_id}"
 
-        # Root node is a StructureNode with level_down=1 (Textbook)
-        # level_up will be recomputed later based on the maximum depth of the tree.
+        # Root node is a StructureNode with level=1 (Textbook)
         self.root = StructureNode(
             node_type="structure",
-            level_down=1,
-            level_up=1,
+            level=1,
             attributes=StructureAttributes(title="SGK Vật Lý 12 - Kết nối tri thức"),
             metadata=StructureMetadata(start_page=0),
         )
@@ -243,10 +240,10 @@ class TextbookParser:
                 if header_info:
                     level = header_info["level"]
 
-                    # Pop until we find a parent with smaller level_down
+                    # Pop until we find a parent with smaller level
                     while (
                         self.parent_stack
-                        and getattr(self.parent_stack[-1], "level_down", 1) >= level
+                        and getattr(self.parent_stack[-1], "level", 1) >= level
                     ):
                         self.parent_stack.pop()
 
@@ -256,8 +253,7 @@ class TextbookParser:
                     # Create a new StructureNode for this header
                     new_node = StructureNode(
                         node_type="structure",
-                        level_down=level,
-                        level_up=1,  # Will be recomputed later based on tree depth
+                        level=level,
                         attributes=StructureAttributes(
                             title=header_info["title"],
                             code=header_info.get("code")
