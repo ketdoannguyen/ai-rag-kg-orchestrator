@@ -62,4 +62,3 @@ def get_cms_workflow(
         return update_content(arango_client, chunk_id, text)
 
     return workflow_instance
-

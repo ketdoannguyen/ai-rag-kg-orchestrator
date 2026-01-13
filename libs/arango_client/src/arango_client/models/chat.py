@@ -14,25 +14,15 @@ from .enums import FeedbackStatus
 class ChatSession(BaseModel):
     """Pydantic model for chat_sessions collection."""
 
-    id: uuid.UUID = Field(
-        default_factory=uuid.uuid4,
-        description="Primary key"
-    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, description="Primary key")
     user_identifier: str | None = Field(
-        None,
-        max_length=100,
-        description="Session Cookie hoặc User ID"
+        None, max_length=100, description="Session Cookie hoặc User ID"
     )
     started_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        description="Session start timestamp"
+        default_factory=datetime.utcnow, description="Session start timestamp"
     )
 
-    model_config = ConfigDict(
-        json_encoders={
-            uuid.UUID: str
-        }
-    )
+    model_config = ConfigDict(json_encoders={uuid.UUID: str})
 
     def to_document(self) -> dict[str, Any]:
         """Convert to ArangoDB document."""
@@ -50,47 +40,28 @@ class ChatSession(BaseModel):
             data["id"] = data.pop("_key")
         data.pop("_id", None)
         data.pop("_rev", None)
-        
+
         if isinstance(data.get("started_at"), str):
             data["started_at"] = datetime.fromisoformat(data["started_at"])
-        
+
         return cls(**data)
 
 
 class ChatMessage(BaseModel):
     """Pydantic model for chat_messages collection."""
 
-    id: uuid.UUID = Field(
-        default_factory=uuid.uuid4,
-        description="Primary key"
-    )
-    session_id: uuid.UUID = Field(
-        ...,
-        description="Reference to chat_sessions.id"
-    )
-    role: Literal["user", "assistant"] = Field(
-        ...,
-        description="Message role"
-    )
-    content: str = Field(
-        ...,
-        description="Message content"
-    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, description="Primary key")
+    session_id: uuid.UUID = Field(..., description="Reference to chat_sessions.id")
+    role: Literal["user", "assistant"] = Field(..., description="Message role")
+    content: str = Field(..., description="Message content")
     context_data: dict[str, Any] = Field(
         default_factory=dict,
         description="Context for Debug & Mining: "
-                   "{ 'retrieved_ids': ['uuid1', 'uuid2'], 'source': 'cache/rag', 'latency': 0.5 }"
+        "{ 'retrieved_ids': ['uuid1', 'uuid2'], 'source': 'cache/rag', 'latency': 0.5 }",
     )
-    created_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        description="Creation timestamp"
-    )
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
 
-    model_config = ConfigDict(
-        json_encoders={
-            uuid.UUID: str
-        }
-    )
+    model_config = ConfigDict(json_encoders={uuid.UUID: str})
 
     def to_document(self) -> dict[str, Any]:
         """Convert to ArangoDB document."""
@@ -111,51 +82,25 @@ class ChatMessage(BaseModel):
             data["id"] = data.pop("_key")
         data.pop("_id", None)
         data.pop("_rev", None)
-        
+
         if isinstance(data.get("created_at"), str):
             data["created_at"] = datetime.fromisoformat(data["created_at"])
-        
+
         return cls(**data)
 
 
 class Feedback(BaseModel):
     """Pydantic model for feedbacks collection."""
 
-    id: uuid.UUID = Field(
-        default_factory=uuid.uuid4,
-        description="Primary key"
-    )
-    message_id: uuid.UUID = Field(
-        ...,
-        description="Reference to chat_messages.id"
-    )
-    is_positive: bool = Field(
-        ...,
-        description="Whether feedback is positive"
-    )
-    comment: str | None = Field(
-        None,
-        description="Optional comment"
-    )
-    status: FeedbackStatus = Field(
-        default=FeedbackStatus.PENDING,
-        description="Feedback status"
-    )
-    reviewed_by: uuid.UUID | None = Field(
-        None,
-        description="User who reviewed this feedback"
-    )
-    created_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        description="Creation timestamp"
-    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, description="Primary key")
+    message_id: uuid.UUID = Field(..., description="Reference to chat_messages.id")
+    is_positive: bool = Field(..., description="Whether feedback is positive")
+    comment: str | None = Field(None, description="Optional comment")
+    status: FeedbackStatus = Field(default=FeedbackStatus.PENDING, description="Feedback status")
+    reviewed_by: uuid.UUID | None = Field(None, description="User who reviewed this feedback")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
 
-    model_config = ConfigDict(
-        use_enum_values=True,
-        json_encoders={
-            uuid.UUID: str
-        }
-    )
+    model_config = ConfigDict(use_enum_values=True, json_encoders={uuid.UUID: str})
 
     def to_document(self) -> dict[str, Any]:
         """Convert to ArangoDB document."""
@@ -177,8 +122,8 @@ class Feedback(BaseModel):
             data["id"] = data.pop("_key")
         data.pop("_id", None)
         data.pop("_rev", None)
-        
+
         if isinstance(data.get("created_at"), str):
             data["created_at"] = datetime.fromisoformat(data["created_at"])
-        
+
         return cls(**data)

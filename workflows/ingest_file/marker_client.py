@@ -80,7 +80,9 @@ class MarkerClient:
                 {
                     "filename": filename,
                     "content_type": f"image/{marker_settings.OUTPUT_IMAGE_FORMAT.lower()}",
-                    "data": base64.b64encode(buffer.getvalue()).decode(marker_settings.OUTPUT_ENCODING),
+                    "data": base64.b64encode(buffer.getvalue()).decode(
+                        marker_settings.OUTPUT_ENCODING
+                    ),
                 },
             )
         return payload
@@ -111,5 +113,3 @@ class MarkerClient:
             "request_id": f"local-{uuid.uuid4().hex}",
             "payload": payload,
         }
-
-

@@ -17,7 +17,12 @@ from uuid import UUID
 
 from loguru import logger
 
-from arango_client import ArangoClient, KnowledgeNodeHandler, parse_node_from_dict, serialize_tree_to_dict
+from arango_client import (
+    ArangoClient,
+    KnowledgeNodeHandler,
+    parse_node_from_dict,
+    serialize_tree_to_dict,
+)
 from workflows.dependencies import init_arango_client, init_llm_client
 from workflows.ingest_web import WebIngestionInput, WebIngestionStatus, start_ingest_web
 from workflows.enrich_knowledge_tree import start_enrich_knowledge_tree
@@ -72,13 +77,14 @@ class IngestWebPipelineTest(unittest.TestCase):
     def _count_tree_nodes(self, node: dict) -> dict:
         """Count nodes in tree by type."""
         from collections import Counter
+
         counts = Counter()
-        
+
         def _count(n):
             counts[n.get("node_type", "unknown")] += 1
             for child in n.get("children", []):
                 _count(child)
-        
+
         _count(node)
         return dict(counts)
 
@@ -86,13 +92,13 @@ class IngestWebPipelineTest(unittest.TestCase):
         """Clean up nodes from data source using direct AQL. Returns (nodes_deleted, edges_deleted)."""
         old_nodes = self._arango_client.db.aql.execute(
             "FOR n IN knowledge_nodes FILTER n.source_id == @source_id RETURN n._key",
-            bind_vars={"source_id": str(data_source_id)}
+            bind_vars={"source_id": str(data_source_id)},
         )
         old_keys = list(old_nodes)
-        
+
         if not old_keys:
             return 0, 0
-        
+
         # Delete edges first
         edge_result = self._arango_client.db.aql.execute(
             """
@@ -103,17 +109,17 @@ class IngestWebPipelineTest(unittest.TestCase):
                 REMOVE e IN knowledge_edges
                 RETURN 1
             """,
-            bind_vars={"keys": old_keys}
+            bind_vars={"keys": old_keys},
         )
         edges_deleted = len(list(edge_result))
-        
+
         # Delete nodes
         node_result = self._arango_client.db.aql.execute(
             "FOR n IN knowledge_nodes FILTER n.source_id == @source_id REMOVE n IN knowledge_nodes RETURN 1",
-            bind_vars={"source_id": str(data_source_id)}
+            bind_vars={"source_id": str(data_source_id)},
         )
         nodes_deleted = len(list(node_result))
-        
+
         return nodes_deleted, edges_deleted
 
     def test_full_pipeline(self) -> None:
@@ -122,12 +128,12 @@ class IngestWebPipelineTest(unittest.TestCase):
         All output files are saved to a timestamped folder for easy inspection.
         """
         output_dir = self._create_output_folder()
-        
-        print(f"\n{'='*80}")
+
+        print(f"\n{'=' * 80}")
         print(f"Full Web Ingestion Pipeline Test")
         print(f"URL: {self.TEST_URL}")
         print(f"Output folder: {output_dir}")
-        print(f"{'='*80}")
+        print(f"{'=' * 80}")
 
         # ============ Stage 1: Ingest Web ============
         print("\n[Stage 1/6] Ingesting web content...")
@@ -145,16 +151,16 @@ class IngestWebPipelineTest(unittest.TestCase):
         )
 
         self._save_json(ingest_result, output_dir / "1_ingest_result.json")
-        
+
         url_result = ingest_result["results"][0]
         self.assertEqual(url_result["status"], WebIngestionStatus.SUCCESS)
-        
+
         root_node_dict = url_result["root_node"]
         data_source_id = UUID(url_result["data_source"]["id"])
-        
+
         # Save raw tree
         self._save_json(root_node_dict, output_dir / "1_ingest_tree.json")
-        
+
         ingest_tree_counts = self._count_tree_nodes(root_node_dict)
         ingest_total = sum(ingest_tree_counts.values())
         print(f"  ✓ DataSource ID: {data_source_id}")
@@ -165,9 +171,16 @@ class IngestWebPipelineTest(unittest.TestCase):
 
         # ============ Stage 2: Enrich Knowledge Tree ============
         print("\n[Stage 2/6] Enriching knowledge tree...")
+        from config.domains import get_current_domain
+
+        domain_schema = get_current_domain()
+
         enrich_result = asyncio.run(
             start_enrich_knowledge_tree(
-                EnrichKnowledgeTreeInput(knowledge_tree=root_node),
+                EnrichKnowledgeTreeInput(
+                    knowledge_tree=root_node,
+                    domain_schema=domain_schema,
+                ),
                 llm_client=self._llm_client,
             )
         )
@@ -178,18 +191,22 @@ class IngestWebPipelineTest(unittest.TestCase):
         enrich_stats = enrich_result["statistics"]
         enriched_tree_counts = self._count_tree_nodes(enrich_result["enriched_tree"])
         enriched_total = sum(enriched_tree_counts.values())
-        
-        print(f"  ✓ Paragraphs: {enrich_stats['paragraphs_before']} → {enrich_stats['paragraphs_after']}")
+
+        print(
+            f"  ✓ Paragraphs: {enrich_stats['paragraphs_before']} → {enrich_stats['paragraphs_after']}"
+        )
         print(f"  ✓ Structures enriched: {enrich_stats['structures_enriched']}")
         print(f"  ✓ Enriched tree: {enriched_total} nodes ({enriched_tree_counts})")
-        print(f"  ✓ LLM calls: detail={enrich_stats['detail_llm_calls']}, structure={enrich_stats['structure_llm_calls']}")
+        print(
+            f"  ✓ LLM calls: detail={enrich_stats['detail_llm_calls']}, structure={enrich_stats['structure_llm_calls']}"
+        )
 
         # Parse enriched tree for next stage
         enriched_tree = parse_node_from_dict(enrich_result["enriched_tree"])
 
         # ============ Stage 3: Save to ArangoDB ============
         print("\n[Stage 3/6] Saving to ArangoDB...")
-        
+
         # Cleanup old nodes if any
         old_nodes_deleted, old_edges_deleted = self._cleanup_nodes_by_source(data_source_id)
         if old_nodes_deleted > 0:
@@ -206,7 +223,7 @@ class IngestWebPipelineTest(unittest.TestCase):
         )
 
         self._save_json(save_result, output_dir / "3_save_result.json")
-        
+
         relationships = save_result.get("relationships_created", {})
         total_relationships = sum(relationships.values())
         print(f"  ✓ Nodes saved: {save_result['total_nodes_saved']}")
@@ -214,23 +231,23 @@ class IngestWebPipelineTest(unittest.TestCase):
 
         # Verify: enriched_tree nodes == saved nodes
         self.assertEqual(
-            save_result["total_nodes_saved"], 
+            save_result["total_nodes_saved"],
             enriched_total,
-            f"Mismatch: enriched tree has {enriched_total} nodes but saved {save_result['total_nodes_saved']}"
+            f"Mismatch: enriched tree has {enriched_total} nodes but saved {save_result['total_nodes_saved']}",
         )
 
         # ============ Stage 4: Embed Nodes ============
         print("\n[Stage 4/6] Embedding nodes...")
         node_handler = KnowledgeNodeHandler(self._arango_client.db)
         saved_nodes = node_handler.get_by_source(data_source_id)
-        
+
         # Verify: DB nodes == saved nodes
         self.assertEqual(
             len(saved_nodes),
             save_result["total_nodes_saved"],
-            f"Mismatch: DB has {len(saved_nodes)} nodes but save result says {save_result['total_nodes_saved']}"
+            f"Mismatch: DB has {len(saved_nodes)} nodes but save result says {save_result['total_nodes_saved']}",
         )
-        
+
         embeddable = [n for n in saved_nodes if extract_text_for_embedding(n)]
         print(f"  → Embeddable nodes: {len(embeddable)}/{len(saved_nodes)}")
 
@@ -238,7 +255,7 @@ class IngestWebPipelineTest(unittest.TestCase):
         embed_count = 0
         structure_embs = []
         content_embs = []
-        
+
         if embeddable:
             embed_result = asyncio.run(
                 start_embed_nodes(
@@ -246,19 +263,21 @@ class IngestWebPipelineTest(unittest.TestCase):
                     llm_client=self._llm_client,
                 )
             )
-            
+
             self._save_json(embed_result, output_dir / "4_embed_result.json")
-            
+
             structure_embs = embed_result.get("structure_embeddings", [])
             content_embs = embed_result.get("content_embeddings", [])
             embed_count = len(structure_embs) + len(content_embs)
-            print(f"  ✓ Embeddings created: {embed_count} (structure={len(structure_embs)}, content={len(content_embs)})")
+            print(
+                f"  ✓ Embeddings created: {embed_count} (structure={len(structure_embs)}, content={len(content_embs)})"
+            )
 
             # Verify: embeddings == embeddable nodes (1:1)
             self.assertEqual(
                 embed_count,
                 len(embeddable),
-                f"Mismatch: {len(embeddable)} embeddable nodes but created {embed_count} embeddings"
+                f"Mismatch: {len(embeddable)} embeddable nodes but created {embed_count} embeddings",
             )
 
             # ============ Stage 5: Save Embeddings ============
@@ -272,35 +291,42 @@ class IngestWebPipelineTest(unittest.TestCase):
                     arango_client=self._arango_client,
                 )
             )
-            
+
             self._save_json(emb_save_result, output_dir / "5_save_embeddings_result.json")
-            
-            emb_saved_total = emb_save_result["structures_saved"] + emb_save_result["contents_saved"]
-            print(f"  ✓ Saved: {emb_saved_total} (structure={emb_save_result['structures_saved']}, content={emb_save_result['contents_saved']})")
-            
+
+            emb_saved_total = (
+                emb_save_result["structures_saved"] + emb_save_result["contents_saved"]
+            )
+            print(
+                f"  ✓ Saved: {emb_saved_total} (structure={emb_save_result['structures_saved']}, content={emb_save_result['contents_saved']})"
+            )
+
             # Verify: saved embeddings == created embeddings
             self.assertEqual(
                 emb_saved_total,
                 embed_count,
-                f"Mismatch: created {embed_count} embeddings but saved {emb_saved_total}"
+                f"Mismatch: created {embed_count} embeddings but saved {emb_saved_total}",
             )
         else:
             print("  ⚠ No embeddable nodes found, skipping embedding stages")
 
         # ============ Stage 6: Final Verification ============
         print("\n[Stage 6/6] Verifying database state...")
-        
+
         final_nodes = node_handler.get_by_source(data_source_id)
         from collections import Counter
-        final_types = Counter(str(n.node_type) if hasattr(n.node_type, 'value') else n.node_type for n in final_nodes)
-        
+
+        final_types = Counter(
+            str(n.node_type) if hasattr(n.node_type, "value") else n.node_type for n in final_nodes
+        )
+
         print(f"  ✓ Final DB state: {len(final_nodes)} nodes ({dict(final_types)})")
-        
+
         # Final verification
         self.assertEqual(
             len(final_nodes),
             enriched_total,
-            f"Final verification failed: expected {enriched_total} nodes, found {len(final_nodes)}"
+            f"Final verification failed: expected {enriched_total} nodes, found {len(final_nodes)}",
         )
 
         # ============ Final Summary ============
@@ -322,7 +348,8 @@ class IngestWebPipelineTest(unittest.TestCase):
                     "structures_enriched": enrich_stats["structures_enriched"],
                     "enriched_nodes": enriched_total,
                     "by_type": enriched_tree_counts,
-                    "llm_calls": enrich_stats["detail_llm_calls"] + enrich_stats["structure_llm_calls"],
+                    "llm_calls": enrich_stats["detail_llm_calls"]
+                    + enrich_stats["structure_llm_calls"],
                 },
                 "3_save": {
                     "status": "success",
@@ -348,20 +375,22 @@ class IngestWebPipelineTest(unittest.TestCase):
                 },
             },
         }
-        
+
         self._save_json(summary, output_dir / "pipeline_summary.json")
 
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print("Pipeline Summary")
-        print(f"{'='*80}")
+        print(f"{'=' * 80}")
         print(f"  • URL: {self.TEST_URL}")
         print(f"  • Data Source ID: {data_source_id}")
         print(f"  • Ingest: {ingest_total} nodes → Enrich: {enriched_total} nodes")
-        print(f"  • Save: {save_result['total_nodes_saved']} nodes + {total_relationships} relationships")
+        print(
+            f"  • Save: {save_result['total_nodes_saved']} nodes + {total_relationships} relationships"
+        )
         print(f"  • Embed: {embed_count} embeddings")
         print(f"  • Verification: ✓ All counts match!")
         print(f"  • Output: {output_dir}")
-        print(f"{'='*80}\n")
+        print(f"{'=' * 80}\n")
 
         # Final assertions
         self.assertGreater(save_result["total_nodes_saved"], 0)

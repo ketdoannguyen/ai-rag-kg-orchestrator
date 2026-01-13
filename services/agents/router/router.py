@@ -41,7 +41,7 @@ from .models import (
 
 class RouterAgent:
     """Domain-agnostic Router Agent for query analysis.
-    
+
     Example:
         ```python
         router = RouterAgent(llm_client)
@@ -49,14 +49,14 @@ class RouterAgent:
             user_query="Học phí ngành IT năm nay?",
             domain_config=config,
         ))
-        
+
         for sq in result.sub_questions:
             print(sq.query, sq.keywords, sq.filters)
         ```
     """
-    
+
     __slots__ = ("llm_client", "config")
-    
+
     def __init__(
         self,
         llm_client: AIGatewayClient,
@@ -69,7 +69,7 @@ class RouterAgent:
             llm_model=self.config.llm_model,
             temperature=self.config.temperature,
         )
-    
+
     async def route(self, input: RouterInput) -> RouterOutput:
         """Route a user query to produce structured search object."""
         logger.info(
@@ -78,7 +78,7 @@ class RouterAgent:
             domain=input.domain_config.domain_name,
             history_length=len(input.conversation_history),
         )
-        
+
         # Build prompts
         system_prompt = build_router_system_prompt(
             domain_name=input.domain_config.domain_name,
@@ -90,7 +90,7 @@ class RouterAgent:
             user_query=input.user_query,
             conversation_history=input.get_history_as_dicts(),
         )
-        
+
         # Build LLM request
         request = GatewayInvokeRequest(
             model=self.config.llm_model,
@@ -100,7 +100,7 @@ class RouterAgent:
             ],
             provider_options={"temperature": self.config.temperature},
         )
-        
+
         # Invoke LLM
         try:
             response = await self._invoke_with_retry(request)
@@ -109,7 +109,7 @@ class RouterAgent:
         except Exception as e:
             logger.error("LLM invocation failed: {}", str(e))
             return RouterOutput.create_chit_chat_response(input.user_query)
-        
+
         # Parse and build output
         parsed = parse_router_response(raw_content, input.user_query)
         output = RouterOutput(
@@ -118,14 +118,14 @@ class RouterAgent:
             sub_questions=[SubQuestion(**sq) for sq in parsed["sub_questions"]],
             raw_llm_response=raw_content,
         )
-        
+
         logger.info(
             "Query routed",
             intent=output.intent.value,
             sub_questions_count=len(output.sub_questions),
         )
         return output
-    
+
     @retry(
         retry=retry_if_exception_type((GatewayAPIError, Exception)),
         stop=stop_after_attempt(3),
@@ -139,7 +139,7 @@ class RouterAgent:
     async def _invoke_with_retry(self, request: GatewayInvokeRequest):
         """Invoke LLM with exponential backoff retry."""
         return await self.llm_client.invoke(request)
-    
+
     async def route_batch(
         self,
         inputs: List[RouterInput],
@@ -147,18 +147,18 @@ class RouterAgent:
     ) -> List[RouterOutput]:
         """Route multiple queries with concurrency control."""
         logger.info("Routing batch", size=len(inputs), max_concurrency=max_concurrency)
-        
+
         semaphore = asyncio.Semaphore(max_concurrency)
-        
+
         async def route_with_semaphore(inp: RouterInput) -> RouterOutput:
             async with semaphore:
                 return await self.route(inp)
-        
+
         results = await asyncio.gather(
             *[route_with_semaphore(inp) for inp in inputs],
             return_exceptions=True,
         )
-        
+
         outputs: List[RouterOutput] = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
@@ -166,7 +166,7 @@ class RouterAgent:
                 outputs.append(RouterOutput.create_chit_chat_response(inputs[i].user_query))
             else:
                 outputs.append(result)
-        
+
         return outputs
 
 
@@ -187,14 +187,16 @@ async def route_query(
         filter_fields=filter_fields,
         custom_intent_descriptions=domain_config.get("custom_intent_descriptions"),
     )
-    
+
     # Build history
     history = [ChatMessage(**msg) for msg in (conversation_history or [])]
-    
+
     # Route
     router = RouterAgent(llm_client)
-    return await router.route(RouterInput(
-        user_query=user_query,
-        conversation_history=history,
-        domain_config=config,
-    ))
+    return await router.route(
+        RouterInput(
+            user_query=user_query,
+            conversation_history=history,
+            domain_config=config,
+        )
+    )

@@ -51,30 +51,25 @@ async def main() -> None:
 
     try:
         logger.info(f"Starting refinement: {input_path} -> {output_path}")
-        
+
         # Initialize LLM Client
         llm_client = build_llm_gateway_client(settings)
-        
+
         # Create Refiner
-        refiner = TextbookRefiner(
-            llm_client=llm_client,
-            model=settings.LLM_GATEWAY_CHAT_MODEL
-        )
-        
+        refiner = TextbookRefiner(llm_client=llm_client, model=settings.LLM_GATEWAY_CHAT_MODEL)
+
         # Run Refinement
         result = await refiner.refine(
-            input_path=str(input_path),
-            output_path=str(output_path),
-            llm_timeout=args.timeout
+            input_path=str(input_path), output_path=str(output_path), llm_timeout=args.timeout
         )
-        
+
         # Print result
         print("\n" + "=" * 80)
         print("REFINEMENT RESULT")
         print("=" * 80)
         print(json.dumps(result.model_dump(), indent=2, ensure_ascii=False))
         print("=" * 80 + "\n")
-        
+
         if result.success:
             logger.success(f"✅ Refined {result.paragraphs_refined} paragraphs")
             logger.info(f"📁 Output saved to: {result.output_path}")
@@ -83,7 +78,7 @@ async def main() -> None:
         else:
             logger.error(f"❌ Refinement failed: {result.error}")
             sys.exit(1)
-            
+
     except Exception as e:
         logger.exception(f"Error during refinement: {e}")
         sys.exit(1)
@@ -91,4 +86,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-

@@ -22,4 +22,3 @@ class GatewayModelConfig(BaseModel):
         if self.timeout is not None:
             params["timeout"] = self.timeout
         return params
-

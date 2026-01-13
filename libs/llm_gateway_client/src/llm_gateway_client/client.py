@@ -107,7 +107,9 @@ class AIGatewayClient:
         try:
             chat_config = self.chat_registry.get(request.model)
             messages = MessageConverter.to_litellm_messages(request.messages)
-            params = self._prepare_params(request.provider_options, chat_config, self._resolve_tools(request))
+            params = self._prepare_params(
+                request.provider_options, chat_config, self._resolve_tools(request)
+            )
             response = await acompletion(
                 model=request.model or chat_config.model,
                 messages=messages,
@@ -145,7 +147,9 @@ class AIGatewayClient:
         try:
             chat_config = self.chat_registry.get(request.model)
             messages = MessageConverter.to_litellm_messages(request.messages)
-            params = self._prepare_params(request.provider_options, chat_config, self._resolve_tools(request))
+            params = self._prepare_params(
+                request.provider_options, chat_config, self._resolve_tools(request)
+            )
             params["stream"] = True
 
             async for chunk in acompletion(

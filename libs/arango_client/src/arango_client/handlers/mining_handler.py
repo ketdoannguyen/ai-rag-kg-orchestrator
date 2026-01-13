@@ -56,11 +56,11 @@ class SuggestedFAQHandler(BaseHandler[SuggestedFAQ]):
     ) -> list[SuggestedFAQ]:
         """
         Get suggested FAQs by minimum frequency.
-        
+
         Args:
             min_frequency: Minimum frequency (number of people who asked)
             limit: Maximum number of FAQs to return
-            
+
         Returns:
             List of SuggestedFAQ instances
         """
@@ -70,7 +70,7 @@ class SuggestedFAQHandler(BaseHandler[SuggestedFAQ]):
                 "@collection": self.collection_name,
                 "min_frequency": min_frequency,
                 "limit": limit or 100,
-            }
+            },
         )
         return [SuggestedFAQ.from_document(doc) for doc in cursor]
 
@@ -89,10 +89,10 @@ class SuggestedFAQHandler(BaseHandler[SuggestedFAQ]):
     def increment_frequency(self, faq_id: uuid.UUID | str) -> Optional[SuggestedFAQ]:
         """
         Increment frequency count for a suggested FAQ.
-        
+
         Args:
             faq_id: Suggested FAQ ID
-            
+
         Returns:
             Updated SuggestedFAQ instance or None if not found
         """
@@ -101,13 +101,13 @@ class SuggestedFAQHandler(BaseHandler[SuggestedFAQ]):
             bind_vars={
                 "key": str(faq_id),
                 "@collection": self.collection_name,
-            }
+            },
         )
-        
+
         result = next(cursor, None)
         if result is None:
             return None
-        
+
         return SuggestedFAQ.from_document(result)
 
     def update_answer_draft(

@@ -8,16 +8,31 @@ from datetime import datetime
 from typing import Any
 
 from loguru import logger
-from arango_client import ArangoClient, set_parent_ids, set_positions, SystemAdminHandler, SourceType
+from arango_client import (
+    ArangoClient,
+    set_parent_ids,
+    set_positions,
+    SystemAdminHandler,
+    SourceType,
+)
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from workflows.dependencies import init_arango_client
-from .tree_utils import compute_tree_statistics, validate_tree_and_attach_source, serialize_tree_to_dict
+from .tree_utils import (
+    compute_tree_statistics,
+    validate_tree_and_attach_source,
+    serialize_tree_to_dict,
+)
 from .content_extractor import ContentExtractor
 from .crawl4ai_client import Crawl4AIClient
 from .markdown_to_json import MarkdownToJSONConverter
 from .url_validation import validate_urls
-from .markdown_processing import assess_markdown_quality, find_content_start, extract_source_name, clean_markdown_content
+from .markdown_processing import (
+    assess_markdown_quality,
+    find_content_start,
+    extract_source_name,
+    clean_markdown_content,
+)
 from .models import (
     WebIngestionInput,
     WebIngestionResult,
@@ -38,7 +53,9 @@ async def start_ingest_web(
         payload: Workflow input (Pydantic model or plain dict)
         arango_client: Optional ArangoDB client (defaults to settings)
     """
-    input_payload = payload if isinstance(payload, WebIngestionInput) else WebIngestionInput(**payload)
+    input_payload = (
+        payload if isinstance(payload, WebIngestionInput) else WebIngestionInput(**payload)
+    )
     client = arango_client or init_arango_client()
 
     workflow = WebIngestionWorkflow(arango_client=client)
@@ -82,7 +99,7 @@ class WebIngestionWorkflow:
         validation_results = await validate_urls(payload.urls, payload.crawl_config)
         valid_urls = validation_results["valid"]
         skipped_info = validation_results["skipped"]
-        
+
         # Convert skipped info to WebIngestionSingleResult
         skipped_results = [
             WebIngestionSingleResult(
@@ -229,22 +246,24 @@ class WebIngestionWorkflow:
             crawler_markdown = crawl_result.get("markdown", "")
 
             # Extract content using ContentExtractor
-            extracted_markdown = await asyncio.to_thread(content_extractor.extract_main_content, html, url)
-            
+            extracted_markdown = await asyncio.to_thread(
+                content_extractor.extract_main_content, html, url
+            )
+
             # Smart content selection: Compare crawler markdown vs extracted markdown
             crawler_markdown_clean = crawler_markdown.strip() if crawler_markdown else ""
             extracted_markdown_clean = extracted_markdown.strip() if extracted_markdown else ""
-            
+
             # Assess quality of both sources
             crawler_quality, crawler_reason = assess_markdown_quality(crawler_markdown_clean)
             extracted_quality, extracted_reason = assess_markdown_quality(extracted_markdown_clean)
-            
+
             self._logger.debug(
                 f"Content quality comparison for {url}: "
                 f"crawler={crawler_quality:.2f} ({crawler_reason}), "
                 f"extracted={extracted_quality:.2f} ({extracted_reason})"
             )
-            
+
             # Decision: Use the higher quality source
             if crawler_quality > extracted_quality and crawler_quality >= 0.3:
                 self._logger.info(
@@ -312,10 +331,13 @@ class WebIngestionWorkflow:
             }
 
             handler = SystemAdminHandler(self._db)
-            saved_data_source = handler.sources.update(data_source.id, {
-                "name": source_name,
-                "config": updated_config,
-            })
+            saved_data_source = handler.sources.update(
+                data_source.id,
+                {
+                    "name": source_name,
+                    "config": updated_config,
+                },
+            )
 
             self._logger.info(
                 "Successfully processed URL",

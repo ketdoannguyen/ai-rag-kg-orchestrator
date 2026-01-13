@@ -23,12 +23,17 @@ from ..aql import (
     GET_DESCENDANTS,
     GET_ANCESTORS,
     DELETE_SUBTREE,
+    GET_SIBLINGS,
+    GET_NEXT_SIBLING,
+    GET_PREV_SIBLING,
+    GET_NODES_AT_LEVEL,
 )
 from ..collections.schema import (
     Collections,
     EdgeCollections,
     RelationshipTypes,
     KNOWLEDGE_GRAPH_NAME,
+    KNOWLEDGE_COLLECTIONS,
 )
 from ..models.knowledge import KnowledgeNode
 from ..models.detail_nodes import ParagraphNode, ImageNode, TableNode
@@ -49,16 +54,45 @@ KnowledgeNodeType = Union[
 ]
 
 
+def get_collection_for_node(node: KnowledgeNodeType) -> str:
+    """
+    Determine which collection a node belongs to based on type and level.
+
+    Rules:
+    - level == 1 -> root_nodes (RootNode)
+    - StructureNode with level > 1 -> structure_nodes
+    - ParagraphNode -> paragraph_nodes
+    - ImageNode -> image_nodes
+    - TableNode -> table_nodes
+    """
+    # Check for RootNode or level == 1
+    if isinstance(node, RootNode) or getattr(node, "level", 0) == 1:
+        return Collections.ROOT_NODES
+    if isinstance(node, StructureNode):
+        return Collections.STRUCTURE_NODES
+
+    # Detail nodes - check node_type
+    node_type = node.node_type
+    if hasattr(node_type, "value"):
+        node_type = node_type.value
+
+    return {
+        "paragraph": Collections.PARAGRAPH_NODES,
+        "image": Collections.IMAGE_NODES,
+        "table": Collections.TABLE_NODES,
+    }.get(node_type, Collections.STRUCTURE_NODES)
+
+
 class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
     """
     Handler for KnowledgeNode CRUD and graph operations in ArangoDB.
-    
+
     Features:
     - Document CRUD operations
     - Graph relationship management (HAS_SECTION, HAS_CONTENT, NEXT_SIBLING)
     - Embedded vector storage and updates
     - Tree traversal and reconstruction
-    
+
     Example:
         >>> handler = KnowledgeNodeHandler(db)
         >>> node = handler.create_node(ParagraphNode(...))
@@ -68,7 +102,8 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
 
     def __init__(self, db: StandardDatabase):
         """Initialize KnowledgeNode handler."""
-        super().__init__(db, KnowledgeNode, Collections.KNOWLEDGE_NODES)
+        # Use first collection as default for BaseHandler (not actually used)
+        super().__init__(db, KnowledgeNode, Collections.PARAGRAPH_NODES)
         self._edge_collection = db.collection(EdgeCollections.KNOWLEDGE_EDGES)
         self._graph = db.graph(KNOWLEDGE_GRAPH_NAME)
 
@@ -77,9 +112,11 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
     # =========================================================================
 
     def create_node(self, node: KnowledgeNodeType) -> KnowledgeNodeType:
-        """Create a new knowledge node."""
+        """Create a new knowledge node in the appropriate collection."""
         doc = node.to_document()
-        result = self._collection.insert(doc, return_new=True)
+        collection_name = get_collection_for_node(node)
+        collection = self.db.collection(collection_name)
+        result = collection.insert(doc, return_new=True)
         return doc_to_knowledge_node(result["new"])
 
     def get_by_id(
@@ -87,14 +124,26 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         id: uuid.UUID | str,
         node_class: Optional[Type[KnowledgeNodeType]] = None,
     ) -> Optional[KnowledgeNodeType]:
-        """Get a knowledge node by ID."""
+        """Get a knowledge node by ID, searching across all collections."""
         key = str(id)
-        doc = self._collection.get(key)
-        
-        if doc is None:
-            return None
-        
-        return doc_to_knowledge_node(doc, node_class)
+
+        # Search across all knowledge collections
+        for collection_name in KNOWLEDGE_COLLECTIONS:
+            collection = self.db.collection(collection_name)
+            doc = collection.get(key)
+            if doc is not None:
+                return doc_to_knowledge_node(doc, node_class)
+
+        return None
+
+    def _find_node_collection(self, node_id: uuid.UUID | str) -> Optional[str]:
+        """Find which collection contains the given node ID."""
+        key = str(node_id)
+        for collection_name in KNOWLEDGE_COLLECTIONS:
+            collection = self.db.collection(collection_name)
+            if collection.has(key):
+                return collection_name
+        return None
 
     def get_by_filter(
         self,
@@ -105,7 +154,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         sort_desc: bool = True,
     ) -> list[KnowledgeNodeType]:
         """Get nodes by filter criteria with proper type conversion.
-        
+
         Args:
             filters: Dictionary of field-value pairs to filter by
             limit: Maximum number of results. If None, returns all matching nodes (up to 10000)
@@ -117,17 +166,17 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         # If limit is None, use a very large number to effectively get all results
         effective_limit = limit if limit is not None else 10000
         offset = offset or 0
-        
+
         filter_conditions = []
         bind_vars = {"offset": offset, "limit": effective_limit}
-        
+
         for i, (field, value) in enumerate(filters.items()):
             var_name = f"val{i}"
             filter_conditions.append(f"doc.{field} == @{var_name}")
             bind_vars[var_name] = str(value) if isinstance(value, uuid.UUID) else value
-        
+
         filter_clause = " AND ".join(filter_conditions) if filter_conditions else "true"
-        
+
         # Use centralized AQL template
         query = CRUD_GET_BY_FILTER.format(
             collection=self.collection_name,
@@ -135,7 +184,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
             sort_field=sort_field,
             sort_dir=sort_dir,
         )
-        
+
         cursor = self.db.aql.execute(query, bind_vars=bind_vars)
         return [doc_to_knowledge_node(doc) for doc in cursor]
 
@@ -180,12 +229,12 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
     ) -> Optional[KnowledgeNodeType]:
         """
         Update embedding for any knowledge node.
-        
+
         Args:
             node_id: Knowledge node ID
             vector: Vector embedding (768 or 1536 dimensions)
             text: Optional text (summary for structure, content for details)
-            
+
         Returns:
             Updated node or None if not found
         """
@@ -199,7 +248,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
                 update_data["summary"] = text
             else:
                 update_data["text"] = text
-        
+
         return self.update(node_id, update_data)
 
     def create_with_embedding(
@@ -215,7 +264,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
                 node.summary = text
             else:
                 node.text = text
-        
+
         return self.create_node(node)
 
     # =========================================================================
@@ -227,11 +276,23 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         from_id: uuid.UUID | str,
         to_id: uuid.UUID | str,
         relationship_type: str,
+        from_collection: Optional[str] = None,
+        to_collection: Optional[str] = None,
     ) -> dict[str, Any]:
         """Create a relationship (edge) between two nodes."""
-        from_vertex = f"{Collections.KNOWLEDGE_NODES}/{str(from_id)}"
-        to_vertex = f"{Collections.KNOWLEDGE_NODES}/{str(to_id)}"
-        
+        # Find collections if not provided
+        if from_collection is None:
+            from_collection = self._find_node_collection(from_id)
+            if from_collection is None:
+                raise ValueError(f"Node {from_id} not found in any collection")
+        if to_collection is None:
+            to_collection = self._find_node_collection(to_id)
+            if to_collection is None:
+                raise ValueError(f"Node {to_id} not found in any collection")
+
+        from_vertex = f"{from_collection}/{str(from_id)}"
+        to_vertex = f"{to_collection}/{str(to_id)}"
+
         edge_doc = {
             "_key": str(uuid.uuid4()),
             "_from": from_vertex,
@@ -239,7 +300,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
             "type": relationship_type,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
-        
+
         result = self._edge_collection.insert(edge_doc, return_new=True)
         return result["new"]
 
@@ -249,9 +310,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         child_id: uuid.UUID | str,
     ) -> dict[str, Any]:
         """Create HAS_SECTION relationship between structure nodes."""
-        return self.create_relationship(
-            parent_id, child_id, RelationshipTypes.HAS_SECTION
-        )
+        return self.create_relationship(parent_id, child_id, RelationshipTypes.HAS_SECTION)
 
     def create_has_content_relationship(
         self,
@@ -259,9 +318,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         child_id: uuid.UUID | str,
     ) -> dict[str, Any]:
         """Create HAS_CONTENT relationship between structure and detail nodes."""
-        return self.create_relationship(
-            parent_id, child_id, RelationshipTypes.HAS_CONTENT
-        )
+        return self.create_relationship(parent_id, child_id, RelationshipTypes.HAS_CONTENT)
 
     def create_next_sibling_relationship(
         self,
@@ -269,9 +326,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         sibling2_id: uuid.UUID | str,
     ) -> dict[str, Any]:
         """Create NEXT_SIBLING relationship between nodes."""
-        return self.create_relationship(
-            sibling1_id, sibling2_id, RelationshipTypes.NEXT_SIBLING
-        )
+        return self.create_relationship(sibling1_id, sibling2_id, RelationshipTypes.NEXT_SIBLING)
 
     # =========================================================================
     # Graph Traversal Operations (Using AQL Templates)
@@ -288,18 +343,21 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
                 RelationshipTypes.HAS_SECTION,
                 RelationshipTypes.HAS_CONTENT,
             ]
-        
-        start_vertex = f"{Collections.KNOWLEDGE_NODES}/{str(node_id)}"
-        
+
+        collection = self._find_node_collection(node_id)
+        if collection is None:
+            return []
+        start_vertex = f"{collection}/{str(node_id)}"
+
         cursor = self.db.aql.execute(
             GET_DIRECT_CHILDREN,
             bind_vars={
                 "start_vertex": start_vertex,
                 "graph_name": KNOWLEDGE_GRAPH_NAME,
                 "edge_types": relationship_types,
-            }
+            },
         )
-        
+
         return [doc_to_knowledge_node(doc) for doc in cursor]
 
     def get_descendants(
@@ -314,9 +372,12 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
                 RelationshipTypes.HAS_SECTION,
                 RelationshipTypes.HAS_CONTENT,
             ]
-        
-        start_vertex = f"{Collections.KNOWLEDGE_NODES}/{str(node_id)}"
-        
+
+        collection = self._find_node_collection(node_id)
+        if collection is None:
+            return []
+        start_vertex = f"{collection}/{str(node_id)}"
+
         cursor = self.db.aql.execute(
             GET_DESCENDANTS,
             bind_vars={
@@ -324,9 +385,9 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
                 "graph_name": KNOWLEDGE_GRAPH_NAME,
                 "max_depth": max_depth,
                 "edge_types": relationship_types,
-            }
+            },
         )
-        
+
         return [doc_to_knowledge_node(doc) for doc in cursor]
 
     def get_ancestors(
@@ -335,8 +396,11 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         max_depth: int = 100,
     ) -> list[KnowledgeNodeType]:
         """Get all ancestors of a node (upward traversal)."""
-        start_vertex = f"{Collections.KNOWLEDGE_NODES}/{str(node_id)}"
-        
+        collection = self._find_node_collection(node_id)
+        if collection is None:
+            return []
+        start_vertex = f"{collection}/{str(node_id)}"
+
         cursor = self.db.aql.execute(
             GET_ANCESTORS,
             bind_vars={
@@ -347,9 +411,9 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
                     RelationshipTypes.HAS_SECTION,
                     RelationshipTypes.HAS_CONTENT,
                 ],
-            }
+            },
         )
-        
+
         return [doc_to_knowledge_node(doc) for doc in cursor]
 
     def get_parent(self, node_id: uuid.UUID | str) -> Optional[KnowledgeNodeType]:
@@ -358,21 +422,219 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
         return ancestors[0] if ancestors else None
 
     def delete_subtree(self, node_id: uuid.UUID | str) -> dict[str, int]:
-        """Delete a node and all its descendants."""
-        start_vertex = f"{Collections.KNOWLEDGE_NODES}/{str(node_id)}"
-        
+        """Delete a node and all its descendants across all collections."""
+        collection = self._find_node_collection(node_id)
+        if collection is None:
+            return {"deleted_nodes": 0, "deleted_edges": 0}
+
+        start_vertex = f"{collection}/{str(node_id)}"
+
+        # Get all descendants first
+        descendants = self.get_descendants(node_id)
+        deleted_nodes = 0
+        deleted_edges = 0
+
+        # Delete edges connected to this subtree
+        all_node_ids = [str(node_id)] + [str(d.id) for d in descendants]
+        for nid in all_node_ids:
+            # Delete edges from/to this node
+            edge_query = """
+            FOR e IN @@edge_collection
+                FILTER CONTAINS(e._from, @node_id) OR CONTAINS(e._to, @node_id)
+                REMOVE e IN @@edge_collection
+                RETURN OLD
+            """
+            try:
+                cursor = self.db.aql.execute(
+                    edge_query,
+                    bind_vars={
+                        "@edge_collection": EdgeCollections.KNOWLEDGE_EDGES,
+                        "node_id": nid,
+                    },
+                )
+                deleted_edges += sum(1 for _ in cursor)
+            except Exception:
+                pass
+
+        # Delete nodes in reverse order (leaves first)
+        for desc in reversed(descendants):
+            desc_collection = self._find_node_collection(desc.id)
+            if desc_collection:
+                try:
+                    self.db.collection(desc_collection).delete(str(desc.id))
+                    deleted_nodes += 1
+                except Exception:
+                    pass
+
+        # Delete the root node
+        try:
+            self.db.collection(collection).delete(str(node_id))
+            deleted_nodes += 1
+        except Exception:
+            pass
+
+        return {"deleted_nodes": deleted_nodes, "deleted_edges": deleted_edges}
+
+    # =========================================================================
+    # Sibling Navigation Operations
+    # =========================================================================
+
+    def get_siblings(self, node_id: uuid.UUID | str) -> list[KnowledgeNodeType]:
+        """Get all siblings of a node (nodes with the same parent).
+
+        Args:
+            node_id: Node ID
+
+        Returns:
+            List of sibling nodes (excluding the input node)
+        """
+        collection = self._find_node_collection(node_id)
+        if collection is None:
+            return []
+        start_vertex = f"{collection}/{str(node_id)}"
+
         cursor = self.db.aql.execute(
-            DELETE_SUBTREE,
+            GET_SIBLINGS,
             bind_vars={
                 "start_vertex": start_vertex,
                 "graph_name": KNOWLEDGE_GRAPH_NAME,
-                "@edge_collection": EdgeCollections.KNOWLEDGE_EDGES,
-                "@node_collection": Collections.KNOWLEDGE_NODES,
-                "collection_prefix": f"{Collections.KNOWLEDGE_NODES}/",
-            }
+            },
         )
-        
-        return next(cursor, {"deleted_nodes": 0, "deleted_edges": 0})
+
+        return [doc_to_knowledge_node(doc) for doc in cursor]
+
+    def get_next_sibling(self, node_id: uuid.UUID | str) -> Optional[KnowledgeNodeType]:
+        """Get the next sibling via NEXT_SIBLING relationship.
+
+        Args:
+            node_id: Node ID
+
+        Returns:
+            Next sibling node or None if no next sibling
+        """
+        collection = self._find_node_collection(node_id)
+        if collection is None:
+            return None
+        start_vertex = f"{collection}/{str(node_id)}"
+
+        cursor = self.db.aql.execute(
+            GET_NEXT_SIBLING,
+            bind_vars={
+                "start_vertex": start_vertex,
+                "graph_name": KNOWLEDGE_GRAPH_NAME,
+            },
+        )
+
+        results = list(cursor)
+        return doc_to_knowledge_node(results[0]) if results else None
+
+    def get_prev_sibling(self, node_id: uuid.UUID | str) -> Optional[KnowledgeNodeType]:
+        """Get the previous sibling via NEXT_SIBLING relationship (reverse).
+
+        Args:
+            node_id: Node ID
+
+        Returns:
+            Previous sibling node or None if no previous sibling
+        """
+        collection = self._find_node_collection(node_id)
+        if collection is None:
+            return None
+        start_vertex = f"{collection}/{str(node_id)}"
+
+        cursor = self.db.aql.execute(
+            GET_PREV_SIBLING,
+            bind_vars={
+                "start_vertex": start_vertex,
+                "graph_name": KNOWLEDGE_GRAPH_NAME,
+            },
+        )
+
+        results = list(cursor)
+        return doc_to_knowledge_node(results[0]) if results else None
+
+    def get_context_window(
+        self,
+        node_id: uuid.UUID | str,
+        before: int = 2,
+        after: int = 2,
+    ) -> list[KnowledgeNodeType]:
+        """Get a context window of nodes around the target node.
+
+        Useful for RAG to get surrounding paragraphs for better context.
+
+        Args:
+            node_id: Center node ID
+            before: Number of preceding siblings to include
+            after: Number of following siblings to include
+
+        Returns:
+            List of nodes in order [prev_siblings..., target, next_siblings...]
+        """
+        result = []
+
+        # Get preceding siblings
+        prev_nodes = []
+        current_id = node_id
+        for _ in range(before):
+            prev_node = self.get_prev_sibling(current_id)
+            if prev_node is None:
+                break
+            prev_nodes.append(prev_node)
+            current_id = prev_node.id
+        result.extend(reversed(prev_nodes))
+
+        # Add target node
+        target = self.get_by_id(node_id)
+        if target:
+            result.append(target)
+
+        # Get following siblings
+        current_id = node_id
+        for _ in range(after):
+            next_node = self.get_next_sibling(current_id)
+            if next_node is None:
+                break
+            result.append(next_node)
+            current_id = next_node.id
+
+        return result
+
+    # =========================================================================
+    # Level-Based Navigation
+    # =========================================================================
+
+    def get_nodes_at_level(
+        self,
+        source_id: uuid.UUID | str,
+        level: int,
+        limit: int = 100,
+    ) -> list[KnowledgeNodeType]:
+        """Get all nodes at a specific level within a source.
+
+        Useful for navigating document structure (e.g., "get all chapters").
+
+        Args:
+            source_id: Data source ID
+            level: Level in the hierarchy (1=root, 2=chapters, etc.)
+            limit: Maximum number of results
+
+        Returns:
+            List of nodes at the specified level
+        """
+        from ..collections.schema import KNOWLEDGE_VECTOR_VIEW_NAME
+
+        cursor = self.db.aql.execute(
+            GET_NODES_AT_LEVEL,
+            bind_vars={
+                "@view": KNOWLEDGE_VECTOR_VIEW_NAME,
+                "source_id": str(source_id),
+                "level": level,
+                "limit": limit,
+            },
+        )
+
+        return [doc_to_knowledge_node(doc) for doc in cursor]
 
 
 class KnowledgeHandler:

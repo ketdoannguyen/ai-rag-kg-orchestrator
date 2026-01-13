@@ -23,15 +23,13 @@ def build_router_system_prompt(
         "CONTACT_INFO": "Hỏi thông tin liên hệ: địa chỉ, SĐT, Email",
         "CHIT_CHAT": "Chào hỏi hoặc câu hỏi không liên quan domain",
     }
-    
+
     if custom_intent_descriptions:
         intent_definitions.update(custom_intent_descriptions)
-    
-    intent_section = "\n".join(
-        f'   - "{k}": {v}' for k, v in intent_definitions.items()
-    )
+
+    intent_section = "\n".join(f'   - "{k}": {v}' for k, v in intent_definitions.items())
     filter_section = _build_filter_description(filter_fields)
-    
+
     return f"""Bạn là Router cho hệ thống Chatbot "{domain_name}".
 
 NHIỆM VỤ: Chuyển câu hỏi thành Structured Search Object.
@@ -84,7 +82,7 @@ def _build_filter_description(filter_fields: Dict[str, Dict[str, Any]]) -> str:
     """Build description of available filter fields."""
     if not filter_fields:
         return "(Không có filter)"
-    
+
     lines = []
     for name, cfg in filter_fields.items():
         desc = cfg.get("description", "")
@@ -92,25 +90,25 @@ def _build_filter_description(filter_fields: Dict[str, Dict[str, Any]]) -> str:
         allowed = cfg.get("allowed_values")
         examples = cfg.get("examples", [])
         aliases = cfg.get("aliases", {})
-        
+
         line = f'- "{name}": {desc} ({ftype})'
-        
+
         # Show allowed values (enum constraint)
         if allowed:
             values_str = ", ".join(f'"{v}"' for v in allowed[:5])
             if len(allowed) > 5:
-                values_str += f" ... (+{len(allowed)-5})"
+                values_str += f" ... (+{len(allowed) - 5})"
             line += f"\n  CHỈ ĐƯỢC DÙNG: [{values_str}]"
         elif examples:
-            line += f' VD: {", ".join(str(e) for e in examples[:2])}'
-        
+            line += f" VD: {', '.join(str(e) for e in examples[:2])}"
+
         # Show aliases
         if aliases:
-            alias_str = ", ".join(f'{k}→{v}' for k, v in list(aliases.items())[:3])
+            alias_str = ", ".join(f"{k}→{v}" for k, v in list(aliases.items())[:3])
             line += f"\n  Aliases: {alias_str}"
-        
+
         lines.append(line)
-    
+
     return "\n".join(lines)
 
 
@@ -120,13 +118,13 @@ def build_router_user_prompt(
 ) -> str:
     """Build the user prompt with query and history."""
     parts = []
-    
+
     if conversation_history:
         parts.append("LỊCH SỬ:")
         for msg in conversation_history[-5:]:
             role = "User" if msg.get("role") == "user" else "Bot"
             parts.append(f"{role}: {msg.get('content', '')}")
         parts.append("")
-    
+
     parts.append(f"CÂU HỎI: {user_query}")
     return "\n".join(parts)

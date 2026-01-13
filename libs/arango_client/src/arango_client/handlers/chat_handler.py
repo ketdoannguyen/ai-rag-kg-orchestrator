@@ -32,12 +32,12 @@ class ChatSessionHandler(BaseHandler[ChatSession]):
     ) -> list[ChatSession]:
         """
         Get chat sessions by user identifier.
-        
+
         Args:
             user_identifier: User identifier (session cookie or user ID)
             limit: Maximum number of sessions to return
             offset: Number of records to skip
-            
+
         Returns:
             List of ChatSession instances
         """
@@ -56,11 +56,11 @@ class ChatSessionHandler(BaseHandler[ChatSession]):
     ) -> list[ChatMessage]:
         """
         Get all messages for a chat session.
-        
+
         Args:
             session_id: Chat session ID
             limit: Maximum number of messages to return
-            
+
         Returns:
             List of ChatMessage instances
         """
@@ -83,12 +83,12 @@ class ChatMessageHandler(BaseHandler[ChatMessage]):
     ) -> list[ChatMessage]:
         """
         Get messages by session ID.
-        
+
         Args:
             session_id: Chat session ID
             limit: Maximum number of messages to return
             offset: Number of records to skip
-            
+
         Returns:
             List of ChatMessage instances (sorted by creation time ascending)
         """
@@ -108,12 +108,12 @@ class ChatMessageHandler(BaseHandler[ChatMessage]):
     ) -> list[ChatMessage]:
         """
         Get messages by session ID and role.
-        
+
         Args:
             session_id: Chat session ID
             role: Message role ("user" or "assistant")
             limit: Maximum number of messages to return
-            
+
         Returns:
             List of ChatMessage instances
         """
@@ -130,10 +130,10 @@ class ChatMessageHandler(BaseHandler[ChatMessage]):
     ) -> list[Feedback]:
         """
         Get all feedbacks for a message.
-        
+
         Args:
             message_id: Chat message ID
-            
+
         Returns:
             List of Feedback instances
         """
@@ -154,10 +154,10 @@ class FeedbackHandler(BaseHandler[Feedback]):
     ) -> list[Feedback]:
         """
         Get feedbacks by message ID.
-        
+
         Args:
             message_id: Chat message ID
-            
+
         Returns:
             List of Feedback instances
         """
@@ -171,12 +171,12 @@ class FeedbackHandler(BaseHandler[Feedback]):
     ) -> list[Feedback]:
         """
         Get feedbacks by status.
-        
+
         Args:
             status: Feedback status (pending, reviewed, ignored)
             limit: Maximum number of feedbacks to return
             offset: Number of records to skip
-            
+
         Returns:
             List of Feedback instances
         """
@@ -194,10 +194,10 @@ class FeedbackHandler(BaseHandler[Feedback]):
     ) -> list[Feedback]:
         """
         Get all pending feedbacks.
-        
+
         Args:
             limit: Maximum number of feedbacks to return
-            
+
         Returns:
             List of pending Feedback instances
         """
@@ -208,7 +208,7 @@ class FeedbackHandler(BaseHandler[Feedback]):
 class ChatHandler:
     """
     Convenience class grouping all chat-related handlers.
-    
+
     Usage:
         >>> handler = ChatHandler(db)
         >>> session = handler.sessions.create(ChatSession(...))

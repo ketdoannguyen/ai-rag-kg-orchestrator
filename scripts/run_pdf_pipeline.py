@@ -31,7 +31,10 @@ from workflows.enrich_knowledge_tree import EnrichKnowledgeTreeInput, start_enri
 from workflows.embed_nodes import EmbedNodesInput, start_embed_nodes
 from workflows.embed_nodes.helper import extract_text_for_embedding
 from workflows.ingest_file import start_ingest
-from workflows.save_embeddings_to_arango import SaveEmbeddingsInput, start_save_embeddings_to_arango
+from workflows.save_embeddings_to_arango import (
+    SaveEmbeddingsInput,
+    start_save_embeddings_to_arango,
+)
 from workflows.save_knowledge_to_arango import SaveKnowledgeInput, start_save_knowledge_to_arango
 from workflows.upload_file import (
     FileUploadInput,
@@ -56,11 +59,22 @@ async def _maybe_upload_file(
         created_by=created_by,
     )
     upload_result = await start_upload_file(upload_input, arango_client=arango_client)
-    data_source = upload_result.get("data_source") if isinstance(upload_result, dict) else upload_result.data_source
+    data_source = (
+        upload_result.get("data_source")
+        if isinstance(upload_result, dict)
+        else upload_result.data_source
+    )
     data_source_id = UUID(data_source["id"]) if isinstance(data_source, dict) else data_source.id
-    duplicate = upload_result.get("duplicate", False) if isinstance(upload_result, dict) else upload_result.duplicate
+    duplicate = (
+        upload_result.get("duplicate", False)
+        if isinstance(upload_result, dict)
+        else upload_result.duplicate
+    )
     if duplicate:
-        logger.warning("File duplicate detected; using existing data_source", data_source_id=str(data_source_id))
+        logger.warning(
+            "File duplicate detected; using existing data_source",
+            data_source_id=str(data_source_id),
+        )
     return data_source_id
 
 
@@ -73,18 +87,35 @@ async def _process_data_source(
 ) -> Dict[str, Any]:
     """Full pipeline for a single data_source_id."""
     ingest_result = await asyncio.to_thread(start_ingest, {"data_source_id": str(data_source_id)})
-    status = ingest_result.get("status") if isinstance(ingest_result, dict) else ingest_result.status
+    status = (
+        ingest_result.get("status") if isinstance(ingest_result, dict) else ingest_result.status
+    )
     if status != "complete":
-        error = ingest_result.get("error") if isinstance(ingest_result, dict) else getattr(ingest_result, "error", None)
+        error = (
+            ingest_result.get("error")
+            if isinstance(ingest_result, dict)
+            else getattr(ingest_result, "error", None)
+        )
         return {"status": "error", "data_source_id": str(data_source_id), "error": error}
 
-    root_node_dict = ingest_result.get("root_node") if isinstance(ingest_result, dict) else ingest_result.root_node
+    root_node_dict = (
+        ingest_result.get("root_node")
+        if isinstance(ingest_result, dict)
+        else ingest_result.root_node
+    )
     root_node = parse_node_from_dict(root_node_dict)
 
     # Enrich knowledge tree
     llm_client = init_llm_client()
+    from config.domains import get_current_domain
+
+    domain_schema = get_current_domain()
+
     enrich_out = await start_enrich_knowledge_tree(
-        EnrichKnowledgeTreeInput(knowledge_tree=root_node),
+        EnrichKnowledgeTreeInput(
+            knowledge_tree=root_node,
+            domain_schema=domain_schema,
+        ),
         llm_client=llm_client,
     )
 
@@ -96,14 +127,18 @@ async def _process_data_source(
         ),
         arango_client=arango_client,
     )
-    
+
     # Handle result
     if isinstance(save_knowledge, Exception):
         logger.error("Failed to save knowledge to ArangoDB", error=str(save_knowledge))
         save_knowledge = {"total_nodes_saved": 0, "partial_success": True}
     elif not isinstance(save_knowledge, dict):
-        save_knowledge = save_knowledge.model_dump(mode="json") if hasattr(save_knowledge, "model_dump") else save_knowledge.dict()
-    
+        save_knowledge = (
+            save_knowledge.model_dump(mode="json")
+            if hasattr(save_knowledge, "model_dump")
+            else save_knowledge.dict()
+        )
+
     logger.info(
         "Knowledge saved to ArangoDB",
         nodes_saved=save_knowledge.get("total_nodes_saved", 0),
@@ -113,7 +148,7 @@ async def _process_data_source(
     # Query nodes from database
     handler = KnowledgeNodeHandler(arango_client.db)
     saved_nodes = handler.get_by_source(data_source_id)
-    
+
     # Filter embeddable nodes
     embeddable_nodes = [
         node for node in saved_nodes if extract_text_for_embedding(node) is not None
@@ -179,7 +214,7 @@ async def run_pipeline(
 ) -> Dict[str, Any]:
     """Run the PDF pipeline. If file_path is provided, upload first to get data_source_id."""
     arango_client = init_arango_client()
-    
+
     try:
         ds_id = data_source_id
         if ds_id is None and file_path:
@@ -205,13 +240,24 @@ async def run_pipeline(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run PDF pipeline: upload → ingest → enrich → save → embed.")
-    parser.add_argument("--file-path", help="Local file path to upload (optional if data_source_id provided)")
+    parser = argparse.ArgumentParser(
+        description="Run PDF pipeline: upload → ingest → enrich → save → embed."
+    )
+    parser.add_argument(
+        "--file-path", help="Local file path to upload (optional if data_source_id provided)"
+    )
     parser.add_argument("--data-source-id", help="Existing data_source_id to ingest (UUID)")
     parser.add_argument("--created-by", help="UUID of user (required when uploading)")
-    parser.add_argument("--source-type", default="FILE", choices=[t.name for t in UploadSourceType], help="Upload source type")
+    parser.add_argument(
+        "--source-type",
+        default="FILE",
+        choices=[t.name for t in UploadSourceType],
+        help="Upload source type",
+    )
     parser.add_argument("--embed-model", default=None, help="Optional embedding model override")
-    parser.add_argument("--embed-batch-size", type=int, default=10, help="Batch size for embedding")
+    parser.add_argument(
+        "--embed-batch-size", type=int, default=10, help="Batch size for embedding"
+    )
     return parser.parse_args()
 
 

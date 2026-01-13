@@ -41,35 +41,37 @@ CODE_TO_LEVEL = {
 
 def get_code_type(code: str | None) -> str:
     """Determine code type: 'roman', 'number', 'letter', or 'none'.
-    
+
     Args:
         code: The extracted code string
-        
+
     Returns:
         One of: CODE_TYPE_ROMAN, CODE_TYPE_NUMBER, CODE_TYPE_LETTER, CODE_TYPE_NONE
     """
     if not code:
         return CODE_TYPE_NONE
-    
+
     code = code.strip()
-    
+
     # Check for compound codes like "Bài 1", "Chương I" - extract the actual identifier
-    compound_match = re.match(r'^(?:Bài|BÀI|Chương|CHƯƠNG|Part|Section|Mục)\s+(.+)$', code, re.IGNORECASE)
+    compound_match = re.match(
+        r"^(?:Bài|BÀI|Chương|CHƯƠNG|Part|Section|Mục)\s+(.+)$", code, re.IGNORECASE
+    )
     if compound_match:
         code = compound_match.group(1).strip()
-    
+
     # Roman numerals (I, II, III, IV, V, VI, VII, VIII, IX, X, etc.)
-    if re.match(r'^[IVXLCDM]+$', code.upper()):
+    if re.match(r"^[IVXLCDM]+$", code.upper()):
         return CODE_TYPE_ROMAN
-    
+
     # Numbers (1, 2, 3, 4, 5...)
-    if re.match(r'^\d+$', code):
+    if re.match(r"^\d+$", code):
         return CODE_TYPE_NUMBER
-    
+
     # Letters (a, b, c, d...) - single letter only
-    if re.match(r'^[a-zA-Z]$', code):
+    if re.match(r"^[a-zA-Z]$", code):
         return CODE_TYPE_LETTER
-    
+
     return CODE_TYPE_NONE
 
 
@@ -86,11 +88,7 @@ class MarkdownToJSONConverter:
         Args:
             enable_sentence_splitting: Split paragraphs into sentences (each sentence = 1 paragraph) (default: True)
         """
-        self._splitter = (
-            SemanticParagraphSplitter()
-            if enable_sentence_splitting
-            else None
-        )
+        self._splitter = SemanticParagraphSplitter() if enable_sentence_splitting else None
 
     def convert_to_section(
         self,
@@ -102,11 +100,11 @@ class MarkdownToJSONConverter:
         metadata: dict[str, Any] | None = None,
     ) -> StructureNode:
         """Convert markdown to Section with hierarchical structure.
-        
+
         Uses two-pass algorithm:
         - Pass 1: Discover heading-to-level mapping based on code patterns
         - Pass 2: Build tree with semantic levels
-        
+
         If markdown has no headings, uses synthetic structure generation.
         """
         lines = markdown.split("\n")
@@ -162,8 +160,7 @@ class MarkdownToJSONConverter:
                 # Extract code from header text or previous lines
                 previous_lines = processed_lines[-3:] if len(processed_lines) > 0 else []
                 extracted_code = extract_code_from_context(
-                    current_text=header_text,
-                    previous_items=previous_lines
+                    current_text=header_text, previous_items=previous_lines
                 )
 
                 # Determine semantic level based on code or heading mapping
@@ -182,11 +179,11 @@ class MarkdownToJSONConverter:
                 final_title = header_text
                 if extracted_code:
                     final_title = clean_title_from_code(header_text, extracted_code)
-                
+
                 attrs = StructureAttributes(title=final_title)
                 if extracted_code and not attrs.code:
                     attrs.code = extracted_code
-                
+
                 new_section = self._create_section_with_attrs(final_title, semantic_level, attrs)
 
                 # Add to parent or root
@@ -198,7 +195,7 @@ class MarkdownToJSONConverter:
 
                 # Push new section with its semantic level
                 section_stack.append((semantic_level, new_section))
-                
+
                 # Track processed line
                 processed_lines.append(line)
             else:
@@ -244,7 +241,7 @@ class MarkdownToJSONConverter:
         metadata: dict[str, Any],
     ) -> StructureNode:
         """Build tree from flat content without headings.
-        
+
         Uses synthetic structure based on:
         - Bold text (**text**) as potential section titles
         - List item groups as sections
@@ -253,7 +250,7 @@ class MarkdownToJSONConverter:
         root_children: list[StructureNode | ParagraphNode] = []
         current_section: StructureNode | None = None
         current_paragraph_lines: list[str] = []
-        
+
         def flush_paragraph():
             nonlocal current_paragraph_lines
             if current_paragraph_lines:
@@ -265,22 +262,22 @@ class MarkdownToJSONConverter:
                     else:
                         root_children.extend(paragraphs)
                 current_paragraph_lines = []
-        
+
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            
+
             # Check for bold text that could be a section title
             bold_match = re.match(r"^\*\*(.+?)\*\*\s*:?\s*(.*)$", line)
             if bold_match:
                 bold_text = bold_match.group(1).strip()
                 rest = bold_match.group(2).strip()
-                
+
                 # If bold text is substantial and at start, treat as section
                 if len(bold_text) >= 3 and len(bold_text) <= 100:
                     flush_paragraph()
-                    
+
                     # Create new section
                     current_section = StructureNode(
                         node_type="structure",
@@ -290,34 +287,34 @@ class MarkdownToJSONConverter:
                         children=[],
                     )
                     root_children.append(current_section)
-                    
+
                     # Add rest as paragraph if exists
                     if rest:
                         current_paragraph_lines.append(rest)
                     continue
-            
+
             # Check if line is a list item
             list_match = re.match(r"^[\*\-\+]\s+(.+)$", line)
             numbered_match = re.match(r"^\d+[\.\)]\s+(.+)$", line)
-            
+
             if list_match or numbered_match:
                 # Add to current paragraph (list items)
                 current_paragraph_lines.append(line)
             else:
                 # Regular content
                 current_paragraph_lines.append(line)
-                
+
                 # Chunk if paragraph is getting long
                 if len("\n".join(current_paragraph_lines)) > 1000:
                     flush_paragraph()
-        
+
         # Flush remaining content
         flush_paragraph()
-        
+
         # If no sections were created, chunk content semantically
         if not any(isinstance(child, StructureNode) for child in root_children):
             root_children = self._chunk_flat_content(root_children)
-        
+
         # Create root section
         root_metadata = StructureMetadata(
             url=url,
@@ -339,11 +336,11 @@ class MarkdownToJSONConverter:
         """Chunk flat paragraphs into semantic groups."""
         if len(children) <= 5:
             return children
-        
+
         # Group paragraphs into chunks of ~5 items
         chunks: list[list[ParagraphNode]] = []
         current_chunk: list[ParagraphNode] = []
-        
+
         for child in children:
             if isinstance(child, ParagraphNode):
                 current_chunk.append(child)
@@ -356,14 +353,14 @@ class MarkdownToJSONConverter:
                     chunks.append(current_chunk)
                     current_chunk = []
                 chunks.append([child])  # type: ignore
-        
+
         if current_chunk:
             chunks.append(current_chunk)
-        
+
         # Convert chunks to sections if we have multiple
         if len(chunks) <= 1:
             return children
-        
+
         result: list[StructureNode | ParagraphNode] = []
         for i, chunk in enumerate(chunks):
             if len(chunk) == 1 and isinstance(chunk[0], StructureNode):
@@ -377,46 +374,46 @@ class MarkdownToJSONConverter:
                     children=list(chunk),
                 )
                 result.append(section)
-        
+
         return result
 
     def _discover_heading_level_mapping(self, lines: list[str]) -> dict[int, int]:
         """Pass 1: Discover heading-to-semantic-level mapping based on codes.
-        
+
         Scans all headers to find which markdown heading levels contain which code types,
         then builds a mapping from markdown level to semantic level.
-        
+
         Returns:
             dict mapping markdown_level (1-6) to semantic_level (2-7)
         """
         heading_codes: dict[int, set[str]] = {}  # {markdown_level: set(code_types)}
-        
+
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-                
+
             header_match = re.match(r"^(#{1,6})\s+(.+)$", line)
             if header_match:
                 md_level = len(header_match.group(1))
                 header_text = self._clean_text(header_match.group(2))
                 if not header_text:
                     continue
-                    
+
                 # Extract code from header text
                 extracted_code = extract_code_from_context(current_text=header_text)
                 code_type = get_code_type(extracted_code)
-                
+
                 if md_level not in heading_codes:
                     heading_codes[md_level] = set()
                 heading_codes[md_level].add(code_type)
-        
+
         # Build semantic level mapping
         return self._build_semantic_level_map(heading_codes)
 
     def _build_semantic_level_map(self, heading_codes: dict[int, set[str]]) -> dict[int, int]:
         """Build mapping from markdown level to semantic level.
-        
+
         Uses code types as anchors:
         - Roman numerals (I, II, III) -> Level 4
         - Numbers (1, 2, 3) -> Level 5
@@ -428,7 +425,7 @@ class MarkdownToJSONConverter:
         roman_level: int | None = None
         number_level: int | None = None
         letter_level: int | None = None
-        
+
         for md_level in sorted(heading_codes.keys()):
             code_types = heading_codes[md_level]
             if CODE_TYPE_ROMAN in code_types and roman_level is None:
@@ -437,7 +434,7 @@ class MarkdownToJSONConverter:
                 number_level = md_level
             if CODE_TYPE_LETTER in code_types and letter_level is None:
                 letter_level = md_level
-        
+
         # Build mapping
         mapping: dict[int, int] = {}
         for md_level in heading_codes.keys():
@@ -454,7 +451,7 @@ class MarkdownToJSONConverter:
             else:
                 # No code or after letter level
                 mapping[md_level] = 7
-        
+
         return mapping
 
     def _adjust_section_stack_by_level(
@@ -496,7 +493,9 @@ class MarkdownToJSONConverter:
 
         return None
 
-    def _create_section_with_attrs(self, title: str, level: int, attrs: StructureAttributes) -> StructureNode:
+    def _create_section_with_attrs(
+        self, title: str, level: int, attrs: StructureAttributes
+    ) -> StructureNode:
         """Create a new Section with provided attributes."""
         actual_level = min(level, 10)  # Cap at 10
 
@@ -527,7 +526,7 @@ class MarkdownToJSONConverter:
                 return [
                     ParagraphNode(
                         attributes=ParagraphAttributes(text=sentence),
-                        metadata=ParagraphMetadata(page=page)
+                        metadata=ParagraphMetadata(page=page),
                     )
                     for sentence in cleaned_sentences
                 ]
@@ -536,15 +535,14 @@ class MarkdownToJSONConverter:
                 return [
                     ParagraphNode(
                         attributes=ParagraphAttributes(text=cleaned_sentences[0]),
-                        metadata=ParagraphMetadata(page=page)
+                        metadata=ParagraphMetadata(page=page),
                     )
                 ]
 
         # Return single paragraph (if splitting disabled)
         return [
             ParagraphNode(
-                attributes=ParagraphAttributes(text=text),
-                metadata=ParagraphMetadata(page=page)
+                attributes=ParagraphAttributes(text=text), metadata=ParagraphMetadata(page=page)
             )
         ]
 
@@ -570,10 +568,7 @@ class MarkdownToJSONConverter:
         target = section_stack[-1][1].children if section_stack else root_children
         target.extend(paragraphs)
 
-
-    def replace_image_urls(
-        self, markdown: str, image_mappings: dict[str, str]
-    ) -> str:
+    def replace_image_urls(self, markdown: str, image_mappings: dict[str, str]) -> str:
         """Replace image URLs in markdown with MinIO object paths or extracted text."""
         result = markdown
         for original_url, replacement in image_mappings.items():
@@ -623,12 +618,12 @@ class MarkdownToJSONConverter:
             cleaned_lines.append(line)
 
         cleaned_text = "\n".join(cleaned_lines).strip()
-        
+
         # Remove markdown formatting (*, _, `) from headings/titles only if they wrap the whole line
         # But here we want to be safe, so let's just remove bold/italic markers if they look like artifacts
         # E.g. "**Title**" -> "Title"
-        cleaned_text = re.sub(r'^\*\*(.+?)\*\*$', r'\1', cleaned_text)
-        cleaned_text = re.sub(r'^\*(.+?)\*$', r'\1', cleaned_text)
-        cleaned_text = re.sub(r'^__(.+?)__$', r'\1', cleaned_text)
-        
+        cleaned_text = re.sub(r"^\*\*(.+?)\*\*$", r"\1", cleaned_text)
+        cleaned_text = re.sub(r"^\*(.+?)\*$", r"\1", cleaned_text)
+        cleaned_text = re.sub(r"^__(.+?)__$", r"\1", cleaned_text)
+
         return cleaned_text

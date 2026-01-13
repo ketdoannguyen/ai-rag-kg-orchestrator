@@ -43,4 +43,3 @@ class FileIngestionResult(BaseModel):
         None,
         description="Thông báo lỗi nếu status=FAILED",
     )
-

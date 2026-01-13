@@ -177,9 +177,7 @@ class FileIngestionWorkflow:
             )
 
             # Bước 4: Parse File - Phân tích nội dung (Marker)
-            marker_result = await asyncio.to_thread(
-                self._marker_client.convert_pdf, local_path
-            )
+            marker_result = await asyncio.to_thread(self._marker_client.convert_pdf, local_path)
             payload_dict: dict[str, Any] = marker_result.get("payload", {})
             raw_json = payload_dict.get("json")
             if raw_json is None:

@@ -17,5 +17,3 @@ def embed_batch_task(texts: list[str]) -> list[list[float]]:
         return response.embeddings
 
     return asyncio.run(_embed_many())
-
-

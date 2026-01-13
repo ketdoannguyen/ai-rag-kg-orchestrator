@@ -21,7 +21,9 @@ class ModelRegistry:
         self._default_key = next(iter(self._models), None)
 
         if not self._models:
-            logger.warning("Model registry for {type} initialized without entries.", type=model_type)
+            logger.warning(
+                "Model registry for {type} initialized without entries.", type=model_type
+            )
 
     @property
     def default_key(self) -> str | None:
@@ -65,4 +67,3 @@ class ModelRegistry:
                     f"Unsupported model configuration for key '{key}': {type(value)}"
                 )
         return normalized
-

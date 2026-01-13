@@ -151,7 +151,7 @@ class FileUploadWorkflow:
 
         # ArangoClient uses sync operations - create handler
         handler = SystemAdminHandler(self._arango_client.db)
-        
+
         existing = handler.sources.get_by_hash(file_hash)
         if existing:
             self._log.warning(
@@ -218,7 +218,11 @@ class FileUploadWorkflow:
         if size_bytes > MAX_FILE_SIZE_BYTES:
             raise FileValidationError("File exceeds 100MB limit")
 
-        mime_type = payload.content_type or mimetypes.guess_type(normalized)[0] or "application/octet-stream"
+        mime_type = (
+            payload.content_type
+            or mimetypes.guess_type(normalized)[0]
+            or "application/octet-stream"
+        )
         self._enforce_signature(extension, payload.file)
 
         self._log.info(
@@ -285,7 +289,9 @@ class FileUploadWorkflow:
                 metadata=metadata,
             )
             await self._storage.stat_object(self._bucket, object_name)
-            self._log.info("Uploaded object to MinIO", bucket=self._bucket, object_name=object_name)
+            self._log.info(
+                "Uploaded object to MinIO", bucket=self._bucket, object_name=object_name
+            )
             return StoredObject(object_name=object_name, file_id=file_id)
         except Exception as exc:  # pragma: no cover - relies on MinIO failures
             self._log.error("Failed to upload file to MinIO", error=str(exc))
@@ -326,7 +332,9 @@ class FileUploadWorkflow:
             created_by=payload.created_by,
         )
 
-    async def _build_minio_info(self, *, bucket: str, object_name: str, hash_content: str) -> MinioInfo:
+    async def _build_minio_info(
+        self, *, bucket: str, object_name: str, hash_content: str
+    ) -> MinioInfo:
         presigned_url, expires_at = await self._try_presign(bucket, object_name)
         return MinioInfo(
             bucket=bucket,
@@ -337,14 +345,20 @@ class FileUploadWorkflow:
             expires_at=expires_at,
         )
 
-    async def _build_minio_info_from_config(self, config: dict[str, Any], hash_content: str) -> MinioInfo:
+    async def _build_minio_info_from_config(
+        self, config: dict[str, Any], hash_content: str
+    ) -> MinioInfo:
         bucket = config.get("minio_bucket") or self._bucket
         path = config.get("minio_path")
         if not path:
             raise DatabaseError("Existing data source is missing MinIO path information")
-        return await self._build_minio_info(bucket=bucket, object_name=path, hash_content=hash_content)
+        return await self._build_minio_info(
+            bucket=bucket, object_name=path, hash_content=hash_content
+        )
 
-    async def _try_presign(self, bucket: str, object_name: str) -> tuple[str | None, datetime | None]:
+    async def _try_presign(
+        self, bucket: str, object_name: str
+    ) -> tuple[str | None, datetime | None]:
         try:
             url = await self._storage.generate_presigned_url(
                 bucket_name=bucket,

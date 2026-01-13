@@ -50,4 +50,3 @@ def extract_json_from_response(content: str) -> str:
     elif "```" in content:
         return content.split("```")[1].split("```")[0].strip()
     return content.strip()
-

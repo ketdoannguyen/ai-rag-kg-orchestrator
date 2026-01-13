@@ -1,5 +1,6 @@
 """Simple async pipeline for web ingestion → enrich → save → embed.
-python -m scripts.run_web_pipeline  --urls  https://tuyensinh.vku.udn.vn/cntt-ks https://tuyensinh.vku.udn.vn/pt-tuyenthang --created-by 550e8400-e29b-41d4-a716-446655440000 """
+python -m scripts.run_web_pipeline  --urls  https://tuyensinh.vku.udn.vn/cntt-ks https://tuyensinh.vku.udn.vn/pt-tuyenthang --created-by 550e8400-e29b-41d4-a716-446655440000"""
+
 from __future__ import annotations
 
 import argparse
@@ -32,7 +33,10 @@ from workflows.embed_nodes import EmbedNodesInput, start_embed_nodes
 from workflows.embed_nodes.helper import extract_text_for_embedding
 from workflows.ingest_web import start_ingest_web
 from workflows.save_knowledge_to_arango import SaveKnowledgeInput, start_save_knowledge_to_arango
-from workflows.save_embeddings_to_arango import SaveEmbeddingsInput, start_save_embeddings_to_arango
+from workflows.save_embeddings_to_arango import (
+    SaveEmbeddingsInput,
+    start_save_embeddings_to_arango,
+)
 
 
 llm_client = init_llm_client()
@@ -51,12 +55,12 @@ async def _process_single_result(
     status = result.get("status")
     root_node_dict = result.get("root_node")
     data_source = result.get("data_source")
-    
+
     if status != "success" or not root_node_dict or not data_source:
         return {"status": status, "error": result.get("error_message")}
 
     data_source_id = UUID(data_source["id"]) if isinstance(data_source, dict) else data_source.id
-    
+
     # Parse root_node from dict
     root_node = parse_node_from_dict(root_node_dict)
 
@@ -80,14 +84,18 @@ async def _process_single_result(
         ),
         arango_client=arango_client,
     )
-    
+
     # Handle save result
     if isinstance(save_result, Exception):
         logger.error("Failed to save knowledge to ArangoDB", error=str(save_result))
         save_result = {"total_nodes_saved": 0, "partial_success": True}
     elif not isinstance(save_result, dict):
-        save_result = save_result.model_dump(mode="json") if hasattr(save_result, "model_dump") else save_result.dict()
-    
+        save_result = (
+            save_result.model_dump(mode="json")
+            if hasattr(save_result, "model_dump")
+            else save_result.dict()
+        )
+
     logger.info(
         "Knowledge saved to ArangoDB",
         total_nodes=save_result.get("total_nodes_saved", 0),
@@ -96,7 +104,7 @@ async def _process_single_result(
     # Query nodes from database using ArangoDB handler
     handler = KnowledgeNodeHandler(arango_client.db)
     saved_nodes = handler.get_by_source(data_source_id)
-    
+
     # Filter embeddable nodes
     embeddable_nodes = [
         node for node in saved_nodes if extract_text_for_embedding(node) is not None
@@ -166,7 +174,11 @@ async def run_pipeline(
         ingest_input["max_concurrent_urls"] = max_concurrent_urls
 
     ingest_result = await start_ingest_web(ingest_input, arango_client=arango_client)
-    results = ingest_result.get("results", []) if isinstance(ingest_result, dict) else ingest_result.results
+    results = (
+        ingest_result.get("results", [])
+        if isinstance(ingest_result, dict)
+        else ingest_result.results
+    )
 
     async def process_with_error_handling(res: dict[str, Any] | Any) -> dict[str, Any]:
         """Process a single result with error handling."""
@@ -188,12 +200,18 @@ async def run_pipeline(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run web pipeline: ingest → enrich → save → embed.")
+    parser = argparse.ArgumentParser(
+        description="Run web pipeline: ingest → enrich → save → embed."
+    )
     parser.add_argument("--urls", nargs="+", required=True, help="List of URLs to ingest")
     parser.add_argument("--created-by", required=True, help="UUID of user who initiates ingestion")
     parser.add_argument("--embed-model", default=None, help="Optional embedding model override")
-    parser.add_argument("--embed-batch-size", type=int, default=10, help="Batch size for embedding")
-    parser.add_argument("--max-concurrent-urls", type=int, default=None, help="Override max concurrent URLs")
+    parser.add_argument(
+        "--embed-batch-size", type=int, default=10, help="Batch size for embedding"
+    )
+    parser.add_argument(
+        "--max-concurrent-urls", type=int, default=None, help="Override max concurrent URLs"
+    )
     return parser.parse_args()
 
 

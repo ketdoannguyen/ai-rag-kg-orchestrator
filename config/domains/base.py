@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 class MetadataField(BaseModel):
     """Single metadata field definition - shared between Router & Enricher."""
-    
+
     name: str = Field(..., description="Field name, e.g. 'major_name', 'year'")
     type: str = Field(
         default="string",
@@ -39,51 +39,77 @@ class MetadataField(BaseModel):
         default=False,
         description="Whether this field is required in extraction",
     )
-    
+
     def normalize_value(self, value: Any) -> Any:
-        """Normalize value using aliases if available."""
+        """Normalize value using aliases if available.
+
+        For list type: normalize each element in the list.
+        For single values: normalize directly.
+        """
         if value is None:
             return None
-        
-        # Check aliases first
+
+        # Handle list type
+        if isinstance(value, list):
+            normalized_list = []
+            for v in value:
+                if isinstance(v, str):
+                    normalized = self.aliases.get(v.upper()) or self.aliases.get(v) or v
+                else:
+                    normalized = v
+                normalized_list.append(normalized)
+            return normalized_list
+
+        # Handle single value (legacy support)
         if isinstance(value, str):
             normalized = self.aliases.get(value.upper()) or self.aliases.get(value)
             if normalized:
-                return normalized
-        
-        return value
-    
+                return [normalized]  # Convert to list for consistency
+            return [value]  # Single value as list
+
+        return [value]  # Wrap in list for consistency
+
     def validate_value(self, value: Any) -> bool:
-        """Check if value is in allowed_values (if defined)."""
+        """Check if value(s) are in allowed_values (if defined).
+
+        For list type: validates each element in the list.
+        Returns True only if ALL elements are valid.
+        """
         if value is None:
             return True
         if not self.allowed_values:
             return True
+
+        # Handle list type
+        if isinstance(value, list):
+            return all(v in self.allowed_values for v in value)
+
+        # Handle single value (legacy support)
         return value in self.allowed_values
 
 
 class DomainSchema(BaseModel):
     """Complete domain configuration for metadata extraction."""
-    
+
     name: str = Field(..., description="Domain identifier, e.g. 'education'")
     display_name: str = Field(..., description="Human-readable name, e.g. 'Tuyển sinh Đại học'")
     metadata_fields: List[MetadataField] = Field(
         default_factory=list,
         description="List of metadata fields for this domain",
     )
-    
+
     def get_field(self, name: str) -> Optional[MetadataField]:
         """Get a metadata field by name."""
         for f in self.metadata_fields:
             if f.name == name:
                 return f
         return None
-    
+
     def to_extraction_prompt_section(self) -> str:
         """Build prompt section for content metadata extraction."""
         if not self.metadata_fields:
             return "(Không có metadata fields)"
-        
+
         lines = ["Trích xuất các metadata sau từ nội dung:"]
         for f in self.metadata_fields:
             line = f'- "{f.name}": {f.description}'
@@ -95,14 +121,14 @@ class DomainSchema(BaseModel):
                     values += f" ... (+{len(f.allowed_values) - 5})"
                 line += f"\n  CHỈ ĐƯỢC DÙNG: [{values}]"
             if f.aliases:
-                alias_str = ", ".join(f'{k}→{v}' for k, v in list(f.aliases.items())[:3])
+                alias_str = ", ".join(f"{k}→{v}" for k, v in list(f.aliases.items())[:3])
                 line += f"\n  Aliases: {alias_str}"
             if f.extraction_hints:
                 line += f"\n  Hints: {', '.join(f.extraction_hints[:3])}"
             lines.append(line)
-        
+
         return "\n".join(lines)
-    
+
     def normalize_metadata(self, raw: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize extracted metadata using aliases."""
         result = {}
@@ -113,10 +139,10 @@ class DomainSchema(BaseModel):
             else:
                 result[key] = value
         return result
-    
+
     def validate_metadata(self, data: Dict[str, Any]) -> Dict[str, List[str]]:
         """Validate metadata against allowed_values.
-        
+
         Returns dict of field_name -> list of validation errors.
         """
         errors: Dict[str, List[str]] = {}

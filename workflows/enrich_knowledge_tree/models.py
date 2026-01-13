@@ -108,5 +108,3 @@ class EnrichKnowledgeTreeOutput(BaseModel):
         ...,
         description="Compact summary of structural/content changes.",
     )
-
-

@@ -161,7 +161,9 @@ class StorageClient:
         return url
 
     async def delete_object(self, bucket_name: str, object_name: str) -> None:
-        await self._run(self._client.remove_object, bucket_name=bucket_name, object_name=object_name)
+        await self._run(
+            self._client.remove_object, bucket_name=bucket_name, object_name=object_name
+        )
         self._log.info("Deleted object '{}' from bucket '{}'", object_name, bucket_name)
 
     async def delete_objects(self, bucket_name: str, object_names: Sequence[str]) -> list[str]:
@@ -222,4 +224,3 @@ class StorageClient:
         exists = await self._run(self._client.bucket_exists, bucket_name)
         self._log.debug("Bucket '{}' exists: {}", bucket_name, exists)
         return exists
-

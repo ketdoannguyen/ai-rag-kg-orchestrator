@@ -62,17 +62,19 @@ FOR v, e IN 1..1 OUTBOUND @start_vertex GRAPH @graph_name
   RETURN v
 """
 
-# Get all descendants of a node (deep traversal)
+# Get all descendants of a node (deep traversal) - ordered by level
 GET_DESCENDANTS = """
-FOR v, e IN 1..@max_depth OUTBOUND @start_vertex GRAPH @graph_name
+FOR v, e, p IN 1..@max_depth OUTBOUND @start_vertex GRAPH @graph_name
   FILTER e.type IN @edge_types
+  SORT LENGTH(p) ASC, v.created_at ASC
   RETURN DISTINCT v
 """
 
 # Get ancestors of a node (upward traversal)
 GET_ANCESTORS = """
-FOR v, e IN 1..@max_depth INBOUND @start_vertex GRAPH @graph_name
+FOR v, e, p IN 1..@max_depth INBOUND @start_vertex GRAPH @graph_name
   FILTER e.type IN @edge_types
+  SORT LENGTH(p) ASC
   RETURN DISTINCT v
 """
 
@@ -252,4 +254,117 @@ RETURN {
   ancestors: ancestors,
   siblings: siblings
 }
+"""
+
+
+# =============================================================================
+# Sibling Navigation Queries (for context window expansion)
+# =============================================================================
+
+# Get siblings of a node (nodes with same parent)
+GET_SIBLINGS = """
+FOR parent, e IN 1..1 INBOUND @start_vertex GRAPH @graph_name
+  FILTER e.type IN ["HAS_SECTION", "HAS_CONTENT"]
+  FOR sibling, se IN 1..1 OUTBOUND parent GRAPH @graph_name
+    FILTER se.type IN ["HAS_SECTION", "HAS_CONTENT"]
+    FILTER sibling._id != @start_vertex
+    SORT sibling.created_at ASC
+    RETURN sibling
+"""
+
+# Get next sibling via NEXT_SIBLING relationship
+GET_NEXT_SIBLING = """
+FOR v, e IN 1..1 OUTBOUND @start_vertex GRAPH @graph_name
+  FILTER e.type == "NEXT_SIBLING"
+  LIMIT 1
+  RETURN v
+"""
+
+# Get previous sibling via NEXT_SIBLING relationship (reverse)
+GET_PREV_SIBLING = """
+FOR v, e IN 1..1 INBOUND @start_vertex GRAPH @graph_name
+  FILTER e.type == "NEXT_SIBLING"
+  LIMIT 1
+  RETURN v
+"""
+
+# Get sibling chain (ordered sequence of siblings)
+GET_SIBLING_CHAIN = """
+FOR parent, e IN 1..1 INBOUND @start_vertex GRAPH @graph_name
+  FILTER e.type IN ["HAS_SECTION", "HAS_CONTENT"]
+  FOR sibling, se IN 1..1 OUTBOUND parent GRAPH @graph_name
+    FILTER se.type IN ["HAS_SECTION", "HAS_CONTENT"]
+    LET order_idx = (
+      FOR v, ne, p IN 0..100 INBOUND sibling GRAPH @graph_name
+        FILTER ne.type == "NEXT_SIBLING" OR ne == null
+        RETURN LENGTH(p)
+    )[0]
+    SORT order_idx ASC
+    RETURN sibling
+"""
+
+
+# =============================================================================
+# Level-Based Queries (for structure navigation)
+# =============================================================================
+
+# Get all nodes at a specific level within a source
+GET_NODES_AT_LEVEL = """
+FOR doc IN @@view
+  SEARCH ANALYZER(true, "identity")
+  FILTER doc.level == @level
+  FILTER doc.source_id == @source_id
+  SORT doc.created_at ASC
+  LIMIT @limit
+  RETURN doc
+"""
+
+# Get all structure nodes at a level (chapters, sections, etc.)
+GET_STRUCTURE_AT_LEVEL = """
+FOR doc IN @@view
+  SEARCH ANALYZER(true, "identity")
+  FILTER doc.level == @level
+  FILTER doc.node_type == "structure"
+  FILTER doc.source_id == @source_id
+  SORT doc.created_at ASC
+  RETURN doc
+"""
+
+
+# =============================================================================
+# Optimized Full-Text Search (using PHRASE instead of LIKE)
+# =============================================================================
+
+# Full-text search using ArangoSearch PHRASE for better performance
+FULLTEXT_SEARCH_OPTIMIZED = """
+FOR doc IN @@view
+  SEARCH ANALYZER(
+    PHRASE(doc.attributes.text, @search_term, "text_en") OR
+    PHRASE(doc.attributes.title, @search_term, "text_en") OR
+    PHRASE(doc.text, @search_term, "text_en") OR
+    PHRASE(doc.summary, @search_term, "text_en"),
+    "text_en"
+  )
+  {source_filter}
+  LET score = BM25(doc)
+  SORT score DESC
+  LIMIT @limit
+  RETURN {doc: doc, score: score}
+"""
+
+# Multi-field full-text search with boost scoring
+FULLTEXT_SEARCH_BOOSTED = """
+FOR doc IN @@view
+  SEARCH ANALYZER(
+    BOOST(PHRASE(doc.attributes.title, @search_term, "text_en"), 2.0) OR
+    BOOST(PHRASE(doc.summary, @search_term, "text_en"), 1.5) OR
+    PHRASE(doc.attributes.text, @search_term, "text_en") OR
+    PHRASE(doc.text, @search_term, "text_en"),
+    "text_en"
+  )
+  {source_filter}
+  LET score = BM25(doc)
+  SORT score DESC
+  LIMIT @limit
+  RETURN {doc: doc, score: score}
 """

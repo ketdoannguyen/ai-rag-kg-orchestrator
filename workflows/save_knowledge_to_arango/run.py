@@ -44,7 +44,7 @@ async def start_save_knowledge_to_arango(
 
     workflow = SaveKnowledgeToArangoWorkflow(arango_client=client)
     result = await workflow.run(input_payload)
-    
+
     if hasattr(result, "model_dump"):
         return result.model_dump(mode="json")
     return result.dict()
@@ -60,7 +60,7 @@ class SaveKnowledgeToArangoWorkflow:
     ) -> None:
         """
         Initialize workflow.
-        
+
         Args:
             arango_client: ArangoDB client instance
         """
@@ -112,9 +112,7 @@ class SaveKnowledgeToArangoWorkflow:
         # Calculate statistics
         structure_count = sum(1 for n in saved_nodes if self._get_node_type_str(n) == "structure")
         detail_count = sum(
-            1
-            for n in saved_nodes
-            if self._get_node_type_str(n) in ("paragraph", "image", "table")
+            1 for n in saved_nodes if self._get_node_type_str(n) in ("paragraph", "image", "table")
         )
 
         partial_success = len(failed_nodes) > 0
@@ -153,14 +151,14 @@ class SaveKnowledgeToArangoWorkflow:
     def _set_source_id(self, node: KnowledgeNode, source_id: uuid.UUID) -> None:
         """Recursively set source_id for all nodes in the tree."""
         node.source_id = source_id
-        if hasattr(node, 'children') and node.children:
+        if hasattr(node, "children") and node.children:
             for child in node.children:
                 self._set_source_id(child, source_id)
 
     def _get_node_type_str(self, node: KnowledgeNode) -> str:
         """Get node_type as string."""
         node_type = node.node_type
-        if hasattr(node_type, 'value'):
+        if hasattr(node_type, "value"):
             return node_type.value
         return str(node_type).lower()
 
@@ -202,7 +200,11 @@ class SaveKnowledgeToArangoWorkflow:
                     handler.create_has_content_relationship(parent_id, node.id)
                     relationships_stats["HAS_CONTENT"] += 1
             except Exception as exc:
-                rel_type = "HAS_SECTION" if self._get_node_type_str(node) == "structure" else "HAS_CONTENT"
+                rel_type = (
+                    "HAS_SECTION"
+                    if self._get_node_type_str(node) == "structure"
+                    else "HAS_CONTENT"
+                )
                 self._log.warning(
                     f"Failed to create {rel_type} relationship",
                     parent_id=str(parent_id),
@@ -220,13 +222,13 @@ class SaveKnowledgeToArangoWorkflow:
         for i in range(len(children) - 1):
             sibling1 = children[i]
             sibling2 = children[i + 1]
-            
+
             type1 = self._get_node_type_str(sibling1)
             type2 = self._get_node_type_str(sibling2)
-            
+
             is_detail1 = type1 in ("paragraph", "image", "table")
             is_detail2 = type2 in ("paragraph", "image", "table")
-            
+
             if is_detail1 and is_detail2 and type1 == type2:
                 try:
                     handler.create_next_sibling_relationship(sibling1.id, sibling2.id)
@@ -257,9 +259,12 @@ class SaveKnowledgeToArangoWorkflow:
         try:
             saved_node = await self._save_node_with_retry(node, handler)
             saved_nodes.append(saved_node)
-            self._log.debug("Node saved", node_id=str(node.id), node_type=self._get_node_type_str(node))
+            self._log.debug(
+                "Node saved", node_id=str(node.id), node_type=self._get_node_type_str(node)
+            )
         except Exception as exc:
             import traceback
+
             error_msg = str(exc)
             error_info = {
                 "node_id": str(node.id),
@@ -285,7 +290,7 @@ class SaveKnowledgeToArangoWorkflow:
         )
 
         # Save children recursively
-        if hasattr(node, 'children') and node.children:
+        if hasattr(node, "children") and node.children:
             for child in node.children:
                 await self._save_node_recursive(
                     node=child,

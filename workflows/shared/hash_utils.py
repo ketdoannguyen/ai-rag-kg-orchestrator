@@ -13,4 +13,3 @@ def calculate_md5(data: bytes) -> str:
 
 
 __all__ = ["calculate_md5"]
-

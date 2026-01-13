@@ -11,5 +11,3 @@ def chat_query(
     workflow=Depends(get_chat_workflow),
 ) -> dict:
     return workflow(query)
-
-

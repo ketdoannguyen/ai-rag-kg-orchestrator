@@ -54,7 +54,7 @@ class TextbookParser:
         self.root = StructureNode(
             node_type="structure",
             level=1,
-            attributes=StructureAttributes(title="SGK Vật Lý 12 - Kết nối tri thức"),
+            attributes=StructureAttributes(title="VKU tuyển sinh"),
             metadata=StructureMetadata(start_page=0),
         )
 
@@ -80,9 +80,7 @@ class TextbookParser:
     def _get_bbox(self, block: Dict[str, Any]) -> List[int]:
         return block.get("bbox", [])
 
-    async def _extract_and_upload_image(
-        self, base64_data: str, image_id: str
-    ) -> Optional[str]:
+    async def _extract_and_upload_image(self, base64_data: str, image_id: str) -> Optional[str]:
         """Extracts base64 image, saves locally, uploads to MinIO, returns MinIO path."""
         if not base64_data:
             return None
@@ -129,14 +127,8 @@ class TextbookParser:
         clean_text = self._clean_html(raw_html)
 
         # Chapter -> Level 2
-        if (
-            block_type == "SectionHeader"
-            and "<h1>" in raw_html
-            and "CHƯƠNG" in clean_text.upper()
-        ):
-            match = re.match(
-                r"^(CHƯƠNG\s+[IVXLCDM]+)\s*(.*)", clean_text.upper(), re.DOTALL
-            )
+        if block_type == "SectionHeader" and "<h1>" in raw_html and "CHƯƠNG" in clean_text.upper():
+            match = re.match(r"^(CHƯƠNG\s+[IVXLCDM]+)\s*(.*)", clean_text.upper(), re.DOTALL)
             number = match.group(1).strip() if match else "Chương"
             title = match.group(2).strip() if match else clean_text
 
@@ -160,10 +152,7 @@ class TextbookParser:
                 title_block = next_blocks[1]
                 num_str = self._clean_html(num_block.get("html", ""))
 
-                if (
-                    num_block.get("block_type") == "PageHeader"
-                    and num_str.isdigit()
-                ):
+                if num_block.get("block_type") == "PageHeader" and num_str.isdigit():
                     title = self._clean_html(title_block.get("html", ""))
                     title = re.sub(r"\s+", " ", title)
                     return {
@@ -242,8 +231,7 @@ class TextbookParser:
 
                     # Pop until we find a parent with smaller level
                     while (
-                        self.parent_stack
-                        and getattr(self.parent_stack[-1], "level", 1) >= level
+                        self.parent_stack and getattr(self.parent_stack[-1], "level", 1) >= level
                     ):
                         self.parent_stack.pop()
 
@@ -255,8 +243,7 @@ class TextbookParser:
                         node_type="structure",
                         level=level,
                         attributes=StructureAttributes(
-                            title=header_info["title"],
-                            code=header_info.get("code")
+                            title=header_info["title"], code=header_info.get("code")
                         ),
                         metadata=StructureMetadata(start_page=page_num),
                     )
@@ -282,9 +269,7 @@ class TextbookParser:
                             ),
                         )
                 elif block_type in ["Picture", "Figure"]:
-                    alt_match = re.search(
-                        r'alt="([^"]*)"', block.get("html", "")
-                    )
+                    alt_match = re.search(r'alt="([^"]*)"', block.get("html", ""))
                     alt_text = alt_match.group(1) if alt_match else None
 
                     # Handle Image Extraction
@@ -299,9 +284,7 @@ class TextbookParser:
                         if src_match:
                             base64_data = src_match.group(1)
                             image_id = f"img_{page_num}_{j}"
-                            image_url = await self._extract_and_upload_image(
-                                base64_data, image_id
-                            )
+                            image_url = await self._extract_and_upload_image(base64_data, image_id)
 
                     # Only create ImageNode if we actually have a URL or file_path.
                     # Otherwise, skip the image block to avoid invalid nodes that fail validation.
@@ -343,10 +326,6 @@ class TextbookParser:
                     file_path=Path(self.output_path),
                     content_type="application/json",
                 )
-                logger.info(
-                    f"Uploaded processed JSON to MinIO: {object_name}"
-                )
+                logger.info(f"Uploaded processed JSON to MinIO: {object_name}")
             except Exception as e:
-                logger.error(
-                    f"Failed to upload processed JSON to MinIO: {e}"
-                )
+                logger.error(f"Failed to upload processed JSON to MinIO: {e}")

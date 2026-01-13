@@ -7,5 +7,3 @@ from worker.dependencies import get_ingest_workflow
 def ingest_file_task(file_path: str) -> dict:
     workflow = get_ingest_workflow()
     return workflow(file_path)
-
-

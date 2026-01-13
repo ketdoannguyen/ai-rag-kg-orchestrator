@@ -15,7 +15,7 @@ from arango_client import KnowledgeNode
 
 class EmbeddingData(BaseModel):
     """Single embedding data for a node."""
-    
+
     node_id: uuid.UUID = Field(..., description="ID of the node this embedding belongs to")
     vector: List[float] = Field(..., description="Embedding vector")
     text: str | None = Field(None, description="Text that was embedded")

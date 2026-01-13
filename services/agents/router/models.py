@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 class Intent(str, Enum):
     """Query intent classification.
-    
+
     Each intent maps to a different retrieval strategy:
     - DISCOVERY: Broad search, multiple results
     - SPECIFIC_FACT: Precise search, single answer
@@ -27,7 +27,7 @@ class Intent(str, Enum):
     - CONTACT_INFO: Contact/location specific search
     - CHIT_CHAT: No retrieval needed, direct response
     """
-    
+
     DISCOVERY = "DISCOVERY"
     SPECIFIC_FACT = "SPECIFIC_FACT"
     INSTRUCTION = "INSTRUCTION"
@@ -38,7 +38,7 @@ class Intent(str, Enum):
 
 class ChatMessage(BaseModel):
     """Single message in conversation history."""
-    
+
     role: str = Field(
         ...,
         description="Message role: 'user' or 'assistant'",
@@ -51,7 +51,7 @@ class ChatMessage(BaseModel):
 
 class FilterFieldConfig(BaseModel):
     """Configuration for a single filter field."""
-    
+
     type: str = Field(
         default="string",
         description="Data type: 'string', 'integer', 'float', 'boolean', 'list'",
@@ -76,7 +76,7 @@ class FilterFieldConfig(BaseModel):
 
 class DomainConfig(BaseModel):
     """Domain-specific configuration for Router Agent."""
-    
+
     domain_name: str = Field(
         ...,
         description="Human-readable domain name, e.g., 'Tuyển sinh Đại học'",
@@ -89,20 +89,17 @@ class DomainConfig(BaseModel):
         default=None,
         description="Optional custom descriptions for each intent",
     )
-    
+
     def get_filter_fields_dict(self) -> Dict[str, Dict[str, Any]]:
         """Convert filter_fields to dict format for prompt building."""
-        return {
-            name: config.model_dump()
-            for name, config in self.filter_fields.items()
-        }
+        return {name: config.model_dump() for name, config in self.filter_fields.items()}
 
 
 class RouterInput(BaseModel):
     """Input model for Router Agent."""
-    
+
     model_config = {"validate_default": True}
-    
+
     user_query: str = Field(
         ...,
         min_length=1,
@@ -120,7 +117,7 @@ class RouterInput(BaseModel):
         default_factory=lambda: datetime.now().year,
         description="Current year for temporal inference",
     )
-    
+
     def get_history_as_dicts(self) -> List[Dict[str, str]]:
         """Convert conversation history to dict format."""
         return [msg.model_dump() for msg in self.conversation_history]
@@ -128,10 +125,10 @@ class RouterInput(BaseModel):
 
 class SubQuestion(BaseModel):
     """A single searchable sub-question with its own retrieval parameters.
-    
+
     This is the atomic unit for downstream retrieval.
     """
-    
+
     query: str = Field(
         ...,
         description="The question text, rewritten for clarity",
@@ -148,17 +145,17 @@ class SubQuestion(BaseModel):
 
 class RouterOutput(BaseModel):
     """Output model for Router Agent.
-    
+
     Structured search object:
     - intent: Query classification
     - rewritten_query: Original query rewritten for context
     - sub_questions: List of searchable units, each with keywords and filters
-    
+
     For simple queries: 1 sub_question
     For COMPARISON: Multiple sub_questions
     For CHIT_CHAT: Empty sub_questions
     """
-    
+
     intent: Intent = Field(
         ...,
         description="Classified query intent",
@@ -171,14 +168,14 @@ class RouterOutput(BaseModel):
         default_factory=list,
         description="Searchable units, each with query/keywords/filters",
     )
-    
+
     # Metadata
     raw_llm_response: Optional[str] = Field(
         default=None,
         description="Raw LLM response for debugging",
         exclude=True,
     )
-    
+
     @classmethod
     def create_chit_chat_response(cls, original_query: str) -> "RouterOutput":
         """Create a default CHIT_CHAT response."""
@@ -191,7 +188,7 @@ class RouterOutput(BaseModel):
 
 class RouterConfig(BaseModel):
     """Configuration for Router Agent behavior."""
-    
+
     llm_model: Optional[str] = Field(
         default=None,
         description="LLM model to use. None uses gateway's default.",
