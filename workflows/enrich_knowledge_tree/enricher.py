@@ -97,7 +97,7 @@ class KnowledgeTreeEnricher:
         # Root summary preview
         root_desc = None
         if isinstance(root, StructureNode):
-            root_desc = root.attributes.description
+            root_desc = root.summary
         if root_desc:
             state.changes.root_summary_preview = root_desc[:300]
 
@@ -215,9 +215,9 @@ class KnowledgeTreeEnricher:
                 workflow_input=workflow_input,
             )
 
-        # Attach summary to node attributes
+        # Attach summary to node
         if section_summary:
-            node.attributes.description = section_summary
+            node.summary = section_summary
             state.node_summaries[str(node.id)] = section_summary
             state.stats.structures_enriched += 1
 
@@ -374,7 +374,7 @@ class KnowledgeTreeEnricher:
             model=workflow_input.refine_config.llm_model,
             messages=[
                 GatewayChatTurn(
-                    role="system",
+                    role="user",
                     content=prompt,
                 )
             ],
@@ -493,7 +493,7 @@ class KnowledgeTreeEnricher:
             model=workflow_input.enrich_config.llm_model,
             messages=[
                 GatewayChatTurn(
-                    role="system",
+                    role="user",
                     content=prompt,
                 )
             ],

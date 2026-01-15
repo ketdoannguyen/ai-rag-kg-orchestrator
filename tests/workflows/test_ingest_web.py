@@ -87,40 +87,6 @@ class IngestWebPipelineTest(unittest.TestCase):
         _count(node)
         return dict(counts)
 
-    def _cleanup_nodes_by_source(self, data_source_id: UUID) -> tuple[int, int]:
-        """Clean up nodes from data source using direct AQL. Returns (nodes_deleted, edges_deleted)."""
-        old_nodes = self._arango_client.db.aql.execute(
-            "FOR n IN knowledge_nodes FILTER n.source_id == @source_id RETURN n._key",
-            bind_vars={"source_id": str(data_source_id)},
-        )
-        old_keys = list(old_nodes)
-
-        if not old_keys:
-            return 0, 0
-
-        # Delete edges first
-        edge_result = self._arango_client.db.aql.execute(
-            """
-            FOR e IN knowledge_edges
-                LET from_key = PARSE_IDENTIFIER(e._from).key
-                LET to_key = PARSE_IDENTIFIER(e._to).key
-                FILTER from_key IN @keys OR to_key IN @keys
-                REMOVE e IN knowledge_edges
-                RETURN 1
-            """,
-            bind_vars={"keys": old_keys},
-        )
-        edges_deleted = len(list(edge_result))
-
-        # Delete nodes
-        node_result = self._arango_client.db.aql.execute(
-            "FOR n IN knowledge_nodes FILTER n.source_id == @source_id REMOVE n IN knowledge_nodes RETURN 1",
-            bind_vars={"source_id": str(data_source_id)},
-        )
-        nodes_deleted = len(list(node_result))
-
-        return nodes_deleted, edges_deleted
-
     def test_full_pipeline(self) -> None:
         """Test full pipeline: ingest_web → enrich → save → embed → save_embeddings.
 
@@ -205,11 +171,6 @@ class IngestWebPipelineTest(unittest.TestCase):
 
         # ============ Stage 3: Save to ArangoDB ============
         print("\n[Stage 3/6] Saving to ArangoDB...")
-
-        # Cleanup old nodes if any
-        old_nodes_deleted, old_edges_deleted = self._cleanup_nodes_by_source(data_source_id)
-        if old_nodes_deleted > 0:
-            print(f"  → Cleaned up: {old_nodes_deleted} old nodes, {old_edges_deleted} edges")
 
         save_result = asyncio.run(
             start_save_knowledge_to_arango(

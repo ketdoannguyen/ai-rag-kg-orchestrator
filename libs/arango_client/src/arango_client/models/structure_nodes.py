@@ -29,7 +29,6 @@ class StructureNode(KnowledgeNode):
     Attributes:
         - title: Section/topic title/name
         - code: Optional code/identifier (e.g., "Chapter 1", "Part A")
-        - description: Optional description/summary
 
     Metadata:
         - start_page: Start page number in source document

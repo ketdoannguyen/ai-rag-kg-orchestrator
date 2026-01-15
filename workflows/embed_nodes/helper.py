@@ -15,7 +15,7 @@ def extract_text_for_embedding(node: KnowledgeNode) -> str | None:
     """
     Extract text from a node for embedding.
 
-    For structure nodes: returns attributes.description (summary)
+    For structure nodes: returns summary (if available) or falls back to title
     For detail nodes: returns text content based on node type
 
     Args:
@@ -25,17 +25,12 @@ def extract_text_for_embedding(node: KnowledgeNode) -> str | None:
         Text to embed, or None if node has no embeddable text
     """
     if isinstance(node, StructureNode):
-        # Structure nodes: priority order - description, summary, title
-        # 1. Try description (summary field in attributes)
-        description = node.attributes.description
-        if description and description.strip():
-            return description.strip()
-
-        # 2. Try summary field (set by enricher on the model)
-        if hasattr(node, "summary") and node.summary and node.summary.strip():
+        # Structure nodes: priority order - summary, title
+        # 1. Try summary field (set by enricher)
+        if node.summary and node.summary.strip():
             return node.summary.strip()
 
-        # 3. Fallback to title
+        # 2. Fallback to title
         title = node.attributes.title
         if title and title.strip():
             return title.strip()

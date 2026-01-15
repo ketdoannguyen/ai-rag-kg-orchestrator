@@ -20,11 +20,11 @@ Bottom‑up traversal (post‑order, async per level)
   │    1) Refine direct PARAGRAPH/TABLE children with LLM
   │    2) Build a mini-summary from refined details
   │    3) Combine mini-summary + child STRUCTURE summaries
-  │    4) Generate section summary (description)
+  │    4) Generate section summary
         ▼
 Enriched Knowledge Tree
   - Refined detail chunks (better for RAG)
-  - All STRUCTURE nodes have `attributes.description`
+  - All STRUCTURE nodes have `summary` field set
   - Statistics + change summary returned
 ```
 
@@ -152,7 +152,7 @@ The core algorithm uses **post‑order DFS** with **async concurrency** for sibl
      - refined paragraphs + image nodes + structure children.
    - Call structure‑level LLM:
      - Input = mini-summary + child structure summaries.
-     - Output = `attributes.description` for the current `StructureNode`.
+     - Output = `summary` field for the current `StructureNode`.
 
 This satisfies the requirement:
 
@@ -235,7 +235,7 @@ For `enrich_knowledge_tree`, a typical test should:
 - Build or load a small `StructureNode` tree.
 - Run `KnowledgeTreeEnricher.enrich(...)` with a mocked `AIGatewayClient`.
 - Assert:
-  - All STRUCTURE nodes got `attributes.description` set.
+  - All STRUCTURE nodes got `summary` field set.
   - The number of detail nodes decreased after refinement (where expected).
   - `statistics` and `changes_summary` contain consistent values.
 

@@ -180,12 +180,21 @@ class AIGatewayClient:
         """Generate embeddings for input texts.
 
         Uses LiteLLM's aembedding with api_base for OpenRouter/OpenAI-compatible APIs.
+        Handles model names with 'openrouter/' prefix by stripping it and using api_base.
         """
         embedding_config = self.embedding_registry.get(request.model)
         try:
             params = self._prepare_params(request.provider_options, embedding_config)
+
+            # Determine the model name to use
+            model_name = request.model or embedding_config.model
+
+            # Handle openrouter/ prefix - strip it and let api_base do the routing
+            if model_name.startswith("openrouter/"):
+                model_name = model_name.replace("openrouter/", "", 1)
+
             response = await aembedding(
-                model=request.model or embedding_config.model,
+                model=model_name,
                 input=request.input,
                 encoding_format="float",
                 **params,
