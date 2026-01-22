@@ -11,7 +11,7 @@ from .exceptions import (
     GatewayAPIError,
     ModelNotFoundError,
 )
-from .models.config import GatewayModelConfig
+from .models.config import GatewayModelConfig, ProviderConfig
 from .models.embedding import EmbeddingRequest, EmbeddingResponse
 from .models.request import GatewayChatTurn, GatewayInvokeRequest
 from .models.response import (
@@ -34,6 +34,7 @@ __all__ = [
     "InvokeStreamChunk",
     "MessageConverter",
     "ModelNotFoundError",
+    "ProviderConfig",
     "ToolCall",
     "ToolCallChunk",
 ]

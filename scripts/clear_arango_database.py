@@ -33,7 +33,11 @@ DOCUMENT_COLLECTIONS = [
     "chat_messages",
     "chat_sessions",
     "suggested_faqs",
-    "knowledge_nodes",
+    # Knowledge node collections (tiered architecture)
+    "content_nodes",
+    "structure_nodes",
+    "root_nodes",
+    "entity_nodes",
     "data_sources",
     "users",
 ]

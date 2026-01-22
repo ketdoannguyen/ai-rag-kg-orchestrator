@@ -12,7 +12,15 @@ from pydantic import BaseModel, Field
 
 
 class MetadataField(BaseModel):
-    """Single metadata field definition - shared between Router & Enricher."""
+    """Single metadata field definition - shared between Router & Enricher.
+
+    Smart Filter Support:
+    - is_filter_safe: If True, this field can be used for direct filtering
+      without losing related content. Example: 'subject' is filter-safe because
+      nodes from different subjects are independent.
+    - dependencies: For non-filter-safe fields, specifies which values should
+      be included when filtering. Example: 'Lý thuyết' needs 'Định nghĩa' nodes.
+    """
 
     name: str = Field(..., description="Field name, e.g. 'major_name', 'year'")
     type: str = Field(
@@ -38,6 +46,18 @@ class MetadataField(BaseModel):
     required: bool = Field(
         default=False,
         description="Whether this field is required in extraction",
+    )
+    # Smart Filter fields
+    is_filter_safe: bool = Field(
+        default=True,
+        description="If True, this field can be filtered directly without losing related content. "
+        "Example: 'subject' is filter-safe (nodes from different subjects are independent). "
+        "Example: 'content_type' is NOT filter-safe ('Lý thuyết' needs 'Định nghĩa' nodes).",
+    )
+    dependencies: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="For non-filter-safe fields: mapping of value -> related values to include. "
+        "Example: {'Lý thuyết': ['Định nghĩa', 'Công thức'], 'Bài tập': ['Lời giải']}",
     )
 
     def normalize_value(self, value: Any) -> Any:
@@ -86,6 +106,32 @@ class MetadataField(BaseModel):
 
         # Handle single value (legacy support)
         return value in self.allowed_values
+
+    def expand_filter_value(self, value: str | list[str]) -> list[str]:
+        """Expand filter value to include dependencies.
+
+        For filter-safe fields, returns value as-is (wrapped in list).
+        For non-filter-safe fields, expands with dependencies.
+
+        Example:
+            field.is_filter_safe = False
+            field.dependencies = {"Lý thuyết": ["Định nghĩa", "Công thức"]}
+            expand_filter_value("Lý thuyết")
+            -> ["Lý thuyết", "Định nghĩa", "Công thức"]
+        """
+        # Normalize to list
+        values = [value] if isinstance(value, str) else list(value)
+
+        if self.is_filter_safe:
+            return values
+
+        # Expand with dependencies
+        expanded = set(values)
+        for v in values:
+            deps = self.dependencies.get(v, [])
+            expanded.update(deps)
+
+        return list(expanded)
 
 
 class DomainSchema(BaseModel):
@@ -153,3 +199,35 @@ class DomainSchema(BaseModel):
                     f"Value '{value}' not in allowed values: {field.allowed_values[:5]}"
                 ]
         return errors
+
+    def expand_filters(self, filters: dict[str, Any]) -> dict[str, list[str]]:
+        """Expand filter values to include dependencies for non-filter-safe fields.
+
+        This is used by the retrieval system to ensure related content
+        is not accidentally filtered out.
+
+        Example:
+            filters = {"subject": "Toán học", "content_type": "Lý thuyết"}
+            expanded = schema.expand_filters(filters)
+            # expanded = {
+            #     "subject": ["Toán học"],  # filter-safe, no expansion
+            #     "content_type": ["Lý thuyết", "Định nghĩa", "Công thức"]  # expanded
+            # }
+        """
+        result: dict[str, list[str]] = {}
+        for field_name, value in filters.items():
+            field = self.get_field(field_name)
+            if field:
+                result[field_name] = field.expand_filter_value(value)
+            else:
+                # Unknown field, keep as-is
+                result[field_name] = [value] if isinstance(value, str) else list(value)
+        return result
+
+    def get_filter_safe_fields(self) -> list[MetadataField]:
+        """Get all filter-safe fields (can be used for direct filtering)."""
+        return [f for f in self.metadata_fields if f.is_filter_safe]
+
+    def get_non_filter_safe_fields(self) -> list[MetadataField]:
+        """Get all non-filter-safe fields (need dependency expansion)."""
+        return [f for f in self.metadata_fields if not f.is_filter_safe]

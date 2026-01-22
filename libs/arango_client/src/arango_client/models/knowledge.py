@@ -50,6 +50,11 @@ class KnowledgeNode(BaseModel):
         default=None,
         description="Domain identifier for filtering (e.g., 'education', 'ecommerce')",
     )
+    is_reviewed: bool = Field(
+        default=False,
+        description="Whether this node has been reviewed for deduplication. "
+        "Nodes with is_reviewed=true are considered stable/canonical.",
+    )
 
     @model_validator(mode="after")
     def validate_level(self) -> KnowledgeNode:

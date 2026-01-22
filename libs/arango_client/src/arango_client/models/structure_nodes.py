@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import Field, model_validator
 
 from .attributes_metadata import StructureAttributes, StructureMetadata
 from .enums import NodeType
 from .knowledge import KnowledgeNode
-
-if TYPE_CHECKING:
-    pass
 
 
 class StructureNode(KnowledgeNode):

@@ -16,8 +16,10 @@ from datetime import UTC, datetime
 from typing import Any, Union
 
 from arango.database import StandardDatabase
+from loguru import logger
 
 from ..aql import (
+    CRUD_GET_ALL,
     CRUD_GET_BY_FILTER,
     GET_ANCESTORS,
     GET_DESCENDANTS,
@@ -59,9 +61,9 @@ def get_collection_for_node(node: KnowledgeNodeType) -> str:
     Rules:
     - level == 1 -> root_nodes (RootNode)
     - StructureNode with level > 1 -> structure_nodes
-    - ParagraphNode -> paragraph_nodes
-    - ImageNode -> image_nodes
-    - TableNode -> table_nodes
+    - ParagraphNode -> content_nodes
+    - ImageNode -> content_nodes
+    - TableNode -> content_nodes
     """
     # Check for RootNode or level == 1
     if isinstance(node, RootNode) or getattr(node, "level", 0) == 1:
@@ -75,9 +77,9 @@ def get_collection_for_node(node: KnowledgeNodeType) -> str:
         node_type = node_type.value
 
     return {
-        "paragraph": Collections.PARAGRAPH_NODES,
-        "image": Collections.IMAGE_NODES,
-        "table": Collections.TABLE_NODES,
+        "paragraph": Collections.CONTENT_NODES,
+        "image": Collections.CONTENT_NODES,
+        "table": Collections.CONTENT_NODES,
     }.get(node_type, Collections.STRUCTURE_NODES)
 
 
@@ -101,7 +103,7 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
     def __init__(self, db: StandardDatabase):
         """Initialize KnowledgeNode handler."""
         # Use first collection as default for BaseHandler (not actually used)
-        super().__init__(db, KnowledgeNode, Collections.PARAGRAPH_NODES)
+        super().__init__(db, KnowledgeNode, Collections.CONTENT_NODES)
         self._edge_collection = db.collection(EdgeCollections.KNOWLEDGE_EDGES)
         self._graph = db.graph(KNOWLEDGE_GRAPH_NAME)
 
@@ -153,6 +155,9 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
     ) -> list[KnowledgeNodeType]:
         """Get nodes by filter criteria with proper type conversion.
 
+        This method queries ALL knowledge collections (content_nodes, structure_nodes,
+        root_nodes, entity_nodes) and returns combined results.
+
         Args:
             filters: Dictionary of field-value pairs to filter by
             limit: Maximum number of results. If None, returns all matching nodes (up to 10000)
@@ -175,16 +180,34 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
 
         filter_clause = " AND ".join(filter_conditions) if filter_conditions else "true"
 
-        # Use centralized AQL template
-        query = CRUD_GET_BY_FILTER.format(
-            collection=self.collection_name,
-            filter_clause=filter_clause,
-            sort_field=sort_field,
-            sort_dir=sort_dir,
-        )
+        # Query ALL knowledge collections and combine results
+        all_results: list[KnowledgeNodeType] = []
 
-        cursor = self.db.aql.execute(query, bind_vars=bind_vars)
-        return [doc_to_knowledge_node(doc) for doc in cursor]
+        for collection_name in KNOWLEDGE_COLLECTIONS:
+            # Use centralized AQL template
+            query = CRUD_GET_BY_FILTER.format(
+                collection=collection_name,
+                filter_clause=filter_clause,
+                sort_field=sort_field,
+                sort_dir=sort_dir,
+            )
+
+            cursor = self.db.aql.execute(query, bind_vars=bind_vars)
+            all_results.extend([doc_to_knowledge_node(doc) for doc in cursor])
+
+        # Sort combined results if needed
+        if sort_field and all_results:
+            reverse = sort_desc
+            all_results.sort(
+                key=lambda n: getattr(n, sort_field, None) or "",
+                reverse=reverse,
+            )
+
+        # Apply offset and limit to combined results
+        if offset or effective_limit < len(all_results):
+            all_results = all_results[offset : offset + effective_limit]
+
+        return all_results
 
     def get_by_source(
         self,
@@ -218,6 +241,48 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
     # =========================================================================
     # Embedding Operations
     # =========================================================================
+
+    def update(
+        self,
+        id: uuid.UUID | str,
+        update_data: dict[str, Any],
+    ) -> KnowledgeNodeType | None:
+        """Update a knowledge node by ID, searching across all collections.
+
+        Overrides BaseHandler.update() to search across all knowledge collections
+        instead of a single collection.
+
+        Args:
+            id: Primary key value
+            update_data: Dictionary of fields to update
+
+        Returns:
+            Updated KnowledgeNode or None if not found
+        """
+        key = str(id)
+
+        # Find which collection contains this node
+        collection_name = self._find_node_collection(id)
+        if collection_name is None:
+            return None
+
+        collection = self.db.collection(collection_name)
+
+        # Add updated_at timestamp if the model supports it
+        if "updated_at" not in update_data:
+            update_data["updated_at"] = datetime.now(UTC).isoformat()
+
+        # Convert UUIDs to strings
+        for field, value in update_data.items():
+            if isinstance(value, uuid.UUID):
+                update_data[field] = str(value)
+
+        result = collection.update(
+            {"_key": key, **update_data},
+            return_new=True,
+        )
+
+        return doc_to_knowledge_node(result["new"])
 
     def update_embedding(
         self,
@@ -264,6 +329,231 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
                 node.text = text
 
         return self.create_node(node)
+
+    def delete(self, id: uuid.UUID | str) -> bool:
+        """Delete a knowledge node by ID, searching across all collections.
+
+        Overrides BaseHandler.delete() to search across all knowledge collections.
+
+        Args:
+            id: Primary key value
+
+        Returns:
+            True if deleted, False if not found
+        """
+        key = str(id)
+
+        # Find which collection contains this node
+        collection_name = self._find_node_collection(id)
+        if collection_name is None:
+            return False
+
+        self.db.collection(collection_name).delete(key)
+        return True
+
+    def exists(self, id: uuid.UUID | str) -> bool:
+        """Check if a knowledge node exists by ID, searching across all collections.
+
+        Overrides BaseHandler.exists() to search across all knowledge collections.
+
+        Args:
+            id: Primary key value
+
+        Returns:
+            True if exists in any collection, False otherwise
+        """
+        return self._find_node_collection(id) is not None
+
+    def count(self, filters: dict[str, Any] | None = None) -> int:
+        """Count knowledge nodes across all collections, optionally filtered.
+
+        Overrides BaseHandler.count() to search across all knowledge collections.
+
+        Args:
+            filters: Optional dictionary of field: value pairs to filter by.
+                     Field names are validated against ALLOWED_FILTER_FIELDS.
+
+        Returns:
+            Total number of documents matching criteria across all collections
+
+        Raises:
+            ValueError: If filter field is not in allowed list
+        """
+        # Allowed fields for filtering to prevent AQL injection
+        ALLOWED_FILTER_FIELDS = {
+            "source_id",
+            "node_type",
+            "level",
+            "parent_id",
+            "created_at",
+            "updated_at",
+            "is_reviewed",
+            "_key",
+        }
+
+        if not filters:
+            # Count all documents across all knowledge collections
+            total = 0
+            for collection_name in KNOWLEDGE_COLLECTIONS:
+                total += self.db.collection(collection_name).count()
+            return total
+
+        # Validate filter fields against allowlist
+        for field in filters:
+            if field not in ALLOWED_FILTER_FIELDS:
+                raise ValueError(
+                    f"Invalid filter field: {field}. "
+                    f"Allowed fields: {', '.join(sorted(ALLOWED_FILTER_FIELDS))}"
+                )
+
+        # Build filter conditions with validated fields
+        filter_conditions = []
+        bind_vars: dict[str, Any] = {}
+
+        for i, (field, value) in enumerate(filters.items()):
+            var_name = f"val{i}"
+            filter_conditions.append(f"doc.{field} == @{var_name}")
+            bind_vars[var_name] = str(value) if isinstance(value, uuid.UUID) else value
+
+        filter_clause = " AND ".join(filter_conditions)
+
+        # Count across all collections using bind variable for collection
+        total = 0
+        for collection_name in KNOWLEDGE_COLLECTIONS:
+            query = f"""
+            FOR doc IN @@collection
+                FILTER {filter_clause}
+                COLLECT WITH COUNT INTO count
+                RETURN count
+            """
+            bind_vars["@collection"] = collection_name
+            cursor = self.db.aql.execute(query, bind_vars=bind_vars)
+            total += next(cursor, 0)
+
+        return total
+
+    def get_all(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        sort_field: str = "created_at",
+        sort_desc: bool = True,
+    ) -> list[KnowledgeNodeType]:
+        """Get all knowledge nodes across all collections with optional pagination.
+
+        Overrides BaseHandler.get_all() to search across all knowledge collections.
+
+        Args:
+            limit: Maximum number of records to return
+            offset: Number of records to skip
+            sort_field: Field to sort by (default: created_at)
+            sort_desc: If True, sort descending (default: True)
+
+        Returns:
+            List of KnowledgeNode instances from all collections
+        """
+        sort_dir = "DESC" if sort_desc else "ASC"
+        limit = limit or 100
+        offset = offset or 0
+
+        # Query all collections
+        all_results: list[KnowledgeNodeType] = []
+
+        for collection_name in KNOWLEDGE_COLLECTIONS:
+            query = CRUD_GET_ALL.format(
+                collection=collection_name,
+                sort_field=sort_field,
+                sort_dir=sort_dir,
+            )
+            cursor = self.db.aql.execute(query, bind_vars={"offset": 0, "limit": limit + offset})
+            all_results.extend([doc_to_knowledge_node(doc) for doc in cursor])
+
+        # Sort combined results
+        if sort_field and all_results:
+            all_results.sort(
+                key=lambda n: getattr(n, sort_field, None) or "",
+                reverse=sort_desc,
+            )
+
+        # Apply offset and limit to combined results
+        return all_results[offset : offset + limit]
+
+    def update_by_model(self, model: KnowledgeNodeType) -> KnowledgeNodeType | None:
+        """Update a knowledge node using a model, searching across all collections.
+
+        Overrides BaseHandler.update_by_model() to search across all collections.
+
+        Args:
+            model: Knowledge node model instance with updated data
+
+        Returns:
+            Updated node or None if not found
+        """
+        if not hasattr(model, "id"):
+            raise ValueError("Model must have an 'id' field for update")
+
+        doc = model.to_document()
+        key = doc["_key"]
+
+        # Find which collection contains this node
+        collection_name = self._find_node_collection(key)
+        if collection_name is None:
+            return None
+
+        result = self.db.collection(collection_name).replace(doc, return_new=True)
+        return doc_to_knowledge_node(result["new"])
+
+    def bulk_delete(self, ids: list[uuid.UUID | str]) -> int:
+        """Bulk delete knowledge nodes across all collections.
+
+        Overrides BaseHandler.bulk_delete() to search across all collections.
+
+        Args:
+            ids: List of node IDs to delete
+
+        Returns:
+            Number of documents deleted
+        """
+        deleted_count = 0
+
+        for node_id in ids:
+            if self.delete(node_id):
+                deleted_count += 1
+
+        return deleted_count
+
+    def bulk_create(self, models: list[KnowledgeNodeType]) -> list[KnowledgeNodeType]:
+        """Bulk create knowledge nodes in their appropriate collections.
+
+        Overrides BaseHandler.bulk_create() to route each node to its correct collection.
+
+        Args:
+            models: List of knowledge node model instances
+
+        Returns:
+            List of created nodes
+        """
+        created: list[KnowledgeNodeType] = []
+
+        # Group nodes by collection
+        by_collection: dict[str, list[KnowledgeNodeType]] = {}
+        for model in models:
+            collection_name = get_collection_for_node(model)
+            if collection_name not in by_collection:
+                by_collection[collection_name] = []
+            by_collection[collection_name].append(model)
+
+        # Insert into each collection
+        for collection_name, nodes in by_collection.items():
+            docs = [n.to_document() for n in nodes]
+            collection = self.db.collection(collection_name)
+            results = collection.insert_many(docs, return_new=True)
+
+            for result in results:
+                if result.get("new"):
+                    created.append(doc_to_knowledge_node(result["new"]))
+
+        return created
 
     # =========================================================================
     # Graph Relationship Operations
@@ -449,8 +739,8 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
                     },
                 )
                 deleted_edges += sum(1 for _ in cursor)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to delete edges for node {nid}: {e}")
 
         # Delete nodes in reverse order (leaves first)
         for desc in reversed(descendants):
@@ -459,15 +749,15 @@ class KnowledgeNodeHandler(BaseHandler[KnowledgeNode]):
                 try:
                     self.db.collection(desc_collection).delete(str(desc.id))
                     deleted_nodes += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to delete descendant node {desc.id}: {e}")
 
         # Delete the root node
         try:
             self.db.collection(collection).delete(str(node_id))
             deleted_nodes += 1
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to delete root node {node_id}: {e}")
 
         return {"deleted_nodes": deleted_nodes, "deleted_edges": deleted_edges}
 

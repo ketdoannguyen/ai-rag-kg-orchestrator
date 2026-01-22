@@ -18,6 +18,12 @@ clean:
 	sudo find . -type d -name "*.egg-info" -exec rm -rf {} +
 	echo "✅ Cleanup complete"
 
+check: format lint test
+	@echo "✅ All checks passed!"
+
+mypy:
+	mypy libs/ workflows/ --ignore-missing-imports
+
 up:
 	$(COMPOSE) up -d
 
@@ -47,6 +53,12 @@ logs-services:
 
 build-services:
 	$(COMPOSE_SERVICES) build
+
+
+claude:
+	@/home/solid/code/router/start-proxy.sh
+	@echo ""
+	@echo "source /home/solid/code/router/env-claude.sh && claude"
 
 # ============================================
 # Database Migration Commands (Alembic)

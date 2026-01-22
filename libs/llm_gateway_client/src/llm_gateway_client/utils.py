@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from loguru import logger
+
 from .models.request import GatewayChatTurn
 from .models.response import InvokeStreamChunk
 from .models.tool import ToolCall, ToolCallChunk
@@ -71,16 +73,44 @@ class MessageConverter:
     @staticmethod
     def _normalize_content(content: Any) -> str:
         if content is None:
+            logger.debug("Content is None, returning empty string")
             return ""
         if isinstance(content, str):
             return content
         if isinstance(content, list):
             text = ""
             for item in content:
-                if isinstance(item, dict) and item.get("type") == "text":
-                    text += item.get("text", "")
+                if isinstance(item, dict):
+                    item_type = item.get("type", "unknown")
+                    if item_type == "text":
+                        text += item.get("text", "")
+                    elif item_type == "thinking":
+                        # Qwen3 models may use thinking blocks - skip these
+                        thinking_text = item.get("thinking", "")
+                        logger.debug(f"Skipping thinking block ({len(thinking_text)} chars)")
+                        continue
+                    else:
+                        # Log unknown content block types
+                        logger.warning(f"Unknown content block type: {item_type}, item: {item}")
+                elif isinstance(item, str):
+                    # Handle list of strings
+                    text += item
+            if not text:
+                logger.warning(f"No text content extracted from list ({len(content)} items)")
+                # Debug: log first few items
+                for i, item in enumerate(content[:3]):
+                    if isinstance(item, dict):
+                        logger.debug(
+                            f"  Item {i}: type={item.get('type')}, keys={list(item.keys())}"
+                        )
+                    else:
+                        logger.debug(f"  Item {i}: {type(item).__name__}")
             return text
-        return str(content)
+        # Unknown type - log and try to convert
+        logger.warning(
+            f"Unknown content type: {type(content).__name__}, value: {str(content)[:200]}"
+        )
+        return str(content) if content else ""
 
     @staticmethod
     def _parse_tool_calls(payload: list[Any]) -> list[ToolCall]:

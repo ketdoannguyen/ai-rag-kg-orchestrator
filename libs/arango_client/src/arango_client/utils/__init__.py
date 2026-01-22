@@ -11,8 +11,70 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+import numpy as np
+
 if TYPE_CHECKING:
     from ..models.knowledge import KnowledgeNode
+    from ..models.ontology import RelationTier
+
+
+# Embedding constants
+MAX_EMBEDDING_DIMENSIONS = 4096
+MIN_EMBEDDING_DIMENSIONS = 64
+
+
+def normalize_tier(tier: RelationTier | str | None) -> str | None:
+    """Convert RelationTier enum to string value.
+
+    Args:
+        tier: RelationTier enum, string, or None
+
+    Returns:
+        String value of tier or None
+    """
+    if tier is None:
+        return None
+    return tier.value if hasattr(tier, "value") else tier
+
+
+def normalize_vector(vector: list[float] | np.ndarray) -> np.ndarray:
+    """Normalize a vector to unit length.
+
+    Args:
+        vector: Input vector (list or numpy array)
+
+    Returns:
+        Normalized numpy array
+    """
+    arr = np.array(vector) if isinstance(vector, list) else vector
+    return arr / (np.linalg.norm(arr) + 1e-8)
+
+
+def validate_embedding(embedding: list[float] | None) -> None:
+    """Validate embedding array dimensions.
+
+    Args:
+        embedding: List of floats or None
+
+    Raises:
+        ValueError: If dimensions are invalid
+    """
+    if embedding is None:
+        return
+
+    if not isinstance(embedding, list):
+        raise ValueError(f"Embedding must be a list, got {type(embedding)}")
+
+    if len(embedding) < MIN_EMBEDDING_DIMENSIONS:
+        raise ValueError(
+            f"Embedding dimensions too small: {len(embedding)} < {MIN_EMBEDDING_DIMENSIONS}"
+        )
+
+    if len(embedding) > MAX_EMBEDDING_DIMENSIONS:
+        raise ValueError(
+            f"Embedding dimensions exceed limit: {len(embedding)} > {MAX_EMBEDDING_DIMENSIONS}"
+        )
+
 
 # Import models lazily to avoid circular imports
 _model_cache = {}
@@ -403,6 +465,9 @@ def compute_tree_statistics(
 __all__ = [
     "compute_tree_statistics",
     "doc_to_knowledge_node",
+    "normalize_tier",
+    "normalize_vector",
+    "validate_embedding",
     "parse_node_from_dict",
     "serialize_tree_to_dict",
     "set_parent_ids",

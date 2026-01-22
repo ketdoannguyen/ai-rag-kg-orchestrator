@@ -66,7 +66,7 @@ class ArangoClient:
         ...     password="password",
         ... )
         >>> # Get a collection
-        >>> collection = client.db.collection("knowledge_nodes")
+        >>> collection = client.db.collection("content_nodes")
         >>> # Insert a document
         >>> collection.insert({"_key": "123", "name": "test"})
     """

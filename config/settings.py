@@ -1,3 +1,7 @@
+"""Global application settings."""
+
+from __future__ import annotations
+
 from functools import lru_cache
 from typing import Any
 
@@ -28,26 +32,40 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: str | None = None  # used when MARKER_USE_LLM is True
 
     # =========================================================================
-    # LLM Gateway Configuration (Unified)
+    # LLM Chat Configuration
     # =========================================================================
-    # Single API key and base URL for all LLM/embedding calls
-    # Supports OpenRouter, OpenAI, or any OpenAI-compatible API
     LLM_API_KEY: str | None = None
-    LLM_API_BASE: str = "https://openrouter.ai/api/v1"  # Default to OpenRouter
-
-    # Model names - when using api_base, use model names WITHOUT provider prefix
-    # Examples: gpt-4o-mini, text-embedding-3-small
+    LLM_API_BASE: str = "https://openrouter.ai/api/v1"
     LLM_CHAT_MODEL: str = "gpt-4o-mini"
-    LLM_EMBEDDING_MODEL: str = "text-embedding-3-small"
-
-    # Optional: separate config for chat vs embedding (if using different providers)
     LLM_CHAT_API_KEY: str | None = None
     LLM_CHAT_API_BASE: str | None = None
+    LLM_CHAT_OPTIONS: dict[str, Any] = Field(default_factory=dict)
+
+    # Provider Routing (OpenRouter)
+    LLM_CHAT_PROVIDERS: str | None = None
+    """Comma-separated list of preferred providers (e.g., "together,fireworks")."""
+    LLM_CHAT_ALLOW_FALLBACKS: bool = False
+    """Whether to allow fallback to other providers if preferred ones fail."""
+
+    # =========================================================================
+    # Embedding Configuration (Separate from Chat)
+    # =========================================================================
+    # These take precedence over LLM_* equivalents for embeddings
+    EMBEDDING_MODEL: str | None = None  # e.g., "text-embedding-3-small"
+    EMBEDDING_API_KEY: str | None = None
+    EMBEDDING_API_BASE: str | None = None
+    EMBEDDING_OPTIONS: dict[str, Any] = Field(default_factory=dict)
+
+    # Provider Routing for Embeddings (OpenRouter)
+    LLM_EMBEDDING_PROVIDERS: str | None = None
+    """Comma-separated list of preferred providers for embeddings."""
+    LLM_EMBEDDING_ALLOW_FALLBACKS: bool = False
+    """Whether to allow fallback to other providers for embedding requests."""
+
+    # Legacy aliases (for backwards compatibility)
+    LLM_EMBEDDING_MODEL: str = "text-embedding-3-small"
     LLM_EMBEDDING_API_KEY: str | None = None
     LLM_EMBEDDING_API_BASE: str | None = None
-
-    # Extra options (temperature, max_tokens, etc.)
-    LLM_CHAT_OPTIONS: dict[str, Any] = Field(default_factory=dict)
     LLM_EMBEDDING_OPTIONS: dict[str, Any] = Field(default_factory=dict)
 
     # Langfuse Cloud Observability
@@ -56,6 +74,12 @@ class Settings(BaseSettings):
     LANGFUSE_OTEL_HOST: str = "https://us.cloud.langfuse.com"  # US region default
     LANGFUSE_ENABLED: bool = True  # Toggle tracing on/off
 
+    # =========================================================================
+    # Domain/Ontology Configuration
+    # =========================================================================
+    # Current domain for ontology selection (base, education, entity)
+    ONTOLOGY_DOMAIN: str = "education"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
@@ -63,7 +87,7 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> "Settings":
+def get_settings() -> Settings:
     """Return a cached Settings instance (used by services layer)."""
 
     return Settings()
