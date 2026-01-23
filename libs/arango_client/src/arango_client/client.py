@@ -14,13 +14,13 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from arango import ArangoClient as ArangoDriver
 from arango.database import StandardDatabase
 from arango.exceptions import (
-    DatabaseCreateError,
     CollectionCreateError,
+    DatabaseCreateError,
     GraphCreateError,
     IndexCreateError,
     ViewCreateError,
@@ -30,12 +30,12 @@ from .collections.schema import (
     ALL_DOCUMENT_COLLECTIONS,
     ALL_EDGE_COLLECTIONS,
     INDEXES,
-    KNOWLEDGE_GRAPH_NAME,
-    KNOWLEDGE_GRAPH_DEFINITION,
-    KNOWLEDGE_VECTOR_VIEW_NAME,
-    KNOWLEDGE_VECTOR_VIEW_DEFINITION,
-    KNOWLEDGE_VECTOR_INDEX_DEFINITION,
     KNOWLEDGE_COLLECTIONS,
+    KNOWLEDGE_GRAPH_DEFINITION,
+    KNOWLEDGE_GRAPH_NAME,
+    KNOWLEDGE_VECTOR_INDEX_DEFINITION,
+    KNOWLEDGE_VECTOR_VIEW_DEFINITION,
+    KNOWLEDGE_VECTOR_VIEW_NAME,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ class ArangoClient:
         ...     password="password",
         ... )
         >>> # Get a collection
-        >>> collection = client.db.collection("knowledge_nodes")
+        >>> collection = client.db.collection("content_nodes")
         >>> # Insert a document
         >>> collection.insert({"_key": "123", "name": "test"})
     """
@@ -364,14 +364,14 @@ class ArangoClient:
         # but we keep this method for API consistency
         pass
 
-    def __enter__(self) -> "ArangoClient":
+    def __enter__(self) -> ArangoClient:
         """Context manager entry."""
         return self
 
     def __exit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc: Optional[BaseException],
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
         tb: Any,
     ) -> None:
         """Context manager exit."""
@@ -420,7 +420,7 @@ class ArangoClient:
     def execute_aql(
         self,
         query: str,
-        bind_vars: Optional[dict[str, Any]] = None,
+        bind_vars: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> list[Any]:
         """
@@ -439,9 +439,9 @@ class ArangoClient:
 
     def begin_transaction(
         self,
-        read: Optional[list[str]] = None,
-        write: Optional[list[str]] = None,
-        exclusive: Optional[list[str]] = None,
+        read: list[str] | None = None,
+        write: list[str] | None = None,
+        exclusive: list[str] | None = None,
     ) -> Any:
         """
         Begin a transaction.

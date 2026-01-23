@@ -6,10 +6,10 @@ Save embeddings to ArangoDB using KnowledgeNodeHandler.update_embedding().
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, List
+from typing import Any
 
-from loguru import logger
 from arango_client import ArangoClient, KnowledgeNodeHandler
+from loguru import logger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from workflows.dependencies import init_arango_client
@@ -19,10 +19,10 @@ from .models import SaveEmbeddingsInput, SaveEmbeddingsOutput
 
 
 async def start_save_embeddings_to_arango(
-    payload: SaveEmbeddingsInput | Dict[str, Any],
+    payload: SaveEmbeddingsInput | dict[str, Any],
     *,
     arango_client: ArangoClient | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Entry point for the save_embeddings_to_arango workflow.
 
@@ -81,7 +81,7 @@ class SaveEmbeddingsToArangoWorkflow:
 
         structures_saved = 0
         contents_saved = 0
-        failed_nodes: List[uuid.UUID] = []
+        failed_nodes: list[uuid.UUID] = []
 
         # Save structure embeddings
         for embedding in payload.structure_embeddings:

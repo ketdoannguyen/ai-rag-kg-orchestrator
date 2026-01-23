@@ -6,66 +6,66 @@ Provides document store, graph store, and vector search capabilities.
 """
 
 from .client import ArangoClient
-from .utils import (
-    doc_to_knowledge_node,
-    parse_node_from_dict,
-    set_parent_ids,
-    set_positions,
-    serialize_tree_to_dict,
-    validate_tree_and_attach_source,
-    compute_tree_statistics,
-)
 
 # Re-export handlers for convenience
 from .handlers import (
-    KnowledgeNodeHandler,
-    KnowledgeHandler,
-    ChatSessionHandler,
-    ChatMessageHandler,
-    FeedbackHandler,
     ChatHandler,
-    UserHandler,
+    ChatMessageHandler,
+    ChatSessionHandler,
     DataSourceHandler,
-    SystemAdminHandler,
-    SuggestedFAQHandler,
+    FeedbackHandler,
+    KnowledgeHandler,
+    KnowledgeNodeHandler,
     MiningHandler,
     SearchHandler,
+    SuggestedFAQHandler,
+    SystemAdminHandler,
+    UserHandler,
 )
 
 # Re-export models for convenience
 from .models import (
-    # Enums
-    FAQStatus,
-    FeedbackStatus,
-    NodeType,
-    SourceType,
-    UserRole,
-    # Knowledge nodes
-    KnowledgeNode,
-    DetailNode,
-    ImageNode,
-    ParagraphNode,
-    TableNode,
-    RootNode,
-    StructureNode,
     # Chat
     ChatMessage,
     ChatSession,
-    Feedback,
     # System admin
     DataSource,
-    User,
-    # Mining
-    SuggestedFAQ,
+    DetailNode,
+    # Enums
+    FAQStatus,
+    Feedback,
+    FeedbackStatus,
     # Attributes/Metadata
     ImageAttributes,
     ImageMetadata,
+    ImageNode,
+    # Knowledge nodes
+    KnowledgeNode,
+    NodeType,
     ParagraphAttributes,
     ParagraphMetadata,
+    ParagraphNode,
+    RootNode,
+    SourceType,
     StructureAttributes,
     StructureMetadata,
+    StructureNode,
+    # Mining
+    SuggestedFAQ,
     TableAttributes,
     TableMetadata,
+    TableNode,
+    User,
+    UserRole,
+)
+from .utils import (
+    compute_tree_statistics,
+    doc_to_knowledge_node,
+    parse_node_from_dict,
+    serialize_tree_to_dict,
+    set_parent_ids,
+    set_positions,
+    validate_tree_and_attach_source,
 )
 
 __all__ = [

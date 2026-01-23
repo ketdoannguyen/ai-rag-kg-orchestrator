@@ -8,13 +8,12 @@ This workflow saves knowledge tree to ArangoDB, handling both:
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, List
+from typing import Any
 
-from loguru import logger
 from arango_client import ArangoClient, KnowledgeNodeHandler, set_parent_ids
-from arango_client.models.knowledge import KnowledgeNode
-from arango_client.models.enums import NodeType
 from arango_client.handlers.system_admin_handler import SystemAdminHandler
+from arango_client.models.knowledge import KnowledgeNode
+from loguru import logger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from workflows.dependencies import init_arango_client
@@ -23,10 +22,10 @@ from .models import SaveKnowledgeInput, SaveKnowledgeOutput
 
 
 async def start_save_knowledge_to_arango(
-    payload: SaveKnowledgeInput | Dict[str, Any],
+    payload: SaveKnowledgeInput | dict[str, Any],
     *,
     arango_client: ArangoClient | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Entry point for the save_knowledge_to_arango workflow.
 
@@ -91,8 +90,8 @@ class SaveKnowledgeToArangoWorkflow:
         handler = KnowledgeNodeHandler(self._db)
 
         # Initialize statistics
-        saved_nodes: List[KnowledgeNode] = []
-        failed_nodes: List[Dict[str, Any]] = []
+        saved_nodes: list[KnowledgeNode] = []
+        failed_nodes: list[dict[str, Any]] = []
         relationships_stats = {
             "HAS_SECTION": 0,
             "HAS_CONTENT": 0,
@@ -187,7 +186,7 @@ class SaveKnowledgeToArangoWorkflow:
         node: KnowledgeNode,
         parent_id: uuid.UUID | None,
         handler: KnowledgeNodeHandler,
-        relationships_stats: Dict[str, int],
+        relationships_stats: dict[str, int],
     ) -> None:
         """Create all relationships for a node."""
         if parent_id is not None:
@@ -214,9 +213,9 @@ class SaveKnowledgeToArangoWorkflow:
 
     async def _create_sibling_relationships(
         self,
-        children: List[KnowledgeNode],
+        children: list[KnowledgeNode],
         handler: KnowledgeNodeHandler,
-        relationships_stats: Dict[str, int],
+        relationships_stats: dict[str, int],
     ) -> None:
         """Create NEXT_SIBLING relationships for consecutive detail nodes only."""
         for i in range(len(children) - 1):
@@ -246,9 +245,9 @@ class SaveKnowledgeToArangoWorkflow:
         node: KnowledgeNode,
         parent_id: uuid.UUID | None,
         handler: KnowledgeNodeHandler,
-        saved_nodes: List[KnowledgeNode],
-        failed_nodes: List[Dict[str, Any]],
-        relationships_stats: Dict[str, int],
+        saved_nodes: list[KnowledgeNode],
+        failed_nodes: list[dict[str, Any]],
+        relationships_stats: dict[str, int],
     ) -> None:
         """
         Recursively save a node and all its children.
@@ -263,8 +262,6 @@ class SaveKnowledgeToArangoWorkflow:
                 "Node saved", node_id=str(node.id), node_type=self._get_node_type_str(node)
             )
         except Exception as exc:
-            import traceback
-
             error_msg = str(exc)
             error_info = {
                 "node_id": str(node.id),

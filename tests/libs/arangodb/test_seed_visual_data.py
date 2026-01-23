@@ -11,13 +11,9 @@ Then open ArangoDB Web UI at http://localhost:8529 to visualize the graph.
 """
 
 import random
-import uuid
 from datetime import datetime, timedelta
 
-import pytest
-from faker import Faker
-
-from arango_client.collections import Collections, EdgeCollections, RelationshipTypes
+from arango_client.collections import Collections, EdgeCollections
 from arango_client.handlers import ChatHandler, KnowledgeHandler
 from arango_client.models import (
     ChatMessage,
@@ -25,7 +21,7 @@ from arango_client.models import (
     ParagraphNode,
     StructureNode,
 )
-
+from faker import Faker
 
 # Initialize Vietnamese Faker
 fake = Faker("vi_VN")

@@ -4,9 +4,8 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, NonNegativeInt, validator
-
 from arango_client import DataSource
+from pydantic import BaseModel, Field, NonNegativeInt, validator
 
 
 class WebIngestionStatus(str, Enum):

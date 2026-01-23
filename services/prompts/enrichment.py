@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from config.domains import DomainSchema
 
 
 def build_detail_merge_prompt(
-    items: List[Dict[str, Any]],
-    breadcrumb: List[str],
-    domain_schema: Optional["DomainSchema"] = None,
+    items: list[dict[str, Any]],
+    breadcrumb: list[str],
+    domain_schema: DomainSchema | None = None,
 ) -> str:
     """Build prompt for merging detail items into RAG chunks.
 
@@ -23,7 +23,7 @@ def build_detail_merge_prompt(
     from config.chunking import MAX_CHUNK_SIZE
 
     context = " > ".join(breadcrumb)
-    lines: List[str] = []
+    lines: list[str] = []
     for idx, item in enumerate(items, start=1):
         prefix = item.get("type", "paragraph").upper()
         text = (item.get("text") or "").strip()
@@ -104,7 +104,7 @@ If nothing should be merged, output one segment per original item.
 
 def build_structure_enrich_prompt(
     title: str,
-    children_content: List[Dict[str, Any]],
+    children_content: list[dict[str, Any]],
     summary_style: str = "informative",
     short: bool = False,
 ) -> str:
@@ -116,7 +116,7 @@ def build_structure_enrich_prompt(
         summary_style: Style hint (e.g., 'informative', 'concise')
         short: Whether to generate a short summary
     """
-    blocks: List[str] = []
+    blocks: list[str] = []
     for idx, item in enumerate(children_content, start=1):
         t = item.get("type", "paragraph")
         block_title = item.get("title") or ""

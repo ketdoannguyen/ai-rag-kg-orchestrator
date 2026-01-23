@@ -13,9 +13,10 @@ from loguru import logger
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from config.settings import settings
-from config.llm_gateway import build_llm_gateway_client
 from workflows.refine_json import TextbookRefiner
+
+from config.llm_gateway import build_llm_gateway_client
+from config.settings import settings
 
 
 async def main() -> None:

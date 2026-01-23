@@ -20,8 +20,8 @@ class DatabaseError(RuntimeError):
 
 
 __all__ = [
-    "FileValidationError",
-    "DuplicateFileError",
-    "StorageUploadError",
     "DatabaseError",
+    "DuplicateFileError",
+    "FileValidationError",
+    "StorageUploadError",
 ]

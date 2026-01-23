@@ -8,13 +8,13 @@ Usage:
 
 import asyncio
 import json
-from typing import Any, Dict
+from typing import Any
 
 from loguru import logger
 
+from config.domains import EDUCATION_SCHEMA
 from config.llm_gateway import build_llm_gateway_client
 from config.settings import Settings
-from config.domains import EDUCATION_SCHEMA
 from services.agents.router import (
     ChatMessage,
     DomainConfig,
@@ -94,7 +94,7 @@ TEST_CASES = [
 ]
 
 
-async def run_test(router: RouterAgent, test_case: Dict[str, Any]) -> bool:
+async def run_test(router: RouterAgent, test_case: dict[str, Any]) -> bool:
     """Run a single test case."""
     name = test_case["name"]
     query = test_case["query"]

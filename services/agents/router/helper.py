@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, FrozenSet
+from typing import Any
 
 from loguru import logger
 
@@ -16,7 +16,7 @@ from loguru import logger
 _CODE_BLOCK_PATTERN = re.compile(r"```(?:json)?\s*\n?(.*?)\n?```", re.DOTALL)
 
 # Valid intents for O(1) lookup
-_VALID_INTENTS: FrozenSet[str] = frozenset(
+_VALID_INTENTS: frozenset[str] = frozenset(
     {"DISCOVERY", "SPECIFIC_FACT", "INSTRUCTION", "COMPARISON", "CONTACT_INFO", "CHIT_CHAT"}
 )
 
@@ -51,7 +51,7 @@ def extract_json_from_response(content: str) -> str:
     return content[start_idx : end_idx + 1]
 
 
-def parse_router_response(content: str, original_query: str) -> Dict[str, Any]:
+def parse_router_response(content: str, original_query: str) -> dict[str, Any]:
     """Parse and validate router LLM response.
 
     Args:

@@ -22,10 +22,9 @@ Usage:
 from __future__ import annotations
 
 import os
-from typing import Callable, Dict
+from collections.abc import Callable
 
 from .base import DomainSchema, MetadataField
-
 
 # =============================================================================
 # Domain Registry
@@ -40,7 +39,7 @@ def _load_education() -> DomainSchema:
     return EDUCATION_SCHEMA
 
 
-DOMAIN_REGISTRY: Dict[str, Callable[[], DomainSchema]] = {
+DOMAIN_REGISTRY: dict[str, Callable[[], DomainSchema]] = {
     "education": _load_education,
     # Add more domains here:
     # "ecommerce": _load_ecommerce,

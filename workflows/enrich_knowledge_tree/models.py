@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from arango_client import StructureNode
 from pydantic import BaseModel, Field
 
-from arango_client import KnowledgeNode, StructureNode
-
 if TYPE_CHECKING:
-    from config.domains import DomainSchema
+    pass
 
 
 class RefineConfig(BaseModel):
@@ -18,7 +17,7 @@ class RefineConfig(BaseModel):
     min_paragraph_length: int = Field(default=100, ge=0)
     max_paragraph_length: int = Field(default=800, ge=1)
     batch_size: int = Field(default=3, ge=1, le=100)
-    llm_model: str = Field(default="openai/qwen/qwen3-next-80b-a3b-instruct")
+    llm_model: str = Field(default="")
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     preserve_structure: bool = Field(
         default=True,
@@ -40,7 +39,7 @@ class EnrichConfig(BaseModel):
         default="informative",
         description="High-level style hint for summaries (e.g., 'informative', 'concise').",
     )
-    llm_model: str = Field(default="openai/qwen/qwen3-next-80b-a3b-instruct")
+    llm_model: str = Field(default="")
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
 
 
@@ -61,7 +60,7 @@ class EnrichKnowledgeTreeInput(BaseModel):
         default_factory=EnrichConfig,
         description="Configuration for structure enrichment.",
     )
-    domain_schema: Optional[Any] = Field(
+    domain_schema: Any | None = Field(
         default=None,
         description="DomainSchema for metadata extraction. If None, no metadata extracted.",
     )
@@ -80,14 +79,14 @@ class EnrichStatistics(BaseModel):
 class ChangesSummary(BaseModel):
     """High-level summary of changes applied to the tree."""
 
-    refined_sections: Dict[str, Dict[str, Any]] = Field(
+    refined_sections: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description=(
             "Per-structure-node summary keyed by node.id: "
             "{'title', 'original_detail_count', 'refined_detail_count'}."
         ),
     )
-    root_summary_preview: Optional[str] = Field(
+    root_summary_preview: str | None = Field(
         default=None,
         description="Short preview of the root summary (first ~300 chars).",
     )

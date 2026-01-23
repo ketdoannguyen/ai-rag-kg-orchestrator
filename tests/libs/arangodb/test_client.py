@@ -7,10 +7,10 @@ Tests that the client properly connects and auto-creates schema.
 import pytest
 from arango_client import ArangoClient
 from arango_client.collections import (
-    Collections,
-    EdgeCollections,
     KNOWLEDGE_GRAPH_NAME,
     KNOWLEDGE_VECTOR_VIEW_NAME,
+    Collections,
+    EdgeCollections,
 )
 
 
@@ -24,13 +24,12 @@ class TestClientConnection:
 
     def test_client_creates_document_collections(self, db):
         """Test that all document collections are created."""
-        # Multi-collection strategy: knowledge nodes split across multiple collections
+        # Unified collection strategy after refactor
         expected = [
-            Collections.PARAGRAPH_NODES,
-            Collections.IMAGE_NODES,
-            Collections.TABLE_NODES,
+            Collections.CONTENT_NODES,
             Collections.STRUCTURE_NODES,
             Collections.ROOT_NODES,
+            Collections.ENTITY_NODES,
             Collections.CHAT_SESSIONS,
             Collections.CHAT_MESSAGES,
             Collections.FEEDBACKS,

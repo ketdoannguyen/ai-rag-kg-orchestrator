@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple
-
 from arango_client import (
-    KnowledgeNode,
-    StructureNode,
-    ParagraphNode,
     ImageNode,
+    KnowledgeNode,
+    ParagraphNode,
+    StructureNode,
     TableNode,
 )
 
@@ -17,7 +15,7 @@ def extract_text_for_embedding(node: KnowledgeNode) -> str | None:
     """
     Extract text from a node for embedding.
 
-    For structure nodes: returns attributes.description (summary)
+    For structure nodes: returns summary (if available) or falls back to title
     For detail nodes: returns text content based on node type
 
     Args:
@@ -27,17 +25,12 @@ def extract_text_for_embedding(node: KnowledgeNode) -> str | None:
         Text to embed, or None if node has no embeddable text
     """
     if isinstance(node, StructureNode):
-        # Structure nodes: priority order - description, summary, title
-        # 1. Try description (summary field in attributes)
-        description = node.attributes.description
-        if description and description.strip():
-            return description.strip()
-
-        # 2. Try summary field (set by enricher on the model)
-        if hasattr(node, "summary") and node.summary and node.summary.strip():
+        # Structure nodes: priority order - summary, title
+        # 1. Try summary field (set by enricher)
+        if node.summary and node.summary.strip():
             return node.summary.strip()
 
-        # 3. Fallback to title
+        # 2. Fallback to title
         title = node.attributes.title
         if title and title.strip():
             return title.strip()
@@ -68,7 +61,7 @@ def extract_text_for_embedding(node: KnowledgeNode) -> str | None:
     return None
 
 
-def collect_embeddable_nodes(nodes: List[KnowledgeNode]) -> List[Tuple[KnowledgeNode, str]]:
+def collect_embeddable_nodes(nodes: list[KnowledgeNode]) -> list[tuple[KnowledgeNode, str]]:
     """
     Collect all nodes that have embeddable text.
 
@@ -78,7 +71,7 @@ def collect_embeddable_nodes(nodes: List[KnowledgeNode]) -> List[Tuple[Knowledge
     Returns:
         List of tuples: (node, text_to_embed)
     """
-    embeddable: List[Tuple[KnowledgeNode, str]] = []
+    embeddable: list[tuple[KnowledgeNode, str]] = []
 
     for node in nodes:
         text = extract_text_for_embedding(node)
@@ -89,8 +82,8 @@ def collect_embeddable_nodes(nodes: List[KnowledgeNode]) -> List[Tuple[Knowledge
 
 
 def create_batches(
-    items: List[Tuple[KnowledgeNode, str]], batch_size: int
-) -> List[List[Tuple[KnowledgeNode, str]]]:
+    items: list[tuple[KnowledgeNode, str]], batch_size: int
+) -> list[list[tuple[KnowledgeNode, str]]]:
     """
     Split items into batches of specified size.
 
@@ -101,7 +94,7 @@ def create_batches(
     Returns:
         List of batches, each containing up to batch_size items
     """
-    batches: List[List[Tuple[KnowledgeNode, str]]] = []
+    batches: list[list[tuple[KnowledgeNode, str]]] = []
     for i in range(0, len(items), batch_size):
         batch = items[i : i + batch_size]
         batches.append(batch)

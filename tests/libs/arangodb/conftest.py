@@ -7,9 +7,9 @@ Supports conditional teardown via KEEP_TEST_DB environment variable.
 
 import os
 import uuid
+
 import pytest
 from arango_client import ArangoClient
-
 
 # Test database name (isolated from production)
 TEST_DATABASE = "test"

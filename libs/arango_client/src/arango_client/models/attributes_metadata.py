@@ -96,7 +96,6 @@ class StructureAttributes(BaseModel):
         None,
         description="Optional code/identifier (e.g., 'Chapter', 'Part', 'I', 'II', 'III', '1', '2', ...)",
     )
-    description: str | None = Field(None, description="Optional description/summary")
 
     def model_post_init(self, __context) -> None:
         """Extract code from title after initialization if code is None."""

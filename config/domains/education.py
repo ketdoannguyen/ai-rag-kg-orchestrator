@@ -1,91 +1,157 @@
-"""Education domain schema for university admission system."""
+"""Education domain schema for university learning materials.
+
+Updated from "Tuyển sinh Đại học" to "Tài liệu Học tập Đại học".
+Includes smart filter support with is_filter_safe and dependencies.
+"""
+
+from __future__ import annotations
 
 from .base import DomainSchema, MetadataField
 
-
 EDUCATION_SCHEMA = DomainSchema(
     name="education",
-    display_name="Tuyển sinh Đại học",
+    display_name="Tài liệu Học tập Đại học",
     metadata_fields=[
+        # =====================================================================
+        # FILTER-SAFE FIELDS (can be used for direct filtering)
+        # Nodes from different values are independent
+        # =====================================================================
         MetadataField(
-            name="year",
+            name="subject",
             type="list",
-            description="Năm tuyển sinh/học (trả về dạng list, VD: [2024, 2025])",
-            allowed_values=[2023, 2024, 2025, 2026],
-            extraction_hints=["năm", "niên khóa", "khóa"],
-        ),
-        MetadataField(
-            name="major_name",
-            type="list",
-            description="Tên ngành đã chuẩn hóa (trả về dạng list)",
+            description="Môn học/Lĩnh vực (FILTER-SAFE: nodes from different subjects are independent)",
             allowed_values=[
-                "Công nghệ thông tin",
-                "Khoa học máy tính",
-                "Kỹ thuật phần mềm",
-                "Trí tuệ nhân tạo",
-                "Khoa học dữ liệu",
-                "An toàn thông tin",
-                "Quản trị kinh doanh",
-                "Kế toán",
-                "Marketing",
-                "Tài chính ngân hàng",
-                "Du lịch",
-                "Ngôn ngữ Anh",
-                "Thiết kế đồ họa",
+                "Toán học",
+                "Vật lý",
+                "Hóa học",
+                "Sinh học",
+                "Tin học",
+                "Ngữ văn",
+                "Lịch sử",
+                "Địa lý",
+                "Tiếng Anh",
+                "Triết học",
+                "Kinh tế",
+                "Luật",
+                "Y học",
+                "Kỹ thuật",
+                "Kiến trúc",
+                "Nông nghiệp",
             ],
             aliases={
-                "IT": "Công nghệ thông tin",
-                "CNTT": "Công nghệ thông tin",
-                "CS": "Khoa học máy tính",
-                "KHMT": "Khoa học máy tính",
-                "SE": "Kỹ thuật phần mềm",
-                "KTPM": "Kỹ thuật phần mềm",
-                "AI": "Trí tuệ nhân tạo",
-                "TTNT": "Trí tuệ nhân tạo",
-                "DS": "Khoa học dữ liệu",
-                "KHDL": "Khoa học dữ liệu",
-                "ATTT": "An toàn thông tin",
-                "BA": "Quản trị kinh doanh",
-                "QTKD": "Quản trị kinh doanh",
-                "MKT": "Marketing",
+                "Math": "Toán học",
+                "Toán": "Toán học",
+                "Physics": "Vật lý",
+                "Lý": "Vật lý",
+                "Chemistry": "Hóa học",
+                "Hóa": "Hóa học",
+                "Biology": "Sinh học",
+                "Sinh": "Sinh học",
+                "IT": "Tin học",
+                "CS": "Tin học",
+                "CNTT": "Tin học",
+                "Literature": "Ngữ văn",
+                "Văn": "Ngữ văn",
+                "History": "Lịch sử",
+                "Sử": "Lịch sử",
+                "Geography": "Địa lý",
+                "Địa": "Địa lý",
+                "English": "Tiếng Anh",
             },
-            extraction_hints=["ngành", "khoa", "chuyên ngành", "lĩnh vực"],
+            extraction_hints=["môn", "học phần", "subject", "ngành", "lĩnh vực"],
+            is_filter_safe=True,
         ),
         MetadataField(
-            name="admission_method",
+            name="academic_level",
             type="list",
-            description="Phương thức xét tuyển (trả về dạng list)",
+            description="Cấp học (FILTER-SAFE: levels are independent)",
             allowed_values=[
-                "Học bạ",
-                "THPT",
-                "Đánh giá năng lực",
-                "Xét tuyển thẳng",
-                "Liên thông",
+                "Đại cương",
+                "Cơ sở ngành",
+                "Chuyên ngành",
+                "Sau đại học",
             ],
-            aliases={
-                "Điểm thi THPT": "THPT",
-                "Thi THPT": "THPT",
-                "ĐGNL": "Đánh giá năng lực",
-                "Xét học bạ": "Học bạ",
-            },
-            extraction_hints=["phương thức", "xét tuyển", "tuyển sinh"],
+            extraction_hints=["năm", "khóa", "cấp độ", "trình độ"],
+            is_filter_safe=True,
         ),
         MetadataField(
-            name="training_system",
+            name="source_type",
             type="list",
-            description="Hệ đào tạo (trả về dạng list)",
+            description="Loại nguồn tài liệu (FILTER-SAFE: sources are independent)",
             allowed_values=[
-                "Chất lượng cao",
-                "Đại trà",
-                "Liên kết quốc tế",
-                "Từ xa",
+                "Giáo trình",
+                "Slide bài giảng",
+                "Đề thi",
+                "Bài tập",
+                "Tài liệu tham khảo",
+                "Luận văn",
+                "Báo cáo",
             ],
-            aliases={
-                "CLC": "Chất lượng cao",
-                "Tiêu chuẩn": "Đại trà",
-                "Quốc tế": "Liên kết quốc tế",
+            extraction_hints=["nguồn", "tài liệu", "source", "loại tài liệu"],
+            is_filter_safe=True,
+        ),
+        # =====================================================================
+        # NON-FILTER-SAFE FIELDS (need dependency expansion when filtering)
+        # Values have semantic relationships
+        # =====================================================================
+        MetadataField(
+            name="content_type",
+            type="list",
+            description="Loại nội dung (NOT FILTER-SAFE: có phụ thuộc ngữ nghĩa)",
+            allowed_values=[
+                "Lý thuyết",
+                "Định nghĩa",
+                "Định lý",
+                "Công thức",
+                "Chứng minh",
+                "Ví dụ",
+                "Bài tập",
+                "Lời giải",
+                "Tóm tắt",
+                "Ghi chú",
+            ],
+            extraction_hints=["loại", "type", "nội dung"],
+            is_filter_safe=False,
+            # Dependencies: when filtering for key, also include its dependencies
+            # Example: filtering "Lý thuyết" should also include "Định nghĩa", "Định lý", "Công thức"
+            dependencies={
+                "Lý thuyết": ["Định nghĩa", "Định lý", "Công thức"],
+                "Bài tập": ["Lời giải", "Công thức", "Ví dụ"],
+                "Ví dụ": ["Định nghĩa", "Công thức"],
+                "Chứng minh": ["Định lý", "Định nghĩa"],
+                "Lời giải": ["Công thức", "Định lý"],
             },
-            extraction_hints=["hệ", "chương trình", "đào tạo"],
+        ),
+        MetadataField(
+            name="chapter",
+            type="string",
+            description="Chương/Phần của tài liệu (NOT FILTER-SAFE: use with HAS_SECTION edges)",
+            extraction_hints=["chương", "phần", "chapter", "section"],
+            is_filter_safe=False,
+            # Chapters have hierarchical relationships, use graph traversal
+            dependencies={},
+        ),
+        # =====================================================================
+        # ADDITIONAL FIELDS (for enrichment, not primary filtering)
+        # =====================================================================
+        MetadataField(
+            name="difficulty",
+            type="list",
+            description="Độ khó của nội dung",
+            allowed_values=[
+                "Cơ bản",
+                "Trung bình",
+                "Nâng cao",
+            ],
+            extraction_hints=["độ khó", "level", "cấp độ"],
+            is_filter_safe=True,
+        ),
+        MetadataField(
+            name="keywords",
+            type="list",
+            description="Từ khóa chính của nội dung",
+            extraction_hints=["từ khóa", "keyword", "thuật ngữ"],
+            is_filter_safe=True,  # Keywords are independent
         ),
     ],
 )

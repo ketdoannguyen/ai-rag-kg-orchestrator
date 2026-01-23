@@ -7,38 +7,39 @@ import warnings
 from datetime import datetime
 from typing import Any
 
-from loguru import logger
 from arango_client import (
     ArangoClient,
+    SourceType,
+    SystemAdminHandler,
     set_parent_ids,
     set_positions,
-    SystemAdminHandler,
-    SourceType,
 )
+from loguru import logger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from workflows.dependencies import init_arango_client
-from .tree_utils import (
-    compute_tree_statistics,
-    validate_tree_and_attach_source,
-    serialize_tree_to_dict,
-)
+
 from .content_extractor import ContentExtractor
 from .crawl4ai_client import Crawl4AIClient
-from .markdown_to_json import MarkdownToJSONConverter
-from .url_validation import validate_urls
 from .markdown_processing import (
     assess_markdown_quality,
-    find_content_start,
-    extract_source_name,
     clean_markdown_content,
+    extract_source_name,
+    find_content_start,
 )
+from .markdown_to_json import MarkdownToJSONConverter
 from .models import (
     WebIngestionInput,
     WebIngestionResult,
     WebIngestionSingleResult,
     WebIngestionStatus,
 )
+from .tree_utils import (
+    compute_tree_statistics,
+    serialize_tree_to_dict,
+    validate_tree_and_attach_source,
+)
+from .url_validation import validate_urls
 
 
 async def start_ingest_web(
@@ -196,7 +197,7 @@ class WebIngestionWorkflow:
                     ),
                     timeout=payload.per_url_timeout_seconds,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._logger.error(f"Timeout processing URL: {url}")
                 raise
             except Exception as exc:
@@ -393,4 +394,4 @@ class WebIngestionWorkflow:
         return saved
 
 
-__all__ = ["start_ingest_web", "WebIngestionWorkflow"]
+__all__ = ["WebIngestionWorkflow", "start_ingest_web"]

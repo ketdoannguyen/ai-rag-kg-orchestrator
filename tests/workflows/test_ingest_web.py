@@ -11,29 +11,28 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
-
-from loguru import logger
 
 from arango_client import (
     ArangoClient,
     KnowledgeNodeHandler,
     parse_node_from_dict,
-    serialize_tree_to_dict,
 )
+from loguru import logger
+
 from workflows.dependencies import init_arango_client, init_llm_client
-from workflows.ingest_web import WebIngestionInput, WebIngestionStatus, start_ingest_web
+from workflows.embed_nodes import start_embed_nodes
+from workflows.embed_nodes.helper import extract_text_for_embedding
+from workflows.embed_nodes.models import EmbedNodesInput
 from workflows.enrich_knowledge_tree import start_enrich_knowledge_tree
 from workflows.enrich_knowledge_tree.models import EnrichKnowledgeTreeInput
-from workflows.save_knowledge_to_arango import start_save_knowledge_to_arango
-from workflows.save_knowledge_to_arango.models import SaveKnowledgeInput
-from workflows.embed_nodes import start_embed_nodes
-from workflows.embed_nodes.models import EmbedNodesInput
-from workflows.embed_nodes.helper import extract_text_for_embedding
+from workflows.ingest_web import WebIngestionInput, WebIngestionStatus, start_ingest_web
 from workflows.save_embeddings_to_arango import start_save_embeddings_to_arango
 from workflows.save_embeddings_to_arango.models import SaveEmbeddingsInput
+from workflows.save_knowledge_to_arango import start_save_knowledge_to_arango
+from workflows.save_knowledge_to_arango.models import SaveKnowledgeInput
 
 
 class IngestWebPipelineTest(unittest.TestCase):
@@ -63,7 +62,7 @@ class IngestWebPipelineTest(unittest.TestCase):
 
     def _create_output_folder(self) -> Path:
         """Create timestamped output folder for this test run."""
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         output_dir = self.BASE_OUTPUT_DIR / f"web_{timestamp}"
         output_dir.mkdir(parents=True, exist_ok=True)
         return output_dir
@@ -88,40 +87,6 @@ class IngestWebPipelineTest(unittest.TestCase):
         _count(node)
         return dict(counts)
 
-    def _cleanup_nodes_by_source(self, data_source_id: UUID) -> tuple[int, int]:
-        """Clean up nodes from data source using direct AQL. Returns (nodes_deleted, edges_deleted)."""
-        old_nodes = self._arango_client.db.aql.execute(
-            "FOR n IN knowledge_nodes FILTER n.source_id == @source_id RETURN n._key",
-            bind_vars={"source_id": str(data_source_id)},
-        )
-        old_keys = list(old_nodes)
-
-        if not old_keys:
-            return 0, 0
-
-        # Delete edges first
-        edge_result = self._arango_client.db.aql.execute(
-            """
-            FOR e IN knowledge_edges
-                LET from_key = PARSE_IDENTIFIER(e._from).key
-                LET to_key = PARSE_IDENTIFIER(e._to).key
-                FILTER from_key IN @keys OR to_key IN @keys
-                REMOVE e IN knowledge_edges
-                RETURN 1
-            """,
-            bind_vars={"keys": old_keys},
-        )
-        edges_deleted = len(list(edge_result))
-
-        # Delete nodes
-        node_result = self._arango_client.db.aql.execute(
-            "FOR n IN knowledge_nodes FILTER n.source_id == @source_id REMOVE n IN knowledge_nodes RETURN 1",
-            bind_vars={"source_id": str(data_source_id)},
-        )
-        nodes_deleted = len(list(node_result))
-
-        return nodes_deleted, edges_deleted
-
     def test_full_pipeline(self) -> None:
         """Test full pipeline: ingest_web → enrich → save → embed → save_embeddings.
 
@@ -130,7 +95,7 @@ class IngestWebPipelineTest(unittest.TestCase):
         output_dir = self._create_output_folder()
 
         print(f"\n{'=' * 80}")
-        print(f"Full Web Ingestion Pipeline Test")
+        print("Full Web Ingestion Pipeline Test")
         print(f"URL: {self.TEST_URL}")
         print(f"Output folder: {output_dir}")
         print(f"{'=' * 80}")
@@ -206,11 +171,6 @@ class IngestWebPipelineTest(unittest.TestCase):
 
         # ============ Stage 3: Save to ArangoDB ============
         print("\n[Stage 3/6] Saving to ArangoDB...")
-
-        # Cleanup old nodes if any
-        old_nodes_deleted, old_edges_deleted = self._cleanup_nodes_by_source(data_source_id)
-        if old_nodes_deleted > 0:
-            print(f"  → Cleaned up: {old_nodes_deleted} old nodes, {old_edges_deleted} edges")
 
         save_result = asyncio.run(
             start_save_knowledge_to_arango(
@@ -331,7 +291,7 @@ class IngestWebPipelineTest(unittest.TestCase):
 
         # ============ Final Summary ============
         summary = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "url": self.TEST_URL,
             "data_source_id": str(data_source_id),
             "output_folder": str(output_dir),
@@ -388,7 +348,7 @@ class IngestWebPipelineTest(unittest.TestCase):
             f"  • Save: {save_result['total_nodes_saved']} nodes + {total_relationships} relationships"
         )
         print(f"  • Embed: {embed_count} embeddings")
-        print(f"  • Verification: ✓ All counts match!")
+        print("  • Verification: ✓ All counts match!")
         print(f"  • Output: {output_dir}")
         print(f"{'=' * 80}\n")
 

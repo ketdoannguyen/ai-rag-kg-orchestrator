@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from arango_client import KnowledgeNode, StructureNode, NodeType
+from arango_client import KnowledgeNode
 
 
 def compute_tree_statistics(
@@ -137,6 +137,6 @@ def serialize_tree_to_dict(node: KnowledgeNode) -> dict[str, Any]:
 
 __all__ = [
     "compute_tree_statistics",
-    "validate_tree_and_attach_source",
     "serialize_tree_to_dict",
+    "validate_tree_and_attach_source",
 ]

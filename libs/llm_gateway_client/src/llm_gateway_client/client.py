@@ -1,3 +1,5 @@
+"""AI Gateway Client implementation using LiteLLM."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -7,7 +9,7 @@ from litellm import acompletion, aembedding
 from loguru import logger
 from tenacity import (
     retry,
-    retry_if_exception_type,
+    retry_if_not_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
@@ -19,6 +21,9 @@ from .models.request import GatewayInvokeRequest
 from .models.response import InvokeResponse, InvokeStreamChunk
 from .registry import ModelRegistry
 from .utils import MessageConverter
+
+# Non-retryable exceptions - configuration errors that won't be fixed by retry
+NON_RETRYABLE_EXCEPTIONS = (ConfigurationError, ModelNotFoundError)
 
 
 class AIGatewayClient:
@@ -40,7 +45,7 @@ class AIGatewayClient:
             embed=len(self.embedding_registry.entries),
         )
 
-    def bind_tools(self, tools: list[dict[str, Any]]) -> "AIGatewayClient":
+    def bind_tools(self, tools: list[dict[str, Any]]) -> AIGatewayClient:
         """Return a new client instance with default tools applied to every request."""
         combined_tools = [*self.default_tools, *tools]
         return AIGatewayClient(
@@ -94,8 +99,9 @@ class AIGatewayClient:
 
     @retry(
         wait=wait_exponential(multiplier=1, min=2, max=60),
-        stop=stop_after_attempt(5),
-        retry=retry_if_exception_type(GatewayAPIError),
+        stop=stop_after_attempt(3),
+        retry=retry_if_not_exception_type(NON_RETRYABLE_EXCEPTIONS),
+        reraise=True,
         before_sleep=lambda state: logger.warning(
             "Retrying chat completion due to error: {error}. Attempt #{attempt}, sleeping {wait:.2f}s.",
             error=state.outcome.exception() if state.outcome else "unknown",
@@ -104,38 +110,55 @@ class AIGatewayClient:
         ),
     )
     async def invoke(self, request: GatewayInvokeRequest) -> InvokeResponse:
-        try:
-            chat_config = self.chat_registry.get(request.model)
-            messages = MessageConverter.to_litellm_messages(request.messages)
-            params = self._prepare_params(
-                request.provider_options, chat_config, self._resolve_tools(request)
-            )
-            response = await acompletion(
-                model=request.model or chat_config.model,
-                messages=messages,
-                **params,
-            )
-            response_dict = self._to_dict(response)
-            choice = self._first_choice(response_dict)
-            message_payload = choice.get("message") or {}
-            message, tool_calls = MessageConverter.parse_assistant_message(message_payload)
+        chat_config = self.chat_registry.get(request.model)
+        messages = MessageConverter.to_litellm_messages(request.messages)
+        params = self._prepare_params(
+            request.provider_options, chat_config, self._resolve_tools(request)
+        )
+        response = await acompletion(
+            model=request.model or chat_config.model,
+            messages=messages,
+            **params,
+        )
+        response_dict = self._to_dict(response)
 
-            return InvokeResponse(
-                message=message,
-                tool_calls=tool_calls,
-                finish_reason=choice.get("finish_reason") or "unknown",
-                usage=self._normalize_usage(response_dict.get("usage")),
-            )
-        except (ConfigurationError, ModelNotFoundError):
-            raise
-        except Exception as exc:
-            logger.exception("Invoke failed: {error}", error=exc)
-            raise GatewayAPIError(f"Chat invocation failed: {exc}") from exc
+        # Debug logging for troubleshooting empty responses
+        logger.debug(
+            "Raw LLM response",
+            model=request.model or chat_config.model,
+            response_keys=list(response_dict.keys()) if response_dict else [],
+            choices_count=len(response_dict.get("choices", [])),
+        )
+
+        choice = self._first_choice(response_dict)
+
+        # Debug logging for choice structure
+        message_raw = choice.get("message") or {}
+        logger.debug(
+            "Choice message structure",
+            finish_reason=choice.get("finish_reason"),
+            message_keys=list(message_raw.keys()) if message_raw else [],
+            content_type=type(message_raw.get("content")).__name__,
+            content_preview=str(message_raw.get("content"))[:200]
+            if message_raw.get("content")
+            else "NONE",
+        )
+
+        message_payload = choice.get("message") or {}
+        message, tool_calls = MessageConverter.parse_assistant_message(message_payload)
+
+        return InvokeResponse(
+            message=message,
+            tool_calls=tool_calls,
+            finish_reason=choice.get("finish_reason") or "unknown",
+            usage=self._normalize_usage(response_dict.get("usage")),
+        )
 
     @retry(
         wait=wait_exponential(multiplier=1, min=2, max=60),
-        stop=stop_after_attempt(5),
-        retry=retry_if_exception_type(GatewayAPIError),
+        stop=stop_after_attempt(3),
+        retry=retry_if_not_exception_type(NON_RETRYABLE_EXCEPTIONS),
+        reraise=True,
         before_sleep=lambda state: logger.warning(
             "Retrying streaming call due to error: {error}. Attempt #{attempt}, sleeping {wait:.2f}s.",
             error=state.outcome.exception() if state.outcome else "unknown",
@@ -144,31 +167,26 @@ class AIGatewayClient:
         ),
     )
     async def astream(self, request: GatewayInvokeRequest) -> AsyncIterator[InvokeStreamChunk]:
-        try:
-            chat_config = self.chat_registry.get(request.model)
-            messages = MessageConverter.to_litellm_messages(request.messages)
-            params = self._prepare_params(
-                request.provider_options, chat_config, self._resolve_tools(request)
-            )
-            params["stream"] = True
+        chat_config = self.chat_registry.get(request.model)
+        messages = MessageConverter.to_litellm_messages(request.messages)
+        params = self._prepare_params(
+            request.provider_options, chat_config, self._resolve_tools(request)
+        )
+        params["stream"] = True
 
-            async for chunk in acompletion(
-                model=request.model or chat_config.model,
-                messages=messages,
-                **params,
-            ):
-                chunk_dict = self._to_dict(chunk)
-                yield MessageConverter.parse_stream_chunk(chunk_dict)
-        except (ConfigurationError, ModelNotFoundError):
-            raise
-        except Exception as exc:
-            logger.exception("Streaming invoke failed: {error}", error=exc)
-            raise GatewayAPIError(f"Streaming invocation failed: {exc}") from exc
+        async for chunk in acompletion(
+            model=request.model or chat_config.model,
+            messages=messages,
+            **params,
+        ):
+            chunk_dict = self._to_dict(chunk)
+            yield MessageConverter.parse_stream_chunk(chunk_dict)
 
     @retry(
         wait=wait_exponential(multiplier=1, min=2, max=60),
-        stop=stop_after_attempt(5),
-        retry=retry_if_exception_type(GatewayAPIError),
+        stop=stop_after_attempt(3),
+        retry=retry_if_not_exception_type(NON_RETRYABLE_EXCEPTIONS),
+        reraise=True,
         before_sleep=lambda state: logger.warning(
             "Retrying embedding call due to error: {error}. Attempt #{attempt}, sleeping {wait:.2f}s.",
             error=state.outcome.exception() if state.outcome else "unknown",
@@ -180,32 +198,35 @@ class AIGatewayClient:
         """Generate embeddings for input texts.
 
         Uses LiteLLM's aembedding with api_base for OpenRouter/OpenAI-compatible APIs.
+        Handles model names with 'openrouter/' prefix by stripping it and using api_base.
         """
         embedding_config = self.embedding_registry.get(request.model)
-        try:
-            params = self._prepare_params(request.provider_options, embedding_config)
-            response = await aembedding(
-                model=request.model or embedding_config.model,
-                input=request.input,
-                encoding_format="float",
-                **params,
-            )
-            response_dict = self._to_dict(response)
-            data = response_dict.get("data") or []
-            if not data:
-                raise GatewayAPIError("Embedding provider returned no vectors.")
-            embeddings: list[list[float]] = []
-            for record in data:
-                vector = record.get("embedding")
-                if not isinstance(vector, list):
-                    raise GatewayAPIError("Embedding vector missing or invalid.")
-                embeddings.append(vector)
-            return EmbeddingResponse(
-                embeddings=embeddings,
-                usage=self._normalize_usage(response_dict.get("usage")),
-            )
-        except (ConfigurationError, ModelNotFoundError):
-            raise
-        except Exception as exc:
-            logger.exception("Embedding call failed: {error}", error=exc)
-            raise GatewayAPIError(f"Embedding generation failed: {exc}") from exc
+        params = self._prepare_params(request.provider_options, embedding_config)
+
+        # Determine the model name to use
+        model_name = request.model or embedding_config.model
+
+        # Handle openrouter/ prefix - strip it and let api_base do the routing
+        if model_name.startswith("openrouter/"):
+            model_name = model_name.replace("openrouter/", "", 1)
+
+        response = await aembedding(
+            model=model_name,
+            input=request.input,
+            encoding_format="float",
+            **params,
+        )
+        response_dict = self._to_dict(response)
+        data = response_dict.get("data") or []
+        if not data:
+            raise GatewayAPIError("Embedding provider returned no vectors.")
+        embeddings: list[list[float]] = []
+        for record in data:
+            vector = record.get("embedding")
+            if not isinstance(vector, list):
+                raise GatewayAPIError("Embedding vector missing or invalid.")
+            embeddings.append(vector)
+        return EmbeddingResponse(
+            embeddings=embeddings,
+            usage=self._normalize_usage(response_dict.get("usage")),
+        )

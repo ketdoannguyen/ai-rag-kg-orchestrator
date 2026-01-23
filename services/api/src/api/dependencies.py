@@ -1,23 +1,23 @@
+from collections.abc import Callable
 from functools import lru_cache
-from typing import Callable
 
+from arango_client import ArangoClient
 from fastapi import Depends
+from llm_gateway_client import AIGatewayClient
+from workflows.admin_cms import update_content
+from workflows.query_chat import execute_query
 
 from config.llm_gateway import build_llm_gateway_client
 from config.settings import Settings, get_settings
-from llm_gateway_client import AIGatewayClient
-from arango_client import ArangoClient
-from workflows.admin_cms import update_content
 from workflows.ingest_file import start_ingest
-from workflows.query_chat import execute_query
 
 
-@lru_cache()
+@lru_cache
 def get_app_settings() -> Settings:
     return get_settings()
 
 
-@lru_cache()
+@lru_cache
 def get_arango_client(
     settings: Settings = Depends(get_app_settings),
 ) -> ArangoClient:
@@ -29,7 +29,7 @@ def get_arango_client(
     )
 
 
-@lru_cache()
+@lru_cache
 def get_llm_client(
     settings: Settings = Depends(get_app_settings),
 ) -> AIGatewayClient:

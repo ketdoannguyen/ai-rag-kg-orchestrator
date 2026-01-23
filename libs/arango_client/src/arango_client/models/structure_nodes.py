@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 from pydantic import Field, model_validator
 
 from .attributes_metadata import StructureAttributes, StructureMetadata
-from .knowledge import KnowledgeNode
 from .enums import NodeType
-
-if TYPE_CHECKING:
-    from .knowledge import KnowledgeNode as KnowledgeNodeType
+from .knowledge import KnowledgeNode
 
 
 class StructureNode(KnowledgeNode):
@@ -29,7 +26,6 @@ class StructureNode(KnowledgeNode):
     Attributes:
         - title: Section/topic title/name
         - code: Optional code/identifier (e.g., "Chapter 1", "Part A")
-        - description: Optional description/summary
 
     Metadata:
         - start_page: Start page number in source document

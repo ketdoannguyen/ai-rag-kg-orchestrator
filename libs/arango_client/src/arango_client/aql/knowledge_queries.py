@@ -16,7 +16,6 @@ Query Parameters:
 
 from __future__ import annotations
 
-
 # =============================================================================
 # CRUD Queries (Used by BaseHandler and subclasses)
 # =============================================================================
@@ -96,7 +95,7 @@ LET descendants = (
 LET edges = (
   FOR key IN descendants
     FOR e IN @@edge_collection
-      FILTER e._from == CONCAT(@collection_prefix, key) 
+      FILTER e._from == CONCAT(@collection_prefix, key)
           OR e._to == CONCAT(@collection_prefix, key)
       RETURN e._key
 )

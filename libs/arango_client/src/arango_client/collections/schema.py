@@ -17,12 +17,18 @@ from typing import Any
 class Collections:
     """Document collection names."""
 
-    # Knowledge node collections (Multi-Collection Strategy)
-    PARAGRAPH_NODES = "paragraph_nodes"
-    IMAGE_NODES = "image_nodes"
-    TABLE_NODES = "table_nodes"
+    # Unified content collection (Tier 2 - PRIMARY)
+    CONTENT_NODES = "content_nodes"
+
+    # Structure collections (Tier 1)
     STRUCTURE_NODES = "structure_nodes"
     ROOT_NODES = "root_nodes"
+
+    # Entity collection (Tier 3 - scaffold, logic to be implemented)
+    ENTITY_NODES = "entity_nodes"
+
+    # Ontology collection (relation types with embeddings)
+    ONTOLOGY_RELATIONS = "ontology_relations"
 
     # Other collections
     CHAT_SESSIONS = "chat_sessions"
@@ -35,11 +41,26 @@ class Collections:
 
 # All knowledge node collections (for graph and search)
 KNOWLEDGE_COLLECTIONS = [
-    Collections.PARAGRAPH_NODES,
-    Collections.IMAGE_NODES,
-    Collections.TABLE_NODES,
+    Collections.CONTENT_NODES,
     Collections.STRUCTURE_NODES,
     Collections.ROOT_NODES,
+    Collections.ENTITY_NODES,
+]
+
+# Content collections only (Tier 2)
+CONTENT_COLLECTIONS = [
+    Collections.CONTENT_NODES,
+]
+
+# Structure collections only (Tier 1)
+STRUCTURE_COLLECTIONS = [
+    Collections.STRUCTURE_NODES,
+    Collections.ROOT_NODES,
+]
+
+# Entity collections (Tier 3)
+ENTITY_COLLECTIONS = [
+    Collections.ENTITY_NODES,
 ]
 
 
@@ -311,6 +332,7 @@ KNOWLEDGE_VECTOR_INDEX_DEFINITION: dict[str, Any] = {
 # All document collections (for initialization)
 # =============================================================================
 ALL_DOCUMENT_COLLECTIONS = KNOWLEDGE_COLLECTIONS + [
+    Collections.ONTOLOGY_RELATIONS,
     Collections.CHAT_SESSIONS,
     Collections.CHAT_MESSAGES,
     Collections.FEEDBACKS,

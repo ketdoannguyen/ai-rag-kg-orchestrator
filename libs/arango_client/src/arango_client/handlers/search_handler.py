@@ -10,21 +10,20 @@ All AQL queries are imported from the centralized aql/ module.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from arango.database import StandardDatabase
 
 from ..aql import (
+    HYBRID_SEARCH,
     VECTOR_SEARCH_CONTENT,
     VECTOR_SEARCH_CONTENT_WITH_SOURCE,
     VECTOR_SEARCH_STRUCTURE,
     VECTOR_SEARCH_STRUCTURE_WITH_SOURCE,
-    HYBRID_SEARCH,
-    FULLTEXT_SEARCH,
 )
-from ..collections.schema import Collections, KNOWLEDGE_VECTOR_VIEW_NAME
-from ..models.knowledge import KnowledgeNode
+from ..collections.schema import KNOWLEDGE_VECTOR_VIEW_NAME
 from ..models.enums import NodeType
+from ..models.knowledge import KnowledgeNode
 from ..utils import doc_to_knowledge_node
 
 
@@ -65,8 +64,8 @@ class SearchHandler:
         query_vector: list[float],
         limit: int = 10,
         min_score: float = 0.0,
-        source_id: Optional[uuid.UUID | str] = None,
-        node_types: Optional[list[NodeType | str]] = None,
+        source_id: uuid.UUID | str | None = None,
+        node_types: list[NodeType | str] | None = None,
     ) -> list[SearchResult]:
         """
         Search for similar content using content embeddings.
@@ -115,7 +114,7 @@ class SearchHandler:
         query_vector: list[float],
         limit: int = 10,
         min_score: float = 0.0,
-        source_id: Optional[uuid.UUID | str] = None,
+        source_id: uuid.UUID | str | None = None,
     ) -> list[SearchResult]:
         """
         Search for similar structure nodes using structure embeddings.
@@ -206,7 +205,7 @@ class SearchHandler:
         self,
         search_term: str,
         limit: int = 10,
-        source_id: Optional[uuid.UUID | str] = None,
+        source_id: uuid.UUID | str | None = None,
     ) -> list[KnowledgeNode]:
         """
         Full-text search on text and title attributes using ArangoSearch view.

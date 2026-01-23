@@ -127,4 +127,4 @@ async def check_robots_txt(url: str, domain: str) -> bool:
         return True
 
 
-__all__ = ["validate_urls", "check_robots_txt"]
+__all__ = ["check_robots_txt", "validate_urls"]

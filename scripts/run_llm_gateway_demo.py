@@ -25,7 +25,6 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config.settings import get_settings  # noqa: E402
 from llm_gateway_client import (
     AIGatewayClient,
     EmbeddingRequest,
@@ -33,6 +32,8 @@ from llm_gateway_client import (
     GatewayInvokeRequest,
     GatewayModelConfig,
 )
+
+from config.settings import get_settings
 
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 

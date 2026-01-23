@@ -2,6 +2,10 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.claude
+AGENTS.md 
+CLAUDE.md
+result-last-run.md
 
 # C extensions
 *.so

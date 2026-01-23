@@ -1,7 +1,7 @@
 """Workflow for enriching a KnowledgeNode tree (refine details + enrich structure)."""
 
-from .models import EnrichKnowledgeTreeInput, EnrichKnowledgeTreeOutput
 from .enricher import KnowledgeTreeEnricher
+from .models import EnrichKnowledgeTreeInput, EnrichKnowledgeTreeOutput
 from .run import start_enrich_knowledge_tree
 
 __all__ = [

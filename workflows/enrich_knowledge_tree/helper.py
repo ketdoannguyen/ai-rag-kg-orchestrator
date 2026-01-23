@@ -1,19 +1,16 @@
 from __future__ import annotations
 
-import re
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
-
-from loguru import logger
+from typing import TYPE_CHECKING, Any
 
 from arango_client import (
+    ImageNode,
     KnowledgeNode,
+    NodeType,
     ParagraphNode,
     StructureNode,
     TableNode,
-    ImageNode,
-    NodeType,
 )
-from config.chunking import MAX_CHUNK_SIZE
+from loguru import logger
 
 if TYPE_CHECKING:
     from config.domains import DomainSchema
@@ -25,7 +22,7 @@ def count_paragraphs(node: KnowledgeNode | None) -> int:
         return 0
 
     count = 0
-    stack: List[KnowledgeNode] = [node]
+    stack: list[KnowledgeNode] = [node]
     while stack:
         current = stack.pop()
         if isinstance(current, ParagraphNode):
@@ -42,10 +39,10 @@ def get_title(node: KnowledgeNode) -> str:
 
 
 def collect_detail_items(
-    detail_nodes: List[KnowledgeNode],
-) -> List[Dict[str, Any]]:
+    detail_nodes: list[KnowledgeNode],
+) -> list[dict[str, Any]]:
     """Collect textual content from detail nodes for LLM refinement."""
-    items: List[Dict[str, Any]] = []
+    items: list[dict[str, Any]] = []
     for node in detail_nodes:
         if isinstance(node, ParagraphNode):
             text = (node.attributes.text or "").strip()
@@ -83,11 +80,11 @@ def collect_detail_items(
 
 
 def _fallback_to_originals(
-    items: List[Dict[str, Any]],
+    items: list[dict[str, Any]],
     parent: StructureNode,
-) -> List[ParagraphNode]:
+) -> list[ParagraphNode]:
     """Fallback: keep original paragraphs when no valid segments produced."""
-    paragraphs: List[ParagraphNode] = []
+    paragraphs: list[ParagraphNode] = []
     for it in items:
         source: KnowledgeNode = it["node"]
         if isinstance(source, ParagraphNode):
@@ -106,12 +103,12 @@ def _fallback_to_originals(
 
 
 def create_refined_paragraphs_from_segments(
-    segments: List[Dict[str, Any]],
-    items: List[Dict[str, Any]],
+    segments: list[dict[str, Any]],
+    items: list[dict[str, Any]],
     parent: StructureNode,
-    domain_schema: Optional["DomainSchema"] = None,
+    domain_schema: DomainSchema | None = None,
     domain: str | None = None,
-) -> List[ParagraphNode]:
+) -> list[ParagraphNode]:
     """Create new ParagraphNodes from LLM segments.
 
     Args:
@@ -129,7 +126,7 @@ def create_refined_paragraphs_from_segments(
     if not segments:
         return _fallback_to_originals(items, parent)
 
-    refined: List[ParagraphNode] = []
+    refined: list[ParagraphNode] = []
     # Track which 1-indexed items have been consumed by segments
     consumed_indices: set[int] = set()
 
@@ -252,7 +249,7 @@ def create_refined_paragraphs_from_segments(
     return refined
 
 
-def aggregate_children_filter(children: List[KnowledgeNode]) -> Dict[str, Any]:
+def aggregate_children_filter(children: list[KnowledgeNode]) -> dict[str, Any]:
     """Aggregate domain_filter from direct children using union strategy.
 
     Collects all unique values for each field across direct children only.
@@ -263,7 +260,7 @@ def aggregate_children_filter(children: List[KnowledgeNode]) -> Dict[str, Any]:
         Child 2: {"year": [2025], "major_name": ["CNTT"]}
         Result:  {"year": [2024, 2025], "major_name": ["CNTT"]}
     """
-    aggregated: Dict[str, set] = {}
+    aggregated: dict[str, set] = {}
 
     for child in children:
         # Get domain_filter from child's metadata (direct children only)
@@ -297,7 +294,7 @@ def aggregate_children_filter(children: List[KnowledgeNode]) -> Dict[str, Any]:
                 aggregated[key].add(value)
 
     # Convert sets to lists (ALL values must be lists for consistency)
-    result: Dict[str, Any] = {}
+    result: dict[str, Any] = {}
     for key, values in aggregated.items():
         if len(values) == 0:
             continue

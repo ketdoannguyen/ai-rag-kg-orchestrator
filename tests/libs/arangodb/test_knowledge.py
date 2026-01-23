@@ -5,11 +5,11 @@ Tests CRUD operations, graph relationships, and vector search.
 """
 
 import uuid
+
 import pytest
 from arango_client.handlers import KnowledgeHandler
 from arango_client.models import ParagraphNode, StructureNode
 from arango_client.models.enums import NodeType
-from arango_client.collections import Collections
 
 
 @pytest.fixture

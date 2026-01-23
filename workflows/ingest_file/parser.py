@@ -6,24 +6,24 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from config.settings import settings
-from loguru import logger
 from arango_client import (
-    ImageNode,
-    ParagraphNode,
-    StructureNode,
     ImageAttributes,
     ImageMetadata,
+    ImageNode,
     ParagraphAttributes,
     ParagraphMetadata,
+    ParagraphNode,
     StructureAttributes,
     StructureMetadata,
+    StructureNode,
     set_parent_ids,
     set_positions,
 )
+from loguru import logger
 
+from config.settings import settings
 from workflows.dependencies import get_minio_client
 
 
@@ -59,11 +59,11 @@ class TextbookParser:
         )
 
         # Stack used to maintain the current parent chain while walking pages/blocks
-        self.parent_stack: List[StructureNode] = [self.root]
+        self.parent_stack: list[StructureNode] = [self.root]
 
-    def _load_raw_json(self) -> Dict[str, Any]:
+    def _load_raw_json(self) -> dict[str, Any]:
         try:
-            with open(self.input_path, "r", encoding="utf-8") as f:
+            with open(self.input_path, encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
             logger.error(f"Error loading JSON: {e}")
@@ -77,10 +77,10 @@ class TextbookParser:
         text = text.replace("&gt;", ">").replace("&lt;", "<").replace("&amp;", "&")
         return text.strip()
 
-    def _get_bbox(self, block: Dict[str, Any]) -> List[int]:
+    def _get_bbox(self, block: dict[str, Any]) -> list[int]:
         return block.get("bbox", [])
 
-    async def _extract_and_upload_image(self, base64_data: str, image_id: str) -> Optional[str]:
+    async def _extract_and_upload_image(self, base64_data: str, image_id: str) -> str | None:
         """Extracts base64 image, saves locally, uploads to MinIO, returns MinIO path."""
         if not base64_data:
             return None
@@ -121,7 +121,7 @@ class TextbookParser:
             logger.warning(f"Failed to extract/upload image {image_id}: {e}")
             return None
 
-    def _classify_header(self, block: Dict, next_blocks: List[Dict]) -> Optional[Dict]:
+    def _classify_header(self, block: dict, next_blocks: list[dict]) -> dict | None:
         block_type = block.get("block_type")
         raw_html = block.get("html", "")
         clean_text = self._clean_html(raw_html)

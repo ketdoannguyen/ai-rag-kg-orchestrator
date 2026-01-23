@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import io
+from collections.abc import Callable, Sequence
 from datetime import timedelta
 from pathlib import Path
-from typing import Callable, Sequence, TypeVar
+from typing import TypeVar
 
 from loguru import logger
 from minio import Minio

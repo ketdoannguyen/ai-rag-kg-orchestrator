@@ -50,9 +50,14 @@ class KnowledgeNode(BaseModel):
         default=None,
         description="Domain identifier for filtering (e.g., 'education', 'ecommerce')",
     )
+    is_reviewed: bool = Field(
+        default=False,
+        description="Whether this node has been reviewed for deduplication. "
+        "Nodes with is_reviewed=true are considered stable/canonical.",
+    )
 
     @model_validator(mode="after")
-    def validate_level(self) -> "KnowledgeNode":
+    def validate_level(self) -> KnowledgeNode:
         """Basic invariant for level."""
         if self.level < 0:
             raise ValueError(f"level must be >= 0, got {self.level}")
@@ -109,7 +114,7 @@ class KnowledgeNode(BaseModel):
         return data
 
     @classmethod
-    def from_document(cls, doc: dict[str, Any]) -> "KnowledgeNode":
+    def from_document(cls, doc: dict[str, Any]) -> KnowledgeNode:
         """
         Create Pydantic model from ArangoDB document.
 

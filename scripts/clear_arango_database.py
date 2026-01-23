@@ -19,9 +19,9 @@ from loguru import logger
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from workflows.dependencies import init_arango_client
 from arango_client import ArangoClient
 
+from workflows.dependencies import init_arango_client
 
 # Collections to clear (order matters for edges first, then nodes)
 EDGE_COLLECTIONS = [
@@ -33,7 +33,11 @@ DOCUMENT_COLLECTIONS = [
     "chat_messages",
     "chat_sessions",
     "suggested_faqs",
-    "knowledge_nodes",
+    # Knowledge node collections (tiered architecture)
+    "content_nodes",
+    "structure_nodes",
+    "root_nodes",
+    "entity_nodes",
     "data_sources",
     "users",
 ]
@@ -205,7 +209,7 @@ Examples:
         stats = clear_all_collections(client)
 
         # Summary
-        logger.success(f"\n✅ Cleanup complete!")
+        logger.success("\n✅ Cleanup complete!")
         logger.info(f"   Edges deleted: {stats['edges_deleted']}")
         logger.info(f"   Documents deleted: {stats['documents_deleted']}")
 
