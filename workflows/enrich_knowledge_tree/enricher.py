@@ -15,12 +15,14 @@ from arango_client import (
 from llm_gateway_client import AIGatewayClient
 from llm_gateway_client.models import GatewayChatTurn, GatewayInvokeRequest
 from loguru import logger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
-
-from services.prompts.enrichment import (
+from prompts import (
     build_detail_merge_prompt,
     build_structure_enrich_prompt,
 )
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+from config.chunking import MAX_CHUNK_SIZE
+from workflows.compute_centroids.calculator import compute_structure_embedding
 from workflows.shared.file_utils import extract_json_from_response
 
 from .helper import (
@@ -228,6 +230,14 @@ class KnowledgeTreeEnricher:
             "refined_detail_count": section_stats.get("refined_detail_count", 0),
         }
 
+        # 4) Compute centroid embedding for this structure node
+        # This aggregates embeddings from all children (detail + structure)
+        # Note: Detail nodes are expected to already have embeddings if they came from
+        # a source that provides them, or they will be computed later if this is part
+        # of an ingestion pipeline that adds embeddings.
+        # If detail nodes don't have embeddings yet, this might return None, which is fine.
+        compute_structure_embedding(node)
+
     # ---------------------------------------------------------------------
     # Detail refinement
     # ---------------------------------------------------------------------
@@ -358,7 +368,10 @@ class KnowledgeTreeEnricher:
             - section_summary: optional summary string for the whole section
         """
         prompt = build_detail_merge_prompt(
-            items, breadcrumb, domain_schema=workflow_input.domain_schema
+            items,
+            breadcrumb,
+            domain_schema=workflow_input.domain_schema,
+            max_chunk_size=MAX_CHUNK_SIZE,
         )
         section = " > ".join(breadcrumb)
         logger.debug(

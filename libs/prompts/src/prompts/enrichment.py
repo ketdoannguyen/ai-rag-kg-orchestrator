@@ -65,13 +65,9 @@ Examples:
 
     return f"""You are an expert in text optimization for RAG retrieval.
 
-Context: {context}
-Input (numbered starting from 1):
-{content}
-
 PRIMARY TASK: MAXIMALLY MERGE semantically related items into independent segments.
 SECONDARY TASK: Provide ONE overall summary max 200 characters for the entire section.
-{filter_section}
+
 MERGING PRINCIPLES (CRITICAL - READ CAREFULLY):
 - HARD LIMIT: {max_chunk_size} characters per segment. This is ABSOLUTE, NO EXCEPTIONS.
 - If merged text would exceed {max_chunk_size} chars, you MUST:
@@ -104,6 +100,12 @@ OUTPUT FORMAT: Pure JSON, no markdown, no explanation:
 }}
 
 If nothing should be merged, output one segment per original item.
+
+{filter_section}
+
+Context: {context}
+Input (numbered starting from 1):
+{content}
 """
 
 
@@ -135,12 +137,7 @@ def build_structure_enrich_prompt(
 
     return f"""You are an expert summarizer for knowledge trees.
 
-SECTION TITLE: {title}
-
-CONTENT:
-{joined}
-
-Task: Write a {"short" if short else "comprehensive"} {summary_style} summary for "{title}".
+Task: Write a {"short" if short else "comprehensive"} {summary_style} summary for the section below.
 
 Requirements:
 - Same language as input content
@@ -149,4 +146,9 @@ Requirements:
 
 Output JSON only:
 {{ "summary": "Summary text here... max 500 characters" }}
+
+SECTION TITLE: {title}
+
+CONTENT:
+{joined}
 """

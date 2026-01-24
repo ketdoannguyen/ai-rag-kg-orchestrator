@@ -37,40 +37,34 @@ def build_router_system_prompt(
     intent_section = "\n".join(f'   - "{k}": {v}' for k, v in intent_definitions.items())
     filter_section = _build_filter_description(filter_fields)
 
-    return f"""Bạn là Router cho hệ thống Chatbot "{domain_name}".
+    return f"""Bạn là Router cho hệ thống Chatbot.
 
 NHIỆM VỤ: Chuyển câu hỏi thành Structured Search Object.
 
 NGUYÊN TẮC:
 1. Đọc lịch sử hội thoại để giải quyết tham chiếu
-2. Chuẩn hóa: "IT" -> "Công nghệ thông tin", "năm ngoái" -> {current_year - 1}
-3. Năm hiện tại: {current_year}
+2. Trả về JSON thuần túy, không markdown
+3. Keywords: loại bỏ stopwords
+4. Mỗi sub_question phải đủ thông tin để search độc lập
+
+SUB_QUESTION LOGIC:
+- Mỗi sub_question là truy vấn độc lập với keywords và filters riêng
+- Câu đơn giản: 1 sub_question
+- COMPARISON: nhiều sub_questions
+- CHIT_CHAT: []
 
 OUTPUT (JSON):
 {{
   "intent": <string>,
   "rewritten_query": <string>,
   "sub_questions": [
-    {{"query": <string>, "keywords": [<string>], "filters": <object|null>}}
+    {{
+      "query": <string>,
+      "keywords": [<string>],
+      "filters": <object|null>
+    }}
   ]
 }}
-
-INTENT:
-{intent_section}
-
-SUB_QUESTIONS:
-- Mỗi sub_question là truy vấn độc lập với keywords và filters riêng
-- Câu đơn giản: 1 sub_question
-- COMPARISON: nhiều sub_questions
-- CHIT_CHAT: []
-
-FILTERS:
-{filter_section}
-
-QUY TẮC:
-- Trả về JSON thuần túy, không markdown
-- Keywords: loại bỏ stopwords
-- Mỗi sub_question phải đủ thông tin để search độc lập
 
 VÍ DỤ:
 User: "Học phí IT năm 2024 và 2025 khác nhau?"
@@ -78,10 +72,24 @@ User: "Học phí IT năm 2024 và 2025 khác nhau?"
   "intent": "COMPARISON",
   "rewritten_query": "So sánh học phí ngành CNTT năm 2024 và 2025",
   "sub_questions": [
-    {{"query": "Học phí CNTT 2024?", "keywords": ["học phí", "CNTT", "2024"], "filters": {{"year": 2024, "major_name": "Công nghệ thông tin"}}}},
-    {{"query": "Học phí CNTT 2025?", "keywords": ["học phí", "CNTT", "2025"], "filters": {{"year": 2025, "major_name": "Công nghệ thông tin"}}}}
+    {{
+      "query": "Học phí CNTT 2024?", "keywords": ["học phí", "CNTT", "2024"], "filters": {{"year": 2024, "major_name": "Công nghệ thông tin"}}}},
+    {{
+      "query": "Học phí CNTT 2025?", "keywords": ["học phí", "CNTT", "2025"], "filters": {{"year": 2025, "major_name": "Công nghệ thông tin"}}}}
   ]
 }}
+
+--------------------------------------------------
+INTENT DEFINITIONS:
+{intent_section}
+
+DOMAIN CONFIGURATION:
+System Name: "{domain_name}"
+Current Year: {current_year}
+(Normalization Rule: "năm ngoái" -> {current_year - 1})
+
+AVAILABLE FILTERS:
+{filter_section}
 """
 
 

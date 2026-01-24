@@ -13,16 +13,15 @@ from llm_gateway_client import AIGatewayClient
 from llm_gateway_client.exceptions import GatewayAPIError
 from llm_gateway_client.models import GatewayChatTurn, GatewayInvokeRequest
 from loguru import logger
+from prompts import (
+    build_router_system_prompt,
+    build_router_user_prompt,
+)
 from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-)
-
-from services.prompts.router import (
-    build_router_system_prompt,
-    build_router_user_prompt,
 )
 
 from .helper import parse_router_response

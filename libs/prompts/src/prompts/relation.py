@@ -8,17 +8,6 @@ Prompts for:
 # Prompt for LLM to propose new relations
 RELATION_PROPOSAL_PROMPT = """You are an expert ontology designer. The existing relation types do not fit the relationship between these nodes. Propose a new relation type.
 
-## Node A ({node_a_type})
-{node_a_text}
-
-## Node B ({node_b_type})
-{node_b_text}
-
-## Embedding Similarity: {similarity_score:.2f}
-
-## Existing Relations (none fit well)
-{existing_relations}
-
 ## Task
 Propose a NEW relation type that accurately captures the relationship.
 
@@ -39,25 +28,21 @@ IMPORTANT:
 - Be specific - avoid generic relations like "RELATED_TO"
 - Consider if the relation is symmetric (A->B implies B->A)
 - Consider if the relation is transitive (A->B, B->C implies A->C)
+
+## Existing Relations (none fit well)
+{existing_relations}
+
+## Node A ({node_a_type})
+{node_a_text}
+
+## Node B ({node_b_type})
+{node_b_text}
+
+## Embedding Similarity: {similarity_score:.2f}
 """
 
 # Prompt for strong model to validate proposed relation
 RELATION_VALIDATION_PROMPT = """You are validating a proposed new relation type for an ontology.
-
-## Proposed Relation
-- Name: {relation_name} ({relation_name_english})
-- Description: {description}
-- Source Type: {source_type}
-- Target Type: {target_type}
-- Symmetric: {is_symmetric}
-- Transitive: {is_transitive}
-
-## Example Context
-Source: {example_source}
-Target: {example_target}
-
-## Existing Ontology Relations
-{existing_relations}
 
 ## Validation Criteria
 1. Is this relation genuinely new? (not a duplicate/synonym of existing)
@@ -74,21 +59,25 @@ Target: {example_target}
     "suggested_name": "better name if applicable or null",
     "reasoning": "explanation in Vietnamese"
 }}
+
+## Existing Ontology Relations
+{existing_relations}
+
+## Proposed Relation
+- Name: {relation_name} ({relation_name_english})
+- Description: {description}
+- Source Type: {source_type}
+- Target Type: {target_type}
+- Symmetric: {is_symmetric}
+- Transitive: {is_transitive}
+
+## Example Context
+Source: {example_source}
+Target: {example_target}
 """
 
 # Prompt for strong model to validate a specific relation instance between two nodes
 RELATION_INSTANCE_VALIDATION_PROMPT = """You are a knowledge graph expert validating a proposed relationship.
-
-## Node A ({node_a_type})
-{node_a_text}
-
-## Node B ({node_b_type})
-{node_b_text}
-
-## Proposed Relationship
-- Type: {proposed_relation}
-- Description: {description}
-- Original Reasoning: {reasoning}
 
 ## Task
 Validate if this relationship accurately describes the connection between Node A and Node B.
@@ -111,22 +100,22 @@ IMPORTANT:
 - A relationship is valid if it accurately describes the connection
 - Reject if the relationship is too generic or misleading
 - Respond with JSON only, no markdown
-"""
 
-# Prompt for strong model to re-extract relation after rejection
-RELATION_REEXTRACTION_PROMPT = """You are a knowledge graph expert. The previous relationship proposal was rejected.
-Extract the correct relationship between these nodes.
+## Proposed Relationship
+- Type: {proposed_relation}
+- Description: {description}
+- Original Reasoning: {reasoning}
 
 ## Node A ({node_a_type})
 {node_a_text}
 
 ## Node B ({node_b_type})
 {node_b_text}
+"""
 
-## Previous Rejected Proposal
-{previous_attempt}
-
-{ontology_section}
+# Prompt for strong model to re-extract relation after rejection
+RELATION_REEXTRACTION_PROMPT = """You are a knowledge graph expert. The previous relationship proposal was rejected.
+Extract the correct relationship between these nodes.
 
 ## Task
 1. Analyze the semantic relationship between Node A and Node B
@@ -143,8 +132,19 @@ Extract the correct relationship between these nodes.
 }}
 
 ## CRITICAL RULES:
-1. Do NOT use the previously rejected relation: {previous_attempt}
-2. Do NOT use SIMILAR_TO - this is forbidden
-3. If proposing new relation, provide clear description
-4. Respond with JSON only, no markdown
+1. Do NOT use SIMILAR_TO - this is forbidden
+2. If proposing new relation, provide clear description
+3. Respond with JSON only, no markdown
+
+## Ontology
+{ontology_section}
+
+## Node A ({node_a_type})
+{node_a_text}
+
+## Node B ({node_b_type})
+{node_b_text}
+
+## Previous Rejected Proposal
+(Avoid this relation: {previous_attempt})
 """
