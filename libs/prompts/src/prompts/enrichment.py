@@ -7,16 +7,12 @@ Prompt builders for:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from config.domains import DomainSchema
+from typing import Any
 
 
 def build_detail_merge_prompt(
     items: list[dict[str, Any]],
     breadcrumb: list[str],
-    domain_schema: DomainSchema | None = None,
     max_chunk_size: int = 2000,
 ) -> str:
     """Build prompt for merging detail items into RAG chunks.
@@ -24,7 +20,6 @@ def build_detail_merge_prompt(
     Args:
         items: List of text items to merge
         breadcrumb: Section hierarchy for context
-        domain_schema: Optional domain schema for metadata extraction
         max_chunk_size: Maximum characters per chunk
     """
     context = " > ".join(breadcrumb)
@@ -35,33 +30,6 @@ def build_detail_merge_prompt(
         lines.append(f"[{idx}] ({prefix}) {text}")
 
     content = "\n".join(lines)
-
-    # Build filter extraction section if schema provided
-    filter_section = ""
-    filter_output = ""
-    if domain_schema:
-        filter_section = f"""
-FILTER EXTRACTION (per segment - for RAG retrieval):
-Domain: {domain_schema.display_name}
-
-{domain_schema.to_extraction_prompt_section()}
-
-EXTRACTION RULES (CRITICAL):
-- ONLY extract if the value is EXPLICITLY mentioned in the text
-- Use EXACTLY the allowed values listed above (normalize using provided aliases)
-- If uncertain or value not found, use null - DO NOT guess or infer
-- Extract filter for the MERGED segment, not individual source items
-- ALL filter values MUST be arrays/lists (even single values)
-- These filters enable precise RAG retrieval queries
-
-Examples:
-- Text "năm 2024" → {{"year": [2024]}}
-- Text "năm 2024 và 2025" → {{"year": [2024, 2025]}}
-- Text "ngành CNTT" → {{"major_name": ["Công nghệ thông tin"]}}
-- Text mentions "xét tuyển học bạ và THPT" → {{"admission_method": ["Học bạ", "THPT"]}}
-- Text mentions nothing identifiable → null or {{}}
-"""
-        filter_output = ',\n      "filter": {"field": [values]} or null'
 
     return f"""You are an expert in text optimization for RAG retrieval.
 
@@ -93,15 +61,13 @@ OUTPUT FORMAT: Pure JSON, no markdown, no explanation:
       "source_indices": [1, 2],
       "text": "Exact original sentences merged verbatim...",
       "summary": "<= 8 words, same language",
-      "estimated_char_count": 450{filter_output}
+      "estimated_char_count": 450
     }}
   ],
   "section_summary": "High-level summary for the entire section (same language) max 500 characters"
 }}
 
 If nothing should be merged, output one segment per original item.
-
-{filter_section}
 
 Context: {context}
 Input (numbered starting from 1):

@@ -1,11 +1,9 @@
-"""Ontology registry for domain-specific relationship schemas.
+"""Ontology registry
 
 Provides:
 - get_ontology(name): Get ontology by name
 - get_current_ontology(): Get ontology from ONTOLOGY_NAME env var
 - ONTOLOGY_REGISTRY: Dict of available ontologies
-
-Pattern follows config/domains/__init__.py for consistency.
 """
 
 from __future__ import annotations
@@ -25,11 +23,6 @@ from .base import (
     RelationConstraint,
     RelationType,
 )
-from .education import (
-    EDUCATION_ONTOLOGY,
-    EDUCATION_RELATION_CONSTRAINTS,
-    EducationRelationType,
-)
 from .entity_tier import (
     ENTITY_ONTOLOGY,
     ENTITY_RELATION_CONSTRAINTS,
@@ -43,6 +36,26 @@ from .extension import (
     ProposalStatus,
     ProposedRelation,
 )
+from .families import (
+    ALL_FAMILIES,
+    CAUSAL,
+    COMPARATIVE,
+    ELABORATIVE,
+    FAMILY_AFFINITY_MATRIX,
+    FAMILY_METADATA,
+    PARTICIPATION,
+    STRUCTURAL,
+    TEMPORAL,
+    get_affinity,
+    get_families_for_keywords,
+    get_family_metadata,
+    get_max_affinity,
+)
+from .history import (
+    HISTORY_ONTOLOGY,
+    HISTORY_RELATION_CONSTRAINTS,
+    HistoryRelationType,
+)
 
 
 def _load_base() -> BaseOntology:
@@ -50,21 +63,21 @@ def _load_base() -> BaseOntology:
     return BASE_ONTOLOGY
 
 
-def _load_education() -> BaseOntology:
-    """Lazy load education ontology."""
-    return EDUCATION_ONTOLOGY
-
-
 def _load_entity() -> BaseOntology:
     """Lazy load entity tier ontology."""
     return ENTITY_ONTOLOGY
 
 
+def _load_history() -> BaseOntology:
+    """Lazy load history ontology."""
+    return HISTORY_ONTOLOGY
+
+
 # Registry of available ontologies (lazy loading)
 ONTOLOGY_REGISTRY: dict[str, Callable[[], BaseOntology]] = {
     "base": _load_base,
-    "education": _load_education,
-    "entity": _load_entity,
+    # "entity": _load_entity,
+    "history": _load_history,
 }
 
 
@@ -73,7 +86,7 @@ def get_ontology(name: str) -> BaseOntology:
     """Get ontology by name.
 
     Args:
-        name: Ontology identifier (e.g., "base", "education", "entity")
+        name: Ontology identifier (e.g., "base", "entity", "history")
 
     Returns:
         BaseOntology instance
@@ -91,12 +104,12 @@ def get_ontology(name: str) -> BaseOntology:
 def get_current_ontology() -> BaseOntology:
     """Get ontology from ONTOLOGY_NAME environment variable.
 
-    Defaults to "education" if not set.
+    Defaults to "history" if not set.
 
     Returns:
         BaseOntology instance
     """
-    name = os.getenv("ONTOLOGY_NAME", "education")
+    name = os.getenv("ONTOLOGY_NAME", "history")
     return get_ontology(name)
 
 
@@ -122,14 +135,14 @@ __all__ = [
     "RelationConstraint",
     "BASE_ONTOLOGY",
     "BASE_RELATIONS",
-    # Education ontology
-    "EducationRelationType",
-    "EDUCATION_ONTOLOGY",
-    "EDUCATION_RELATION_CONSTRAINTS",
     # Entity tier ontology
     "EntityRelationType",
     "ENTITY_ONTOLOGY",
     "ENTITY_RELATION_CONSTRAINTS",
+    # History ontology
+    "HistoryRelationType",
+    "HISTORY_ONTOLOGY",
+    "HISTORY_RELATION_CONSTRAINTS",
     # Extension system
     "OntologyExtender",
     "ProposedRelation",
@@ -137,4 +150,18 @@ __all__ = [
     "ExtensionResult",
     "RELATION_PROPOSAL_PROMPT",
     "RELATION_VALIDATION_PROMPT",
+    # Families
+    "CAUSAL",
+    "TEMPORAL",
+    "COMPARATIVE",
+    "ELABORATIVE",
+    "PARTICIPATION",
+    "STRUCTURAL",
+    "ALL_FAMILIES",
+    "FAMILY_METADATA",
+    "FAMILY_AFFINITY_MATRIX",
+    "get_affinity",
+    "get_max_affinity",
+    "get_family_metadata",
+    "get_families_for_keywords",
 ]

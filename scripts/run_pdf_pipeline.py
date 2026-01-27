@@ -108,14 +108,10 @@ async def _process_data_source(
 
     # Enrich knowledge tree
     llm_client = init_llm_client()
-    from config.domains import get_current_domain
-
-    domain_schema = get_current_domain()
 
     enrich_out = await start_enrich_knowledge_tree(
         EnrichKnowledgeTreeInput(
             knowledge_tree=root_node,
-            domain_schema=domain_schema,
         ),
         llm_client=llm_client,
     )

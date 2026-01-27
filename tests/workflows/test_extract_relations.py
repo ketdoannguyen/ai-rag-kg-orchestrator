@@ -28,7 +28,6 @@ from arango_client import (
 )
 from loguru import logger
 
-from config.domains import get_current_domain
 from config.extraction import get_extraction_settings
 from config.ontologies import get_current_ontology
 from config.settings import settings
@@ -178,11 +177,9 @@ class ExtractRelationsPipelineTest(unittest.TestCase):
         root_node = parse_node_from_dict(ingest_result.root_node)
 
         # Enrich
-        domain_schema = get_current_domain()
         enrich_result = await start_enrich_knowledge_tree(
             EnrichKnowledgeTreeInput(
                 knowledge_tree=root_node,
-                domain_schema=domain_schema,
             ),
             llm_client=self._llm_client,
         )
@@ -233,11 +230,9 @@ class ExtractRelationsPipelineTest(unittest.TestCase):
         root_node = parse_node_from_dict(root_node_dict)
 
         # Enrich
-        domain_schema = get_current_domain()
         enrich_result = await start_enrich_knowledge_tree(
             EnrichKnowledgeTreeInput(
                 knowledge_tree=root_node,
-                domain_schema=domain_schema,
             ),
             llm_client=self._llm_client,
         )

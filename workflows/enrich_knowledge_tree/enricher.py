@@ -22,11 +22,9 @@ from prompts import (
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from config.chunking import MAX_CHUNK_SIZE
-from workflows.compute_centroids.calculator import compute_structure_embedding
 from workflows.shared.file_utils import extract_json_from_response
 
 from .helper import (
-    aggregate_children_filter,
     collect_detail_items,
     count_paragraphs,
     create_refined_paragraphs_from_segments,
@@ -198,11 +196,6 @@ class KnowledgeTreeEnricher:
         # Replace children with refined version (images + refined paragraphs/tables + structure children)
         node.children = refined_children
 
-        # 2.5) Aggregate domain_filter from all children (paragraphs + structure nodes)
-        aggregated_filter = aggregate_children_filter(node.children)
-        if aggregated_filter:
-            node.metadata.domain_filter = aggregated_filter
-
         # 3) Enrich current StructureNode with summary that takes into account:
         #    - summaries from STRUCTURE children (stored in state.node_summaries)
         # If this node has no STRUCTURE children and detail-level LLM already
@@ -229,14 +222,6 @@ class KnowledgeTreeEnricher:
             "original_detail_count": section_stats.get("original_detail_count", 0),
             "refined_detail_count": section_stats.get("refined_detail_count", 0),
         }
-
-        # 4) Compute centroid embedding for this structure node
-        # This aggregates embeddings from all children (detail + structure)
-        # Note: Detail nodes are expected to already have embeddings if they came from
-        # a source that provides them, or they will be computed later if this is part
-        # of an ingestion pipeline that adds embeddings.
-        # If detail nodes don't have embeddings yet, this might return None, which is fine.
-        compute_structure_embedding(node)
 
     # ---------------------------------------------------------------------
     # Detail refinement
@@ -325,15 +310,10 @@ class KnowledgeTreeEnricher:
         segments = detail_result.get("segments", [])
         detail_section_summary = detail_result.get("section_summary")
 
-        # Get domain name from schema if available
-        domain_name = workflow_input.domain_schema.name if workflow_input.domain_schema else None
-
         refined_paragraphs = create_refined_paragraphs_from_segments(
             segments=segments,
             items=collected_items,
             parent=node,
-            domain_schema=workflow_input.domain_schema,
-            domain=domain_name,
         )
 
         refined_detail_count = len(refined_paragraphs)
@@ -370,7 +350,6 @@ class KnowledgeTreeEnricher:
         prompt = build_detail_merge_prompt(
             items,
             breadcrumb,
-            domain_schema=workflow_input.domain_schema,
             max_chunk_size=MAX_CHUNK_SIZE,
         )
         section = " > ".join(breadcrumb)

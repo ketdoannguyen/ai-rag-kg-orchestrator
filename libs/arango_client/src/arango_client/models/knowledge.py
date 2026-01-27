@@ -46,10 +46,6 @@ class KnowledgeNode(BaseModel):
         ge=0,
         description="Tree depth from root (1 = root, 0 = unset/detail nodes).",
     )
-    domain: str | None = Field(
-        default=None,
-        description="Domain identifier for filtering (e.g., 'education', 'ecommerce')",
-    )
     is_reviewed: bool = Field(
         default=False,
         description="Whether this node has been reviewed for deduplication. "

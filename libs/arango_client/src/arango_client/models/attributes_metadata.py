@@ -22,10 +22,6 @@ class ParagraphMetadata(BaseModel):
     position: str | None = Field(
         None, description="Position reference (e.g., 'SGK Vật Lý 12, Trang 6')"
     )
-    domain_filter: dict = Field(
-        default_factory=dict,
-        description="Domain filter fields for RAG retrieval (e.g., {'year': 2024, 'major_name': '...'})",
-    )
 
 
 # ============================================
@@ -51,10 +47,6 @@ class ImageMetadata(BaseModel):
     page: int | None = Field(None, description="Page number where image is located")
     bbox: list[int] = Field(default_factory=list, description="Bounding box [x1, y1, x2, y2]")
     position: str | None = Field(None, description="Position reference")
-    domain_filter: dict = Field(
-        default_factory=dict,
-        description="Domain filter fields for RAG retrieval",
-    )
 
 
 # ============================================
@@ -79,10 +71,6 @@ class TableMetadata(BaseModel):
     page: int | None = Field(None, description="Page number where table is located")
     bbox: list[int] = Field(default_factory=list, description="Bounding box [x1, y1, x2, y2]")
     position: str | None = Field(None, description="Position reference")
-    domain_filter: dict = Field(
-        default_factory=dict,
-        description="Domain filter fields for RAG retrieval",
-    )
 
 
 # ============================================
@@ -132,7 +120,3 @@ class StructureMetadata(BaseModel):
     url: str | None = Field(None, description="Original URL (for web sources)")
     file_path: str | None = Field(None, description="Source file path (for file sources)")
     position: str | None = Field(None, description="Position reference")
-    domain_filter: dict = Field(
-        default_factory=dict,
-        description="Domain filter fields for RAG retrieval",
-    )

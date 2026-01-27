@@ -24,7 +24,7 @@ class OntologyHandler(BaseHandler[OntologyRelation]):
 
     Provides:
     - CRUD operations for relation types
-    - Tier-based and domain-based filtering
+    - Tier-based filtering
     - Embedding-based relation filtering using Centroid method
     - Bulk operations for seeding ontology
     - Relation proposal and validation workflow
@@ -60,10 +60,6 @@ class OntologyHandler(BaseHandler[OntologyRelation]):
             },
         )
         return [OntologyRelation.from_document(doc) for doc in cursor]
-
-    def get_by_domain(self, domain: str) -> list[OntologyRelation]:
-        """Get all relations for a specific domain."""
-        return self.get_by_filter({"domain": domain, "status": RelationStatus.ACTIVE.value})
 
     def get_by_tier(self, tier: RelationTier | str) -> list[OntologyRelation]:
         """Get all active relations that apply to a specific tier.
@@ -175,37 +171,6 @@ class OntologyHandler(BaseHandler[OntologyRelation]):
         )
         return [OntologyRelation.from_document(doc) for doc in cursor]
 
-    def get_by_domain_and_tier(
-        self, domain: str, tier: RelationTier | str
-    ) -> list[OntologyRelation]:
-        """Get all active relations for a specific domain that apply to a tier.
-
-        Args:
-            domain: Domain name (base, education, entity, etc.)
-            tier: RelationTier enum or string value
-
-        Returns:
-            List of active relations matching domain and including the tier
-        """
-        tier_value = normalize_tier(tier)
-        query = """
-        FOR doc IN @@collection
-            FILTER doc.status == @status
-            FILTER doc.domain == @domain
-            FILTER @tier IN doc.tiers
-            RETURN doc
-        """
-        cursor = self.db.aql.execute(
-            query,
-            bind_vars={
-                "@collection": self.collection_name,
-                "status": RelationStatus.ACTIVE.value,
-                "domain": domain,
-                "tier": tier_value,
-            },
-        )
-        return [OntologyRelation.from_document(doc) for doc in cursor]
-
     def update_embedding(
         self, relation_id: str, embedding: list[float]
     ) -> OntologyRelation | None:
@@ -294,7 +259,6 @@ class OntologyHandler(BaseHandler[OntologyRelation]):
         embedding: list[float] | None = None,
         source_node_types: list[str] | None = None,
         target_node_types: list[str] | None = None,
-        domain: str = "proposed",
         tiers: list[RelationTier | str] | None = None,
     ) -> OntologyRelation:
         """Create a new relation from LLM extraction.
@@ -309,7 +273,6 @@ class OntologyHandler(BaseHandler[OntologyRelation]):
             embedding: Optional pre-computed embedding
             source_node_types: Valid source node types
             target_node_types: Valid target node types
-            domain: Domain name (defaults to "proposed")
             tiers: List of tiers this relation applies to (defaults to [TIER_2_CONTENT])
         """
         # Handle tiers - convert strings to enums if needed
@@ -327,7 +290,6 @@ class OntologyHandler(BaseHandler[OntologyRelation]):
             target_node_types=target_node_types or [],
             is_builtin=False,
             status=RelationStatus.ACTIVE,
-            domain=domain,
             tiers=tier_values,
         )
         return self.create(relation)
@@ -434,7 +396,6 @@ class OntologyHandler(BaseHandler[OntologyRelation]):
     def seed_from_ontology(
         self,
         relations: list[dict],
-        domain: str = "base",
         overwrite: bool = False,
     ) -> int:
         """Seed relations from ontology definitions.
@@ -450,7 +411,6 @@ class OntologyHandler(BaseHandler[OntologyRelation]):
                 - is_transitive: Optional, default False
                 - embedding: Optional, pre-computed embedding
                 - tiers: Optional, list of tier classifications (defaults to [tier_2_content])
-            domain: Domain name (base, education, etc.)
             overwrite: If True, overwrite existing relations
 
         Returns:
@@ -482,7 +442,6 @@ class OntologyHandler(BaseHandler[OntologyRelation]):
                 is_transitive=rel_data.get("is_transitive", False),
                 is_builtin=True,
                 status=RelationStatus.ACTIVE,
-                domain=domain,
                 tiers=tier_values,
             )
 

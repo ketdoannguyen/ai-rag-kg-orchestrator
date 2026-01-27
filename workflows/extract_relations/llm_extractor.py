@@ -7,10 +7,12 @@ Simplified single-model approach:
 - Supports new relation proposals with validation
 - Uses OntologyHandler with Centroid method for relation filtering
 - Validates new relations using NewRelationValidator
+- Parallel batch processing with Semaphore for rate limiting
 """
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -74,6 +76,7 @@ class LLMRelationExtractor:
     Uses single strong model for quality decisions.
     Supports batch processing for efficiency.
     Uses OntologyHandler with Centroid method for relation filtering.
+    Supports parallel batch processing with Semaphore for rate limiting.
     """
 
     MAX_TEXT_LENGTH = 500
@@ -84,6 +87,9 @@ class LLMRelationExtractor:
     # These are fallback relations that should only be used when LLM fails
     # Excluding them forces LLM to think deeper about the actual relationship
     EXCLUDE_FROM_TOP_K: frozenset[str] = frozenset({"SIMILAR_TO"})
+
+    # Concurrency control for parallel LLM calls
+    MAX_CONCURRENT_LLM_CALLS = 5
 
     def __init__(
         self,
@@ -107,6 +113,7 @@ class LLMRelationExtractor:
         self._llm_client = None
         self._relation_validator = None
         self._log = logger.bind(component="llm_extractor")
+        self._llm_semaphore: asyncio.Semaphore | None = None
 
     @property
     def settings(self) -> ExtractionSettings:
@@ -161,6 +168,13 @@ class LLMRelationExtractor:
 
         settings = get_settings()
         return settings.LLM_CHAT_MODEL
+
+    @property
+    def llm_semaphore(self) -> asyncio.Semaphore:
+        """Get LLM semaphore for rate limiting (lazy load)."""
+        if self._llm_semaphore is None:
+            self._llm_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_LLM_CALLS)
+        return self._llm_semaphore
 
     # =========================================================================
     # Text Sanitization
@@ -511,6 +525,79 @@ class LLMRelationExtractor:
             used_fallback=True,
         )
         return [fallback for _ in pairs]
+
+    async def verify_batch_parallel(
+        self,
+        pairs: list[NodePair],
+        tier: RelationTier | str | None = None,
+    ) -> list[ExtractionResult]:
+        """Parallel batch verification with rate limiting.
+
+        Uses Semaphore to control max concurrent LLM calls.
+        Much faster than sequential verify_batch for large batches.
+
+        Args:
+            pairs: List of node pairs to verify
+            tier: Optional tier filter
+
+        Returns:
+            List of ExtractionResults, one per pair
+        """
+        if not pairs:
+            return []
+
+        # Single pair - delegate to verify_pair
+        if len(pairs) == 1:
+            result = await self.verify_pair(
+                node_a_type=pairs[0].node_a_type,
+                node_a_text=pairs[0].node_a_text,
+                node_b_type=pairs[0].node_b_type,
+                node_b_text=pairs[0].node_b_text,
+                similarity_score=pairs[0].similarity_score,
+                node_a_embedding=pairs[0].node_a_embedding,
+                node_b_embedding=pairs[0].node_b_embedding,
+                tier=tier,
+            )
+            return [result]
+
+        async def process_one(pair: NodePair) -> ExtractionResult:
+            async with self.llm_semaphore:
+                return await self.verify_pair(
+                    node_a_type=pair.node_a_type,
+                    node_a_text=pair.node_a_text,
+                    node_b_type=pair.node_b_type,
+                    node_b_text=pair.node_b_text,
+                    similarity_score=pair.similarity_score,
+                    node_a_embedding=pair.node_a_embedding,
+                    node_b_embedding=pair.node_b_embedding,
+                    tier=tier,
+                )
+
+        # Run all in parallel with semaphore control
+        results = await asyncio.gather(
+            *[process_one(p) for p in pairs],
+            return_exceptions=True,
+        )
+
+        # Handle exceptions - return fallback for failed ones
+        processed_results: list[ExtractionResult] = []
+        for r in results:
+            if isinstance(r, ExtractionResult):
+                processed_results.append(r)
+            else:
+                # Exception occurred
+                self._log.warning(f"Parallel extraction failed: {r}")
+                processed_results.append(
+                    ExtractionResult(
+                        should_merge=False,
+                        relation_type=self.settings.EXTRACTION_FALLBACK_RELATION,
+                        confidence=0.3,
+                        reasoning=f"Parallel extraction error: {r}",
+                        used_fallback=True,
+                    )
+                )
+
+        return processed_results
 
     def _build_batch_prompt(
         self,
@@ -906,7 +993,6 @@ class LLMRelationExtractor:
                 or f"LLM-proposed relation: {source_type} -> {target_type}",
                 source_node_types=[source_type],
                 target_node_types=[target_type],
-                domain="proposed",
                 tiers=tiers_list,
             )
             self._log.info(

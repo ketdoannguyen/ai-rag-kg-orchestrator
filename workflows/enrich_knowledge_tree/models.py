@@ -60,10 +60,6 @@ class EnrichKnowledgeTreeInput(BaseModel):
         default_factory=EnrichConfig,
         description="Configuration for structure enrichment.",
     )
-    domain_schema: Any | None = Field(
-        default=None,
-        description="DomainSchema for metadata extraction. If None, no metadata extracted.",
-    )
 
 
 class EnrichStatistics(BaseModel):

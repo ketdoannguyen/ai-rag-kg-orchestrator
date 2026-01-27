@@ -13,7 +13,7 @@ from arango_client import (
 from loguru import logger
 
 if TYPE_CHECKING:
-    from config.domains import DomainSchema
+    pass
 
 
 def count_paragraphs(node: KnowledgeNode | None) -> int:
@@ -106,8 +106,6 @@ def create_refined_paragraphs_from_segments(
     segments: list[dict[str, Any]],
     items: list[dict[str, Any]],
     parent: StructureNode,
-    domain_schema: DomainSchema | None = None,
-    domain: str | None = None,
 ) -> list[ParagraphNode]:
     """Create new ParagraphNodes from LLM segments.
 
@@ -115,8 +113,6 @@ def create_refined_paragraphs_from_segments(
         segments: LLM output segments with text, summary, and optional metadata
         items: Original items for reference
         parent: Parent StructureNode
-        domain_schema: Optional schema for metadata normalization/validation
-        domain: Domain identifier to set on created nodes
 
     Note:
         This function tracks consumed indices and recovers missing items
@@ -158,43 +154,15 @@ def create_refined_paragraphs_from_segments(
         summary = (seg.get("summary") or "").strip()
         paragraph_text = f"{summary} : {content}" if summary else content
 
-        # Process domain filter from LLM response
-        raw_filter = (
-            seg.get("filter") or seg.get("metadata") or {}
-        )  # fallback to metadata for backward compat
-        domain_filter = {}
-
-        if raw_filter and domain_schema:
-            # Normalize using aliases
-            normalized = domain_schema.normalize_metadata(raw_filter)
-
-            # Validate against allowed_values
-            errors = domain_schema.validate_metadata(normalized)
-            if errors:
-                logger.debug(
-                    "Filtered invalid filter values",
-                    errors=errors,
-                    raw=raw_filter,
-                )
-                # Keep only valid fields
-                normalized = {k: v for k, v in normalized.items() if k not in errors}
-
-            domain_filter = normalized
-        elif raw_filter:
-            # No schema, keep as-is
-            domain_filter = raw_filter
-
         refined.append(
             ParagraphNode(
                 source_id=parent.source_id,
                 parent_id=parent.id,
                 node_type=NodeType.PARAGRAPH,
                 level=0,
-                domain=domain,
                 attributes={"text": paragraph_text},
                 metadata={
                     "page": page,
-                    "domain_filter": domain_filter,
                 },
             )
         )
@@ -226,22 +194,15 @@ def create_refined_paragraphs_from_segments(
             if isinstance(source_node, (ParagraphNode, TableNode, ImageNode)):
                 page = getattr(source_node.metadata, "page", None)
 
-            # Preserve original domain_filter if exists
-            original_filter = {}
-            if hasattr(source_node, "metadata") and hasattr(source_node.metadata, "domain_filter"):
-                original_filter = source_node.metadata.domain_filter or {}
-
             refined.append(
                 ParagraphNode(
                     source_id=parent.source_id,
                     parent_id=parent.id,
                     node_type=NodeType.PARAGRAPH,
                     level=0,
-                    domain=domain,
                     attributes={"text": item["text"]},
                     metadata={
                         "page": page,
-                        "domain_filter": original_filter,
                     },
                 )
             )
@@ -249,60 +210,3 @@ def create_refined_paragraphs_from_segments(
     return refined
 
 
-def aggregate_children_filter(children: list[KnowledgeNode]) -> dict[str, Any]:
-    """Aggregate domain_filter from direct children using union strategy.
-
-    Collects all unique values for each field across direct children only.
-    ALL values are returned as lists for consistency.
-
-    Example:
-        Child 1: {"year": [2024], "major_name": ["CNTT"]}
-        Child 2: {"year": [2025], "major_name": ["CNTT"]}
-        Result:  {"year": [2024, 2025], "major_name": ["CNTT"]}
-    """
-    aggregated: dict[str, set] = {}
-
-    for child in children:
-        # Get domain_filter from child's metadata (direct children only)
-        metadata = getattr(child, "metadata", None)
-        if not metadata:
-            continue
-
-        domain_filter = getattr(metadata, "domain_filter", None)
-        if not domain_filter:
-            # Try dict access
-            if isinstance(metadata, dict):
-                domain_filter = metadata.get("domain_filter", {})
-            else:
-                continue
-
-        if not domain_filter or not isinstance(domain_filter, dict):
-            continue
-
-        for key, value in domain_filter.items():
-            if value is None:
-                continue
-            if key not in aggregated:
-                aggregated[key] = set()
-            # Handle list values (expected format)
-            if isinstance(value, list):
-                for v in value:
-                    if v is not None:
-                        aggregated[key].add(v)
-            else:
-                # Handle legacy single values
-                aggregated[key].add(value)
-
-    # Convert sets to lists (ALL values must be lists for consistency)
-    result: dict[str, Any] = {}
-    for key, values in aggregated.items():
-        if len(values) == 0:
-            continue
-        # ALWAYS return as list for consistency with schema type='list'
-        try:
-            result[key] = sorted(values)
-        except TypeError:
-            # Cannot sort mixed types
-            result[key] = list(values)
-
-    return result

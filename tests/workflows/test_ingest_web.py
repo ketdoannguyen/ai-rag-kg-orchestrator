@@ -136,15 +136,11 @@ class IngestWebPipelineTest(unittest.TestCase):
 
         # ============ Stage 2: Enrich Knowledge Tree ============
         print("\n[Stage 2/6] Enriching knowledge tree...")
-        from config.domains import get_current_domain
-
-        domain_schema = get_current_domain()
 
         enrich_result = asyncio.run(
             start_enrich_knowledge_tree(
                 EnrichKnowledgeTreeInput(
                     knowledge_tree=root_node,
-                    domain_schema=domain_schema,
                 ),
                 llm_client=self._llm_client,
             )

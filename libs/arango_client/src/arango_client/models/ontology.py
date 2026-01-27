@@ -52,7 +52,6 @@ class OntologyRelation(BaseModel):
         is_builtin: True for ontology-defined relations, False for LLM-proposed
         status: Current status of the relation
         usage_count: Number of times this relation has been used
-        domain: Domain this relation belongs to (e.g., "base", "education")
         tiers: List of processing tiers this relation applies to
         created_at: Creation timestamp
         updated_at: Last update timestamp
@@ -61,6 +60,7 @@ class OntologyRelation(BaseModel):
     id: str = Field(..., description="Unique identifier (relation type name)")
     name: str = Field(..., description="Human-readable name")
     description: str = Field(..., description="Detailed description in Vietnamese")
+    summary: str = Field(default="", description="Short description (~10-20 words)")
     embedding: list[float] | None = Field(
         default=None, description="Vector embedding (3072-dim for text-embedding-3-large)"
     )
@@ -77,10 +77,16 @@ class OntologyRelation(BaseModel):
     )
     status: RelationStatus = Field(default=RelationStatus.ACTIVE, description="Current status")
     usage_count: int = Field(default=0, description="Number of times used")
-    domain: str = Field(default="base", description="Domain (base, education, etc.)")
     tiers: list[RelationTier] = Field(
         default_factory=lambda: [RelationTier.TIER_2_CONTENT],
         description="List of processing tiers this relation applies to",
+    )
+    families: list[str] = Field(
+        default_factory=list,
+        description="List of family names this relation belongs to (e.g., ['causal', 'temporal'])",
+    )
+    keywords: list[str] = Field(
+        default_factory=list, description="Keywords for query matching (Vietnamese)"
     )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC), description="Creation timestamp"

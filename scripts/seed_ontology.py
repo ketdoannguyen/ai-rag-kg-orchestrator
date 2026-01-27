@@ -81,14 +81,13 @@ def collect_relations_from_ontology(ontology_name: str) -> list[dict]:
         ontology_name: Name of the ontology (e.g., "base", "education", "entity")
 
     Returns:
-        List of relation dicts with domain set
+        List of relation dicts
     """
     ontology = get_ontology(ontology_name)
     relations = []
 
     for constraint in ontology.relations:
         rel_data = build_relation_data_from_constraint(constraint)
-        rel_data["domain"] = ontology_name
         relations.append(rel_data)
 
     return relations
@@ -116,7 +115,6 @@ def collect_all_relations() -> dict[str, list[dict]]:
                 continue
 
             seen_ids.add(rel_id)
-            rel_data["domain"] = ontology_name
             relations.append(rel_data)
 
         if relations:
@@ -261,13 +259,13 @@ async def main():
         db.create_collection(collection_name)
         print(f"  ✓ Created fresh collection: {collection_name}")
 
-    # Seed relations by domain
+    # Seed relations
     total_seeded = 0
     for ontology_name in ontology_relations:
         print(f"\nSeeding {ontology_name} relations...")
-        domain_relations = [r for r in all_relations if r["domain"] == ontology_name]
+        ontology_rels = ontology_relations[ontology_name]
         count = handler.seed_from_ontology(
-            domain_relations, domain=ontology_name, overwrite=args.overwrite
+            ontology_rels, overwrite=args.overwrite
         )
         print(f"  ✓ Seeded {count} {ontology_name} relations")
         total_seeded += count
@@ -291,7 +289,6 @@ async def main():
         print(f"  Name: {sample.name}")
         print(f"  Description: {sample.description[:80]}...")
         print(f"  Embedding dim: {len(sample.embedding) if sample.embedding else 0}")
-        print(f"  Domain: {sample.domain}")
 
     print("\n✓ Done!")
 

@@ -24,7 +24,6 @@ from arango_client import (
 )
 from loguru import logger
 
-from config.domains import get_current_domain
 from workflows.dependencies import init_arango_client, init_llm_client
 from workflows.embed_nodes import EmbedNodesInput, start_embed_nodes
 from workflows.embed_nodes.helper import extract_text_for_embedding
@@ -41,7 +40,6 @@ from workflows.save_knowledge_to_arango import SaveKnowledgeInput, start_save_kn
 
 llm_client = init_llm_client()
 arango_client = init_arango_client()
-domain_schema = get_current_domain()  # Get domain from DOMAIN_NAME env var
 
 
 async def _process_single_result(
@@ -64,11 +62,10 @@ async def _process_single_result(
     # Parse root_node from dict
     root_node = parse_node_from_dict(root_node_dict)
 
-    # Enrich knowledge tree with domain schema for metadata extraction
+    # Enrich knowledge tree
     enrich_out = await start_enrich_knowledge_tree(
         EnrichKnowledgeTreeInput(
             knowledge_tree=root_node,
-            domain_schema=domain_schema,
         ),
         llm_client=llm_client,
     )
