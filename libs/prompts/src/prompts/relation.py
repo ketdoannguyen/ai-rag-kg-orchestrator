@@ -1,150 +1,112 @@
 """Relation extraction and proposal prompts.
 
 Prompts for:
-- Proposing new relation types when existing ones don't fit
-- Validating proposed relations with strong models
+- Strong LLM verification and extraction of new relations
 """
 
-# Prompt for LLM to propose new relations
-RELATION_PROPOSAL_PROMPT = """You are an expert ontology designer. The existing relation types do not fit the relationship between these nodes. Propose a new relation type.
+from config.ontologies.families import ALL_FAMILIES, FAMILY_METADATA
 
-## Task
-Propose a NEW relation type that accurately captures the relationship.
 
-## Response Format (JSON only)
+def _build_families_section() -> str:
+    """Build families section dynamically from families.py."""
+    lines = []
+    for family in ALL_FAMILIES:
+        metadata = FAMILY_METADATA.get(family, {})
+        name = metadata.get("name", family)
+        description = metadata.get("description", "")
+        lines.append(f'- "{family}": {name} - {description}')
+    return "\n".join(lines)
+
+
+# Prompt for Strong LLM to verify AND extract full info in one step
+STRONG_VERIFY_AND_EXTRACT_PROMPT = (
+    """You are an expert in Knowledge Graphs and semantic relationships.
+
+## TASK
+Verify and extract complete information for a new relation type.
+
+## INPUT
+- Node A: {node_a_text}
+- Node B: {node_b_text}
+- Proposed Relation: {proposed_relation}
+- Summary (from weak LLM): {summary}
+
+## REQUIREMENTS
+
+1. **ANALYZE** whether the relation "{proposed_relation}" accurately describes the relationship between Node A and Node B.
+
+2. **IF ACCEPTED** (accepted=true):
+   - Extract complete information for relation "{proposed_relation}"
+
+3. **IF REJECTED** (accepted=false):
+   - Propose a more appropriate relation type
+   - Extract complete information for the new relation
+
+## OUTPUT FORMAT (JSON)
+
+```json
 {{
-    "relation_name": "RELATION_NAME_IN_VIETNAMESE",
-    "relation_name_english": "ENGLISH_NAME",
-    "description": "What this relation means in Vietnamese",
-    "is_symmetric": true/false,
-    "is_transitive": true/false,
-    "confidence": 0.0-1.0,
-    "reasoning": "Why existing relations don't fit and why this new one is needed"
+  "accepted": true,
+  "reasoning": "Reason for accepting or rejecting the relation...",
+
+  "id": "RELATION_NAME",
+  "name": "RELATION_NAME",
+  "summary": "Short description in 10-20 words",
+  "description": "Detailed description of this relation, including meaning, usage, examples. Write in Vietnamese, 50-100 words.",
+
+  "source_node_types": ["paragraph"],
+  "target_node_types": ["paragraph"],
+
+  "is_symmetric": false,
+  "is_transitive": false,
+
+  "families": ["family1", "family2"],
+  "keywords": ["keyword1", "keyword2", "keyword3"]
 }}
+```
 
-IMPORTANT:
-- Use SCREAMING_SNAKE_CASE for relation names
-- Prefer Vietnamese names for educational content (e.g., "ĐỊNH_NGHĨA", "GIẢI_THÍCH")
-- Be specific - avoid generic relations like "RELATED_TO"
-- Consider if the relation is symmetric (A->B implies B->A)
-- Consider if the relation is transitive (A->B, B->C implies A->C)
+## DETAILED GUIDELINES
 
-## Existing Relations (none fit well)
-{existing_relations}
+### id and name
+- Format: SCREAMING_SNAKE_CASE (e.g., FATHER_OF, LED_BY, CAUSED_BY)
+- Must be in English, no accents
 
-## Node A ({node_a_type})
-{node_a_text}
+### summary
+- 10-20 words in Vietnamese
+- Brief description of the relation meaning
 
-## Node B ({node_b_type})
-{node_b_text}
+### description
+- 50-100 words in Vietnamese
+- Detailed description including:
+  - Meaning of the relation
+  - Direction: what A → B means
+  - Specific examples
+  - Distinction from similar relations
 
-## Embedding Similarity: {similarity_score:.2f}
+### source_node_types / target_node_types
+- Valid values: "paragraph", "structure", "entity"
+- Describes which node types can be source/target
+
+### is_symmetric
+- true: If A→B then B→A is also true (e.g., SIMILAR_TO, MARRIED_TO)
+- false: Direction matters (e.g., FATHER_OF, LED_BY)
+
+### is_transitive
+- true: If A→B and B→C then A→C (e.g., PART_OF, ANCESTOR_OF)
+- false: No transitivity
+
+### families
+Choose from the following families:
 """
+    + _build_families_section()
+    + """
 
-# Prompt for strong model to validate proposed relation
-RELATION_VALIDATION_PROMPT = """You are validating a proposed new relation type for an ontology.
+### keywords
+- 5-10 Vietnamese keywords
+- Used to match user queries
+- Include synonyms
 
-## Validation Criteria
-1. Is this relation genuinely new? (not a duplicate/synonym of existing)
-2. Is the name clear and descriptive?
-3. Are symmetric/transitive properties correct?
-4. Is it specific enough to be useful?
-5. Does it follow naming conventions?
-
-## Response Format (JSON only)
-{{
-    "is_valid": true/false,
-    "validation_score": 0.0-1.0,
-    "issues": ["list of issues if any"],
-    "suggested_name": "better name if applicable or null",
-    "reasoning": "explanation in Vietnamese"
-}}
-
-## Existing Ontology Relations
-{existing_relations}
-
-## Proposed Relation
-- Name: {relation_name} ({relation_name_english})
-- Description: {description}
-- Source Type: {source_type}
-- Target Type: {target_type}
-- Symmetric: {is_symmetric}
-- Transitive: {is_transitive}
-
-## Example Context
-Source: {example_source}
-Target: {example_target}
+## RESPONSE
+Return JSON object in the format above. Do NOT add any other text.
 """
-
-# Prompt for strong model to validate a specific relation instance between two nodes
-RELATION_INSTANCE_VALIDATION_PROMPT = """You are a knowledge graph expert validating a proposed relationship.
-
-## Task
-Validate if this relationship accurately describes the connection between Node A and Node B.
-
-## Validation Criteria
-1. Does the relationship type accurately capture the semantic connection?
-2. Is the relationship direction correct (A → B)?
-3. Is this relationship meaningful and not overly generic?
-4. Is the description accurate for this specific pair?
-
-## Response Format (JSON only)
-{{
-    "is_valid": true/false,
-    "confidence": 0.0-1.0,
-    "reasoning": "Explanation in Vietnamese"
-}}
-
-IMPORTANT:
-- Be strict but fair
-- A relationship is valid if it accurately describes the connection
-- Reject if the relationship is too generic or misleading
-- Respond with JSON only, no markdown
-
-## Proposed Relationship
-- Type: {proposed_relation}
-- Description: {description}
-- Original Reasoning: {reasoning}
-
-## Node A ({node_a_type})
-{node_a_text}
-
-## Node B ({node_b_type})
-{node_b_text}
-"""
-
-# Prompt for strong model to re-extract relation after rejection
-RELATION_REEXTRACTION_PROMPT = """You are a knowledge graph expert. The previous relationship proposal was rejected.
-Extract the correct relationship between these nodes.
-
-## Task
-1. Analyze the semantic relationship between Node A and Node B
-2. Choose the BEST fitting relationship from the list above
-3. Or propose a NEW relationship if none fit well
-
-## Response Format (JSON only)
-{{
-    "relation_type": "RELATION_TYPE",
-    "description": "Description of what this relation means (in Vietnamese)",
-    "is_new_relation": true/false,
-    "confidence": 0.0-1.0,
-    "reasoning": "Brief explanation in Vietnamese"
-}}
-
-## CRITICAL RULES:
-1. Do NOT use SIMILAR_TO - this is forbidden
-2. If proposing new relation, provide clear description
-3. Respond with JSON only, no markdown
-
-## Ontology
-{ontology_section}
-
-## Node A ({node_a_type})
-{node_a_text}
-
-## Node B ({node_b_type})
-{node_b_text}
-
-## Previous Rejected Proposal
-(Avoid this relation: {previous_attempt})
-"""
+)

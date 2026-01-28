@@ -25,8 +25,7 @@ from arango_client.utils import normalize_tier
 from llm_gateway_client.models.request import GatewayChatTurn, GatewayInvokeRequest
 from loguru import logger
 from prompts import (
-    RELATION_INSTANCE_VALIDATION_PROMPT,
-    RELATION_REEXTRACTION_PROMPT,
+    STRONG_VERIFY_AND_EXTRACT_PROMPT,
 )
 from tenacity import (
     retry,
@@ -35,6 +34,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from .models import NodeInfo
 from .utils import extract_json_from_llm_response
 
 if TYPE_CHECKING:
@@ -44,15 +44,44 @@ if TYPE_CHECKING:
 
     from config.extraction import ExtractionSettings
 
+# Database retry decorator for ArangoDB operations
+# Retries on connection errors and server errors
+db_retry = retry(
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=0.5, min=1, max=10),
+    retry=retry_if_exception_type((ConnectionError, OSError, TimeoutError)),
+)
+
 
 @dataclass
-class NodeInfo:
-    """Node information for validation."""
+class StrongLLMRelationOutput:
+    """Output from LLM Strong verification and extraction.
 
-    node_id: str
-    node_type: str
-    text: str
-    embedding: list[float] | None = None
+    LLM Strong performs both validation AND full info extraction in one step.
+    If it rejects the weak model's proposal, it proposes a better relation.
+    """
+
+    # Validation
+    accepted: bool  # Accept relation from weak model?
+    reasoning: str  # Reason for accept/reject
+
+    # Core fields (LLM extracts)
+    id: str  # SCREAMING_SNAKE_CASE
+    name: str  # Human-readable name
+    summary: str  # 10-20 words
+    description: str  # Detailed for embedding
+
+    # Type constraints
+    source_node_types: list[str]  # ["paragraph", "structure", "entity"]
+    target_node_types: list[str]  # ["paragraph", "structure", "entity"]
+
+    # Semantic properties
+    is_symmetric: bool  # A→B implies B→A?
+    is_transitive: bool  # A→B, B→C implies A→C?
+
+    # Classification
+    families: list[str]  # ["kinship", "causal", "temporal"...]
+    keywords: list[str]  # Vietnamese keywords
 
 
 @dataclass
@@ -67,6 +96,7 @@ class ValidationResult:
     similarity_score: float | None = None  # Similarity score if merged
     re_extracted: bool = False  # True if had to re-extract with Strong LLM
     reasoning: str = ""
+    families: list[str] | None = None  # Inferred families for new relations
 
 
 class NewRelationValidator:
@@ -150,28 +180,24 @@ class NewRelationValidator:
         node_a: NodeInfo,
         node_b: NodeInfo,
         proposed_relation: str,
-        description: str,
-        reasoning: str,
+        summary: str,  # Renamed from description - short summary from weak LLM
         tier: str | None = None,
-        top_k_relation_ids: list[str] | None = None,
     ) -> ValidationResult:
-        """Validate a new relation proposed by LLM.
+        """Validate new relation với flow mới.
 
-        Implements the full validation flow:
-        1. Embed (name + description)
-        2. Compare with ALL relations (all tiers)
-        3. If > threshold → merge
-        4. If < threshold → LLM Strong Verify
-        5. If invalid → re-extract
+        FLOW:
+        1. Check exact name in DB → Found? → MERGE (add tier)
+        2. LLM Strong Verify + Extract FULL INFO
+        3. Embed (name + description)
+        4. Compare similarity >= 0.85? → MERGE
+        5. Store NEW relation to DB
 
         Args:
             node_a: Source node info
             node_b: Target node info
-            proposed_relation: Proposed relation type name
-            description: Description of the relation
-            reasoning: LLM's reasoning for this relation
+            proposed_relation: Relation type từ LLM weak
+            summary: Short summary từ LLM weak
             tier: Current processing tier
-            top_k_relation_ids: IDs of relations already considered in top-k
 
         Returns:
             ValidationResult with final relation and metadata
@@ -179,144 +205,138 @@ class NewRelationValidator:
         self._log.info(
             "Validating new relation",
             proposed=proposed_relation,
-            description=description[:100] if description else None,
+            summary=summary[:100] if summary else None,
         )
 
-        # Step 0: Check if relation already exists by exact name match
-        # This handles the case where relation exists in another tier
+        # =========================================================
+        # STEP 1: Check exact name match in DB
+        # =========================================================
         if self.ontology_handler:
-            existing_relation = self.ontology_handler.get_by_id(proposed_relation)
-            if existing_relation:
-                # Relation already exists - just need to add tier if missing
+            existing = self.ontology_handler.get_by_id(proposed_relation)
+            if existing:
                 self._log.info(
-                    "Relation already exists in DB, will add tier if missing",
+                    "Relation exists in DB (exact match), returning for tier update by caller",
                     relation=proposed_relation,
-                    existing_tiers=[normalize_tier(t) for t in existing_relation.tiers],
+                    existing_tiers=[normalize_tier(t) for t in existing.tiers],
                 )
                 return ValidationResult(
                     is_valid=True,
                     final_relation_type=proposed_relation,
-                    final_description=existing_relation.description,
-                    merged_with_existing=True,  # Mark as merged so tier gets updated
+                    final_description=existing.description,
+                    merged_with_existing=True,
                     existing_relation_id=proposed_relation,
-                    similarity_score=1.0,  # Exact match
-                    reasoning="Exact match found in DB, adding tier",
+                    similarity_score=1.0,
+                    reasoning="Exact match in DB",
                 )
 
-        # Step 1: Embed the new relation (name + description)
-        relation_embedding = await self._embed_relation(proposed_relation, description)
+        # =========================================================
+        # STEP 2: LLM Strong Verify + Extract FULL INFO
+        # =========================================================
+        strong_output = await self._verify_and_extract_with_strong_llm(
+            node_a=node_a,
+            node_b=node_b,
+            proposed_relation=proposed_relation,
+            summary=summary,
+        )
 
-        if not relation_embedding:
-            self._log.warning("Failed to embed relation, using as-is")
+        if strong_output is None:
+            # LLM call failed
+            self._log.warning("Strong LLM failed, using fallback")
             return ValidationResult(
-                is_valid=True,
-                final_relation_type=proposed_relation,
-                final_description=description,
-                reasoning="Embedding failed, accepted without comparison",
+                is_valid=False,
+                final_relation_type=self.settings.EXTRACTION_FALLBACK_RELATION,
+                final_description=None,
+                reasoning="LLM Strong failed",
             )
 
-        # Step 2: Compare with ALL existing relations (excluding top-k already considered)
-        exclude_ids = top_k_relation_ids or []
-        similar_result = await self._find_similar_in_all_tiers(relation_embedding, exclude_ids)
+        # Use relation from Strong (either accepted or new proposal)
+        relation_id = strong_output.id
+        relation_name = strong_output.name
+        relation_description = strong_output.description
+
+        self._log.info(
+            "Strong LLM output",
+            accepted=strong_output.accepted,
+            relation_id=relation_id,
+            families=strong_output.families,
+        )
+
+        # =========================================================
+        # STEP 2.5: Check if Strong LLM suggested an EXISTING relation
+        # (Strong LLM may reject proposed and suggest existing one)
+        # =========================================================
+        if self.ontology_handler:
+            existing = self.ontology_handler.get_by_id(relation_id)
+            if existing:
+                self._log.info(
+                    "Strong LLM suggested existing relation, merging",
+                    proposed=proposed_relation,
+                    suggested=relation_id,
+                )
+                return ValidationResult(
+                    is_valid=True,
+                    final_relation_type=relation_id,
+                    final_description=existing.description,
+                    merged_with_existing=True,
+                    existing_relation_id=relation_id,
+                    similarity_score=1.0,
+                    re_extracted=not strong_output.accepted,
+                    reasoning=f"Strong LLM suggested existing relation '{relation_id}'",
+                    families=existing.families if hasattr(existing, "families") else None,
+                )
+
+        # =========================================================
+        # STEP 3: Embed relation (name + description)
+        # =========================================================
+        embedding = await self._embed_relation(relation_name, relation_description)
+
+        if not embedding:
+            self._log.warning("Embedding failed, storing without similarity check")
+            # Still store but skip similarity check
+            await self._store_new_relation(strong_output, embedding=None, tier=tier)
+            return ValidationResult(
+                is_valid=True,
+                final_relation_type=relation_id,
+                final_description=relation_description,
+                reasoning="Stored without embedding",
+                families=strong_output.families,
+            )
+
+        # =========================================================
+        # STEP 4: Compare with ALL existing relations
+        # =========================================================
+        similar_result = await self._find_similar_in_all_tiers(embedding, exclude_ids=[])
 
         if similar_result:
             existing_id, similarity_score = similar_result
             if similarity_score >= self.settings.EXTRACTION_MERGE_THRESHOLD:
-                # MERGE: Use existing relation instead
                 self._log.info(
-                    "Merging new relation with existing",
-                    proposed=proposed_relation,
+                    "Merging with existing relation",
+                    proposed=relation_id,
                     existing=existing_id,
                     similarity=similarity_score,
                 )
                 return ValidationResult(
                     is_valid=True,
                     final_relation_type=existing_id,
-                    final_description=None,  # Use existing description
+                    final_description=None,
                     merged_with_existing=True,
                     existing_relation_id=existing_id,
                     similarity_score=similarity_score,
-                    reasoning=f"Merged with existing '{existing_id}' (similarity: {similarity_score:.2f})",
+                    reasoning=f"Merged with '{existing_id}' (sim: {similarity_score:.2f})",
                 )
 
-        # Step 3: LLM Strong Verify (validator role)
-        is_valid = await self._verify_with_strong_llm(
-            node_a=node_a,
-            node_b=node_b,
-            proposed_relation=proposed_relation,
-            description=description,
-            reasoning=reasoning,
-        )
+        # =========================================================
+        # STEP 5: Store NEW relation to DB
+        # =========================================================
+        await self._store_new_relation(strong_output, embedding=embedding, tier=tier)
 
-        if is_valid:
-            # Valid - use proposed relation
-            self._log.info(
-                "New relation validated by Strong LLM",
-                relation=proposed_relation,
-            )
-            return ValidationResult(
-                is_valid=True,
-                final_relation_type=proposed_relation,
-                final_description=description,
-                reasoning="Validated by Strong LLM",
-            )
-
-        # Step 4: Invalid - re-extract with Strong LLM
-        self._log.info(
-            "Strong LLM rejected relation, re-extracting",
-            rejected=proposed_relation,
-        )
-
-        re_extracted = await self._re_extract_with_strong_llm(
-            node_a=node_a,
-            node_b=node_b,
-            tier=tier,
-            previous_attempt=proposed_relation,
-        )
-
-        if re_extracted:
-            # Validate the re-extracted relation
-            new_embedding = await self._embed_relation(
-                re_extracted["relation_type"],
-                re_extracted.get("description", ""),
-            )
-
-            if new_embedding:
-                # Check if similar to existing
-                similar_result = await self._find_similar_in_all_tiers(new_embedding, exclude_ids)
-                if similar_result:
-                    existing_id, similarity_score = similar_result
-                    if similarity_score >= self.settings.EXTRACTION_MERGE_THRESHOLD:
-                        return ValidationResult(
-                            is_valid=True,
-                            final_relation_type=existing_id,
-                            final_description=None,
-                            merged_with_existing=True,
-                            existing_relation_id=existing_id,
-                            similarity_score=similarity_score,
-                            re_extracted=True,
-                            reasoning=f"Re-extracted then merged with '{existing_id}'",
-                        )
-
-            # Use re-extracted relation
-            return ValidationResult(
-                is_valid=True,
-                final_relation_type=re_extracted["relation_type"],
-                final_description=re_extracted.get("description"),
-                re_extracted=True,
-                reasoning="Re-extracted by Strong LLM",
-            )
-
-        # Fallback if re-extraction failed
-        self._log.warning(
-            "Re-extraction failed, using fallback",
-            fallback=self.settings.EXTRACTION_FALLBACK_RELATION,
-        )
         return ValidationResult(
-            is_valid=False,
-            final_relation_type=self.settings.EXTRACTION_FALLBACK_RELATION,
-            final_description=None,
-            reasoning="Re-extraction failed, using fallback",
+            is_valid=True,
+            final_relation_type=relation_id,
+            final_description=relation_description,
+            reasoning=strong_output.reasoning,
+            families=strong_output.families,
         )
 
     # =========================================================================
@@ -390,179 +410,146 @@ class NewRelationValidator:
         return result
 
     # =========================================================================
-    # Step 3: LLM Strong Verify (Validator Role)
+    # Step 2: LLM Strong Verify + Extract Full Info
     # =========================================================================
 
-    async def _verify_with_strong_llm(
+    async def _verify_and_extract_with_strong_llm(
         self,
         node_a: NodeInfo,
         node_b: NodeInfo,
         proposed_relation: str,
-        description: str,
-        reasoning: str,
-    ) -> bool:
-        """Verify proposed relation with Strong LLM.
-
-        The Strong LLM acts as a VALIDATOR - it checks if the proposed
-        relation is correct for the given node pair.
+        summary: str,
+    ) -> StrongLLMRelationOutput | None:
+        """LLM Strong verify relation và extract FULL INFO.
 
         Args:
             node_a: Source node info
             node_b: Target node info
-            proposed_relation: Proposed relation type
-            description: Relation description
-            reasoning: Original LLM's reasoning
+            proposed_relation: Relation type từ LLM weak
+            summary: Short summary từ LLM weak
 
         Returns:
-            True if valid, False if invalid
+            StrongLLMRelationOutput với full info hoặc None nếu fail
         """
-        prompt = RELATION_INSTANCE_VALIDATION_PROMPT.format(
-            node_a_type=node_a.node_type,
+        prompt = STRONG_VERIFY_AND_EXTRACT_PROMPT.format(
             node_a_text=node_a.text[:500],
-            node_b_type=node_b.node_type,
             node_b_text=node_b.text[:500],
             proposed_relation=proposed_relation,
-            description=description,
-            reasoning=reasoning,
+            summary=summary,
         )
 
         try:
             response = await self._call_strong_llm(prompt)
             data = extract_json_from_llm_response(response)
 
-            is_valid = data.get("is_valid", False)
-            confidence = data.get("confidence", 0.0)
-
-            self._log.debug(
-                "Strong LLM validation result",
-                is_valid=is_valid,
-                confidence=confidence,
+            return StrongLLMRelationOutput(
+                accepted=data.get("accepted", False),
                 reasoning=data.get("reasoning", ""),
+                id=data.get("id", proposed_relation),
+                name=data.get("name", proposed_relation),
+                summary=data.get("summary", summary),
+                description=data.get("description", ""),
+                source_node_types=data.get("source_node_types", ["paragraph"]),
+                target_node_types=data.get("target_node_types", ["paragraph"]),
+                is_symmetric=data.get("is_symmetric", False),
+                is_transitive=data.get("is_transitive", False),
+                families=data.get("families", []),
+                keywords=data.get("keywords", []),
             )
-
-            return is_valid
-
         except Exception as e:
-            self._log.error(f"Strong LLM verification failed: {e}")
-            # On error, accept the relation (fail open)
-            return True
-
-    # =========================================================================
-    # Step 4: Re-extract with Strong LLM
-    # =========================================================================
-
-    async def _re_extract_with_strong_llm(
-        self,
-        node_a: NodeInfo,
-        node_b: NodeInfo,
-        tier: str | None = None,
-        previous_attempt: str | None = None,
-    ) -> dict | None:
-        """Re-extract relation using Strong LLM.
-
-        When the validator rejects the initial proposal, use Strong LLM
-        to extract a better relation directly.
-
-        Args:
-            node_a: Source node info
-            node_b: Target node info
-            tier: Current processing tier
-            previous_attempt: The rejected relation (to avoid)
-
-        Returns:
-            Dict with relation_type and description, or None if failed
-        """
-        # Get top-k relations for this tier
-        ontology_section = self._build_ontology_section_for_reextract(
-            node_a.embedding, node_b.embedding, tier
-        )
-
-        prompt = RELATION_REEXTRACTION_PROMPT.format(
-            node_a_type=node_a.node_type,
-            node_a_text=node_a.text[:500],
-            node_b_type=node_b.node_type,
-            node_b_text=node_b.text[:500],
-            previous_attempt=previous_attempt or "None",
-            ontology_section=ontology_section,
-        )
-
-        try:
-            response = await self._call_strong_llm(prompt)
-            data = extract_json_from_llm_response(response)
-
-            relation_type = data.get("relation_type")
-            if not relation_type:
-                self._log.warning("Re-extraction returned no relation_type")
-                return None
-
-            # Check if same as rejected
-            if relation_type == previous_attempt:
-                self._log.warning(
-                    "Re-extraction returned same as rejected",
-                    relation=relation_type,
-                )
-                return None
-
-            return {
-                "relation_type": relation_type,
-                "description": data.get("description"),
-                "is_new_relation": data.get("is_new_relation", False),
-                "confidence": data.get("confidence", 0.5),
-            }
-
-        except Exception as e:
-            self._log.error(f"Strong LLM re-extraction failed: {e}")
+            self._log.error(f"Strong LLM failed: {e}")
             return None
+
+    # =========================================================================
+    # Step 5: Store New Relation to DB
+    # =========================================================================
+
+    async def _store_new_relation(
+        self,
+        output: StrongLLMRelationOutput,
+        embedding: list[float] | None,
+        tier: str | None,
+    ) -> None:
+        """Store new relation to ontology_relations collection.
+
+        Includes retry logic for database resilience.
+        """
+        if not self.ontology_handler:
+            self._log.warning("No ontology handler, cannot store relation")
+            return
+
+        from arango_client.models.ontology import (
+            OntologyRelation,
+            RelationStatus,
+            RelationTier,
+        )
+
+        # Determine tier
+        tiers = []
+        if tier:
+            try:
+                tiers.append(RelationTier(tier))
+            except ValueError:
+                tiers.append(RelationTier.TIER_2_CONTENT)
+        else:
+            tiers.append(RelationTier.TIER_2_CONTENT)
+
+        relation = OntologyRelation(
+            id=output.id,
+            name=output.name,
+            summary=output.summary,
+            description=output.description,
+            embedding=embedding,
+            source_node_types=output.source_node_types,
+            target_node_types=output.target_node_types,
+            is_symmetric=output.is_symmetric,
+            is_transitive=output.is_transitive,
+            is_builtin=False,  # LLM-proposed
+            status=RelationStatus.ACTIVE,
+            usage_count=0,
+            tiers=tiers,
+            families=output.families,
+            keywords=output.keywords,
+        )
+
+        # Use retry wrapper for database operation
+        await self._store_relation_with_retry(relation, output.id, output.families)
+
+    @db_retry
+    async def _store_relation_with_retry(
+        self,
+        relation,
+        relation_id: str,
+        families: list[str],
+    ) -> None:
+        """Store relation with retry logic for database resilience."""
+        self.ontology_handler.create(relation)
+        self._log.info(
+            "Stored new relation to DB",
+            id=relation_id,
+            families=families,
+        )
 
     # =========================================================================
     # Helper Methods
     # =========================================================================
 
-    def _build_ontology_section_for_reextract(
-        self,
-        source_embedding: list[float] | None,
-        target_embedding: list[float] | None,
-        tier: str | None = None,
-    ) -> str:
-        """Build ontology section for re-extraction prompt."""
-        if not self.ontology_handler:
-            return "## Available Relationships\nUse any meaningful relationship type."
-
-        if not source_embedding or not target_embedding:
-            return "## Available Relationships\nUse any meaningful relationship type."
-
-        # Get top-k relations for context
-        scored_relations = self.ontology_handler.filter_relations_by_centroid(
-            source_embedding=source_embedding,
-            target_embedding=target_embedding,
-            top_k=15,
-            tier=tier,
-            exclude_relations={"SIMILAR_TO"},
-        )
-
-        if not scored_relations:
-            return "## Available Relationships\nUse any meaningful relationship type."
-
-        lines = ["## Available Relationship Types (ranked by relevance)\n"]
-
-        for rel_id, score in scored_relations:
-            rel = self.ontology_handler.get_relation(rel_id)
-            if rel:
-                lines.append(f"- **{rel.name}** (score: {score:.2f}): {rel.description}")
-
-        lines.append("\n- Or propose a NEW relationship if none fit well")
-
-        return "\n".join(lines)
-
     @retry(
-        stop=stop_after_attempt(3),
+        stop=stop_after_attempt(2),
         wait=wait_exponential(multiplier=1, min=2, max=30),
         retry=retry_if_exception_type((TimeoutError, ConnectionError, OSError)),
     )
     async def _call_strong_llm(self, prompt: str) -> str:
-        """Call Strong LLM with retry logic."""
+        """Call Strong LLM with retry logic.
+
+        Retries up to 2 times on transient failures.
+        Uses model key "strong" configured in AIGatewayClient.
+        """
+        # Get the model name with proper LiteLLM format
+        model_name = self.settings.EXTRACTION_STRONG_MODEL
+
         request = GatewayInvokeRequest(
-            model=self.strong_model,
+            model=model_name,
             messages=[
                 GatewayChatTurn(
                     role="system",
@@ -570,6 +557,7 @@ class NewRelationValidator:
                 ),
                 GatewayChatTurn(role="user", content=prompt),
             ],
+            max_tokens=5000,
             provider_options={"temperature": 0.1},
         )
 
@@ -579,3 +567,145 @@ class NewRelationValidator:
             return ""
 
         return response.message.content or ""
+
+    # =========================================================================
+    # Batch Operations for Parallel Processing
+    # =========================================================================
+
+    async def batch_embed_relations(
+        self,
+        relations: list[tuple[str, str]],  # List of (name, description)
+    ) -> list[list[float] | None]:
+        """Batch embed multiple relations in a single API call.
+
+        Much more efficient than calling _embed_relation for each one.
+
+        Args:
+            relations: List of (relation_name, description) tuples
+
+        Returns:
+            List of embeddings (or None for failed ones)
+        """
+        if not relations:
+            return []
+
+        texts = [f"{name}: {desc}" if desc else name for name, desc in relations]
+
+        try:
+            from llm_gateway_client.models.embedding import EmbeddingRequest
+
+            request = EmbeddingRequest(
+                model=self.settings.EXTRACTION_EMBEDDING_MODEL,
+                input=texts,
+            )
+            response = await self.llm_client.embed(request)
+
+            if response.embeddings and len(response.embeddings) == len(texts):
+                return response.embeddings
+
+            self._log.warning("Batch embed returned wrong number of embeddings")
+            return [None] * len(relations)
+
+        except Exception as e:
+            self._log.error(f"Batch embed failed: {e}")
+            return [None] * len(relations)
+
+    async def parallel_duplicate_check(
+        self,
+        relations: list[tuple[str, str, list[float]]],  # (name, desc, embedding)
+        exclude_ids: list[str] | None = None,
+    ) -> list[tuple[str | None, float]]:
+        """Parallel duplicate check for multiple relations.
+
+        This is safe to parallelize because it's read-only (no writes).
+
+        Args:
+            relations: List of (name, description, embedding) tuples
+            exclude_ids: Relation IDs to exclude from comparison
+
+        Returns:
+            List of (existing_id, similarity) or (None, 0.0) for each relation
+        """
+        if not relations or not self.ontology_handler:
+            return [(None, 0.0)] * len(relations)
+
+        exclude_ids = exclude_ids or []
+
+        def check_one(
+            _name: str,
+            _desc: str,
+            embedding: list[float],
+        ) -> tuple[str | None, float]:
+            if not embedding:
+                return (None, 0.0)
+
+            result = self.ontology_handler.find_similar_excluding(
+                embedding=embedding,
+                exclude_ids=exclude_ids,
+                threshold=self.settings.EXTRACTION_MERGE_THRESHOLD,
+            )
+            return result if result else (None, 0.0)
+
+        # Run checks (synchronous since ontology_handler methods are sync)
+        results = [check_one(n, d, e) for n, d, e in relations]
+        return results
+
+    async def infer_families(
+        self,
+        relation_name: str,
+        description: str,
+        embedding: list[float] | None = None,
+    ) -> list[str]:
+        """Infer families for a new relation based on similarity to existing ones.
+
+        Algorithm:
+        1. Find closest existing relation by embedding
+        2. Inherit families from that relation
+        3. If similarity < 0.6, also add "elaborative" as default
+
+        Args:
+            relation_name: Name of the new relation
+            description: Description of the relation
+            embedding: Pre-computed embedding (optional)
+
+        Returns:
+            List of inferred family names
+        """
+        if not self.ontology_handler:
+            return ["elaborative"]  # Default family
+
+        # Get embedding if not provided
+        if embedding is None:
+            embedding = await self._embed_relation(relation_name, description)
+
+        if not embedding:
+            return ["elaborative"]
+
+        # Find closest existing relation
+        result = self.ontology_handler.find_similar_excluding(
+            embedding=embedding,
+            exclude_ids=[],
+            threshold=0.3,  # Low threshold to find something
+        )
+
+        if result:
+            existing_id, similarity = result
+            existing_rel = self.ontology_handler.get_by_id(existing_id)
+
+            if existing_rel and hasattr(existing_rel, "families") and existing_rel.families:
+                inferred = list(existing_rel.families)
+
+                # If low similarity, add elaborative as fallback
+                if similarity < 0.6 and "elaborative" not in inferred:
+                    inferred.append("elaborative")
+
+                self._log.info(
+                    "Inferred families for new relation",
+                    relation=relation_name,
+                    closest=existing_id,
+                    similarity=f"{similarity:.2f}",
+                    families=inferred,
+                )
+                return inferred
+
+        return ["elaborative"]
