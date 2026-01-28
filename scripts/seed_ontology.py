@@ -56,21 +56,32 @@ def sanitize_relation_id(rel_id: str) -> str:
 def build_relation_data_from_constraint(constraint) -> dict:
     """Build relation data dict from RelationConstraint.
 
-    Uses the description field directly from the constraint.
+    Extracts ALL fields from the constraint including:
+    - Basic: id, name, description, summary
+    - Type constraints: source_node_types, target_node_types
+    - Semantic properties: is_symmetric, is_transitive
+    - Classification: tiers, families, keywords
     """
     rel_type = constraint.relation_type
     rel_id_raw = rel_type.value if hasattr(rel_type, "value") else str(rel_type)
     rel_id = sanitize_relation_id(rel_id_raw)
 
     return {
+        # Basic info
         "id": rel_id,
         "name": rel_id_raw,  # Keep original name with Vietnamese characters
-        "description": constraint.description,
+        "summary": constraint.summary,  # Short description (10-20 words)
+        "description": constraint.description,  # Full description for embedding
+        # Type constraints
         "source_node_types": constraint.source_node_types,
         "target_node_types": constraint.target_node_types,
+        # Semantic properties
         "is_symmetric": constraint.is_symmetric,
         "is_transitive": constraint.is_transitive,
-        "tiers": constraint.tiers,  # Include tiers from constraint
+        # Classification
+        "tiers": constraint.tiers,
+        "families": constraint.families,  # causal, temporal, comparative, etc.
+        "keywords": constraint.keywords,  # Vietnamese keywords for query matching
     }
 
 
@@ -264,9 +275,7 @@ async def main():
     for ontology_name in ontology_relations:
         print(f"\nSeeding {ontology_name} relations...")
         ontology_rels = ontology_relations[ontology_name]
-        count = handler.seed_from_ontology(
-            ontology_rels, overwrite=args.overwrite
-        )
+        count = handler.seed_from_ontology(ontology_rels, overwrite=args.overwrite)
         print(f"  ✓ Seeded {count} {ontology_name} relations")
         total_seeded += count
 
@@ -287,7 +296,23 @@ async def main():
         sample = with_embeddings[0]
         print(f"  ID: {sample.id}")
         print(f"  Name: {sample.name}")
-        print(f"  Description: {sample.description[:80]}...")
+        print(
+            f"  Summary: {sample.summary if hasattr(sample, 'summary') and sample.summary else 'N/A'}"
+        )
+        print(
+            f"  Description: {sample.description[:80]}..."
+            if sample.description
+            else "  Description: N/A"
+        )
+        print(
+            f"  Families: {sample.families if hasattr(sample, 'families') and sample.families else []}"
+        )
+        print(
+            f"  Keywords: {sample.keywords[:3] if hasattr(sample, 'keywords') and sample.keywords else []}..."
+        )
+        print(
+            f"  Tiers: {[str(t) for t in sample.tiers] if hasattr(sample, 'tiers') and sample.tiers else []}"
+        )
         print(f"  Embedding dim: {len(sample.embedding) if sample.embedding else 0}")
 
     print("\n✓ Done!")

@@ -26,6 +26,7 @@ from workflows.dependencies import init_arango_client
 # Collections to clear (order matters for edges first, then nodes)
 EDGE_COLLECTIONS = [
     "knowledge_edges",
+    "ontology_relations",
 ]
 
 DOCUMENT_COLLECTIONS = [

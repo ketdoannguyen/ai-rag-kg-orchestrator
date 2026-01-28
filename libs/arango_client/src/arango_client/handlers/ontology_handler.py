@@ -404,13 +404,16 @@ class OntologyHandler(BaseHandler[OntologyRelation]):
             relations: List of relation dicts with keys:
                 - id: Relation type name
                 - name: Human-readable name
-                - description: Vietnamese description
+                - summary: Short description (10-20 words)
+                - description: Vietnamese description (full, for embedding)
                 - source_node_types: List of valid source types
                 - target_node_types: List of valid target types
                 - is_symmetric: Optional, default False
                 - is_transitive: Optional, default False
                 - embedding: Optional, pre-computed embedding
                 - tiers: Optional, list of tier classifications (defaults to [tier_2_content])
+                - families: Optional, list of family names (causal, temporal, etc.)
+                - keywords: Optional, list of Vietnamese keywords for query matching
             overwrite: If True, overwrite existing relations
 
         Returns:
@@ -434,7 +437,8 @@ class OntologyHandler(BaseHandler[OntologyRelation]):
             relation = OntologyRelation(
                 id=relation_id,
                 name=rel_data.get("name", relation_id),
-                description=rel_data["description"],
+                summary=rel_data.get("summary", ""),
+                description=rel_data.get("description", ""),
                 embedding=rel_data.get("embedding"),
                 source_node_types=rel_data.get("source_node_types", []),
                 target_node_types=rel_data.get("target_node_types", []),
@@ -443,6 +447,8 @@ class OntologyHandler(BaseHandler[OntologyRelation]):
                 is_builtin=True,
                 status=RelationStatus.ACTIVE,
                 tiers=tier_values,
+                families=rel_data.get("families", []),
+                keywords=rel_data.get("keywords", []),
             )
 
             if existing:
