@@ -34,8 +34,8 @@ if TYPE_CHECKING:
 # Keyword Rules for Pre-Classification
 # =============================================================================
 
+# High-confidence patterns - can skip LLM for these (strict matching)
 KEYWORD_RULES: dict[str, list[str]] = {
-    # High-confidence patterns - can skip LLM for these
     "comparison": [
         "so sánh",
         "khác nhau",
@@ -86,6 +86,15 @@ KEYWORD_RULES: dict[str, list[str]] = {
         "bạn là ai",
         "tên bạn",
     ],
+}
+
+# Looser keyword rules for fallback matching (used when LLM fails)
+FALLBACK_KEYWORD_RULES: dict[str, list[str]] = {
+    "comparison": ["so sánh", "khác", "giống"],
+    "causal": ["tại sao", "nguyên nhân", "hậu quả", "ý nghĩa"],
+    "lesson_synthesis": ["bài học", "truyền thống", "qua các"],
+    "concept": ["là gì", "thế nào"],
+    "figure": ["đóng góp", "cuộc đời", "sự nghiệp"],
 }
 
 
@@ -310,27 +319,33 @@ class QueryRouter:
         candidates_count: int,
     ) -> QueryClassification:
         """Smart fallback using keyword detection instead of always returning FACTUAL."""
-        # Try keyword detection again with looser matching
-        query_lower = query.lower()
-
-        # Priority-ordered detection
-        if any(kw in query_lower for kw in ["so sánh", "khác", "giống"]):
-            detected_type = QueryType.COMPARISON
-        elif any(kw in query_lower for kw in ["tại sao", "nguyên nhân", "hậu quả", "ý nghĩa"]):
-            detected_type = QueryType.CAUSAL
-        elif any(kw in query_lower for kw in ["bài học", "truyền thống", "qua các"]):
-            detected_type = QueryType.LESSON_SYNTHESIS
-        elif any(kw in query_lower for kw in ["là gì", "thế nào"]):
-            detected_type = QueryType.CONCEPT
-        elif any(kw in query_lower for kw in ["đóng góp", "cuộc đời", "sự nghiệp"]):
-            detected_type = QueryType.FIGURE
-        else:
-            detected_type = QueryType.FACTUAL
+        detected_type = _match_fallback_keywords(query)
 
         return self._build_classification_from_type(
             query_type=detected_type,
             candidates_count=candidates_count,
         )
+
+
+def _match_fallback_keywords(query: str) -> QueryType:
+    """Match query against fallback keyword rules (looser matching).
+
+    Args:
+        query: User query text
+
+    Returns:
+        Detected QueryType, defaults to FACTUAL if no match
+    """
+    query_lower = query.lower()
+
+    for query_type_str, keywords in FALLBACK_KEYWORD_RULES.items():
+        if any(kw in query_lower for kw in keywords):
+            try:
+                return QueryType(query_type_str)
+            except ValueError:
+                continue
+
+    return QueryType.FACTUAL
 
     def _format_candidates(self, candidates: list[RelationCandidate]) -> str:
         """Format relation candidates for LLM prompt."""
