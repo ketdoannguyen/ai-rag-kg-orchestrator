@@ -14,6 +14,10 @@ Enhanced with deep debugging support:
 - Similarity search results per node
 - LLM prompt/response logging
 - Decision flow tracing
+
+Settings (from config/extraction.py):
+- EXTRACTION_DEBUG_STORE_SIMILARITY_MATRIX: Enable/disable matrix storage
+- EXTRACTION_DEBUG_MAX_MATRIX_SIZE: Max matrix size to store
 """
 
 from __future__ import annotations
@@ -26,6 +30,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 if TYPE_CHECKING:
+    from config.extraction import ExtractionSettings
+
     from .intra_batch_dedup import IntraBatchResult
 
 
@@ -175,18 +181,24 @@ class ExtractionDebugLogger:
     - Similarity search results per node
     - LLM prompt/response logging
     - Decision flow tracing
+
+    Settings control:
+    - EXTRACTION_DEBUG_STORE_SIMILARITY_MATRIX: Enable/disable matrix storage
+    - EXTRACTION_DEBUG_MAX_MATRIX_SIZE: Max matrix size to store (memory optimization)
     """
 
     def __init__(
         self,
         output_dir: str | Path | None = None,
         deep_debug: bool = False,
+        settings: ExtractionSettings | None = None,
     ) -> None:
         """Initialize debug logger.
 
         Args:
             output_dir: Directory for output files. Defaults to .claude/logs/extraction/
             deep_debug: If True, enables detailed logging including full LLM prompts
+            settings: Extraction settings for matrix storage options
         """
         if output_dir is None:
             project_root = Path(__file__).parent.parent.parent
@@ -195,6 +207,7 @@ class ExtractionDebugLogger:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._current_log: ExtractionDebugLog | None = None
         self._deep_debug = deep_debug
+        self._settings = settings
 
     def start_run(
         self,
@@ -246,7 +259,23 @@ class ExtractionDebugLogger:
         if tier_log is None:
             return
 
-        tier_log.similarity_matrix = result.similarity_matrix
+        # Check settings for matrix storage
+        store_matrix = True
+        max_size = 100  # Default max size
+
+        if self._settings is not None:
+            store_matrix = self._settings.EXTRACTION_DEBUG_STORE_SIMILARITY_MATRIX
+            max_size = self._settings.EXTRACTION_DEBUG_MAX_MATRIX_SIZE
+
+        # Only store matrix if enabled and size is within limit
+        if store_matrix and result.similarity_matrix is not None:
+            matrix_size = len(result.similarity_matrix)
+            if matrix_size <= max_size:
+                tier_log.similarity_matrix = result.similarity_matrix
+            else:
+                # Log that matrix was skipped due to size
+                tier_log.similarity_matrix = None
+
         tier_log.nodes_with_embeddings = len(result.leader_indices) + len(result.merge_operations)
         tier_log.intra_batch_components = len(result.leader_indices)
         tier_log.intra_batch_merges = len(result.merge_operations)
@@ -928,22 +957,27 @@ _debug_logger: ExtractionDebugLogger | None = None
 def get_debug_logger(
     output_dir: str | Path | None = None,
     deep_debug: bool = False,
+    settings: ExtractionSettings | None = None,
 ) -> ExtractionDebugLogger:
     """Get or create the debug logger singleton.
 
     Args:
         output_dir: Directory for output files
         deep_debug: If True, enables detailed logging including full LLM prompts
+        settings: Extraction settings for matrix storage options
 
     Returns:
         ExtractionDebugLogger instance
     """
     global _debug_logger  # noqa: PLW0603
     if _debug_logger is None:
-        _debug_logger = ExtractionDebugLogger(output_dir, deep_debug=deep_debug)
+        _debug_logger = ExtractionDebugLogger(output_dir, deep_debug=deep_debug, settings=settings)
     elif deep_debug and not _debug_logger._deep_debug:
         # Upgrade to deep debug if requested
         _debug_logger._deep_debug = deep_debug
+    # Update settings if provided
+    if settings is not None and _debug_logger._settings is None:
+        _debug_logger._settings = settings
     return _debug_logger
 
 

@@ -685,7 +685,7 @@ class NewRelationValidator:
         result = self.ontology_handler.find_similar_excluding(
             embedding=embedding,
             exclude_ids=[],
-            threshold=0.3,  # Low threshold to find something
+            threshold=self.settings.EXTRACTION_FAMILY_INFERENCE_THRESHOLD,
         )
 
         if result:

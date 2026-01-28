@@ -206,6 +206,44 @@ class ExtractionSettings(BaseSettings):
         le=4096,
     )
 
+    # =========================================================================
+    # Family Inference Settings
+    # =========================================================================
+    EXTRACTION_FAMILY_INFERENCE_THRESHOLD: float = Field(
+        default=0.3,
+        description="Low threshold for finding similar relations when inferring families. "
+        "Used to find any related relation for family inheritance.",
+        ge=0.1,
+        le=0.6,
+    )
+
+    # =========================================================================
+    # Batch Processing Settings
+    # =========================================================================
+    EXTRACTION_BATCH_TOP_K_RELATIONS: int = Field(
+        default=15,
+        description="Number of top-k relations for batch LLM processing. "
+        "Slightly higher than single-pair to account for batch diversity.",
+        ge=5,
+        le=30,
+    )
+
+    # =========================================================================
+    # Debug Logger Settings
+    # =========================================================================
+    EXTRACTION_DEBUG_STORE_SIMILARITY_MATRIX: bool = Field(
+        default=True,
+        description="Store similarity matrix in debug logs. "
+        "Disable for large batches to reduce memory usage.",
+    )
+
+    EXTRACTION_DEBUG_MAX_MATRIX_SIZE: int = Field(
+        default=100,
+        description="Maximum matrix size to store. Matrices larger than this are skipped.",
+        ge=10,
+        le=500,
+    )
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

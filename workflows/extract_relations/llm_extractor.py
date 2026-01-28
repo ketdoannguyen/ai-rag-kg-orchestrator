@@ -460,7 +460,7 @@ class LLMRelationExtractor:
         top_k_relations = self._get_top_k_relation_ids(
             first_pair.node_a_embedding,
             first_pair.node_b_embedding,
-            top_k=15,
+            top_k=self.settings.EXTRACTION_BATCH_TOP_K_RELATIONS,
             tier=tier,
         )
 
@@ -632,7 +632,7 @@ class LLMRelationExtractor:
             ontology_section = self._build_filtered_ontology_section(
                 source_embedding=first_pair.node_a_embedding,
                 target_embedding=first_pair.node_b_embedding,
-                top_k=15,  # Slightly more relations for batch mode diversity
+                top_k=self.settings.EXTRACTION_BATCH_TOP_K_RELATIONS,
                 tier=tier,
             )
         else:
