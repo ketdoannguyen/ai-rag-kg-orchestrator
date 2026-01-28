@@ -21,7 +21,6 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from prompts import RELATION_PROPOSAL_PROMPT, RELATION_VALIDATION_PROMPT
 from pydantic import BaseModel, Field
 
 from .base import BaseOntology, RelationConstraint
@@ -294,6 +293,4 @@ __all__ = [
     "ProposedRelation",
     "ExtensionResult",
     "OntologyExtender",
-    "RELATION_PROPOSAL_PROMPT",
-    "RELATION_VALIDATION_PROMPT",
 ]

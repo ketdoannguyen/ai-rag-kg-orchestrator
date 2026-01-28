@@ -29,8 +29,6 @@ from .entity_tier import (
     EntityRelationType,
 )
 from .extension import (
-    RELATION_PROPOSAL_PROMPT,
-    RELATION_VALIDATION_PROMPT,
     ExtensionResult,
     OntologyExtender,
     ProposalStatus,
@@ -148,8 +146,6 @@ __all__ = [
     "ProposedRelation",
     "ProposalStatus",
     "ExtensionResult",
-    "RELATION_PROPOSAL_PROMPT",
-    "RELATION_VALIDATION_PROMPT",
     # Families
     "CAUSAL",
     "TEMPORAL",
