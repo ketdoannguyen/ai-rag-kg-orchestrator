@@ -74,12 +74,6 @@ class Settings(BaseSettings):
     LANGFUSE_OTEL_HOST: str = "https://us.cloud.langfuse.com"  # US region default
     LANGFUSE_ENABLED: bool = True  # Toggle tracing on/off
 
-    # =========================================================================
-    # Domain/Ontology Configuration
-    # =========================================================================
-    # Current domain for ontology selection (base, education, entity)
-    ONTOLOGY_DOMAIN: str = "education"
-
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

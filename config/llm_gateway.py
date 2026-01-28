@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from llm_gateway_client import AIGatewayClient, GatewayModelConfig, ProviderConfig
 
+from .extraction import get_extraction_settings
 from .langfuse import configure_langfuse
 from .settings import Settings
 
@@ -55,8 +56,13 @@ def build_llm_gateway_client(settings: Settings) -> AIGatewayClient:
         )
 
     # Build provider routing configs
+    extraction_settings = get_extraction_settings()
     chat_provider_config = _build_provider_config(
         _parse_providers(settings.LLM_CHAT_PROVIDERS),
+        settings.LLM_CHAT_ALLOW_FALLBACKS,
+    )
+    strong_chat_provider_config = _build_provider_config(
+        _parse_providers(extraction_settings.EXTRACTION_STRONG_MODEL_PROVIDER),
         settings.LLM_CHAT_ALLOW_FALLBACKS,
     )
     embedding_provider_config = _build_provider_config(
@@ -79,7 +85,19 @@ def build_llm_gateway_client(settings: Settings) -> AIGatewayClient:
         provider=embedding_provider_config,
     )
 
+    # Strong LLM config for relation validation
+    strong_config = GatewayModelConfig(
+        model=extraction_settings.EXTRACTION_STRONG_MODEL,
+        api_key=chat_api_key,
+        api_base=chat_api_base,
+        extra=settings.LLM_CHAT_OPTIONS,
+        provider=strong_chat_provider_config,
+    )
+
     return AIGatewayClient(
-        chat_models={"default": chat_config},
+        chat_models={
+            "default": chat_config,
+            "strong": strong_config,
+        },
         embedding_models={"default": embed_config},
     )

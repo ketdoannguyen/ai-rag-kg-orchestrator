@@ -52,10 +52,19 @@ class ExtractionSettings(BaseSettings):
         le=0.95,
     )
 
+    EXTRACTION_WEAK_MODEL: str = Field(
+        default="openai/qwen/qwen3-235b-a22b-2507",
+        description="Weak LLM model for initial relation extraction. Fast and cheap.",
+    )
+
     EXTRACTION_STRONG_MODEL: str = Field(
-        default="",  # Empty means use default from LLM_CHAT_MODEL
-        description="Strong LLM model for validating new relations. "
-        "Leave empty to use LLM_CHAT_MODEL from environment.",
+        default="openai/google/gemini-3-pro-preview",
+        description="Strong LLM model for validating new relations. Use LiteLLM format: openai/<provider>/<model> for OpenRouter.",
+    )
+
+    EXTRACTION_STRONG_MODEL_PROVIDER: str = Field(
+        default="google-ai-studio",
+        description="Provider for the strong LLM model.",
     )
 
     EXTRACTION_MAX_RETRIES: int = Field(
@@ -74,10 +83,11 @@ class ExtractionSettings(BaseSettings):
     # LLM Settings
     # =========================================================================
     EXTRACTION_LLM_BATCH_SIZE: int = Field(
-        default=5,
-        description="Number of node pairs to process in single LLM call.",
+        default=8,
+        description="Number of node pairs to process in single LLM call. "
+        "Increased from 5 to 8 for fewer API calls and better token efficiency.",
         ge=1,
-        le=10,
+        le=15,
     )
 
     # =========================================================================
@@ -91,9 +101,10 @@ class ExtractionSettings(BaseSettings):
     )
 
     EXTRACTION_LLM_THRESHOLD: float = Field(
-        default=0.40,
+        default=0.50,
         description="Node similarity >= this triggers LLM extraction. "
-        "Below this, nodes are kept separate.",
+        "Below this, nodes are kept separate. "
+        "Raised from 0.40 to reduce noise and LLM costs.",
         ge=0.2,
         le=0.95,
     )
