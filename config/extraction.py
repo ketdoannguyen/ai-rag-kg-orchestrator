@@ -45,7 +45,7 @@ class ExtractionSettings(BaseSettings):
     # New Relation Validation Settings
     # =========================================================================
     EXTRACTION_MERGE_THRESHOLD: float = Field(
-        default=0.8,
+        default=0.6,
         description="Cosine threshold to merge new relation with existing one. "
         "If cosine(new_embedding, existing_embedding) >= this, use existing relation.",
         ge=0.5,
@@ -94,14 +94,14 @@ class ExtractionSettings(BaseSettings):
     # Threshold Settings (from deduplication, for compatibility)
     # =========================================================================
     EXTRACTION_AUTO_MERGE_THRESHOLD: float = Field(
-        default=0.72,
+        default=0.78,
         description="Node similarity >= this triggers auto-merge (no LLM needed).",
         ge=0.6,
         le=1.0,
     )
 
     EXTRACTION_LLM_THRESHOLD: float = Field(
-        default=0.50,
+        default=0.35,
         description="Node similarity >= this triggers LLM extraction. "
         "Below this, nodes are kept separate. "
         "Raised from 0.40 to reduce noise and LLM costs.",
