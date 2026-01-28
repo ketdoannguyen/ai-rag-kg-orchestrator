@@ -1,0 +1,12 @@
+{
+  "EXTRACTION_AUTO_MERGE_THRESHOLD": 0.78,
+  "EXTRACTION_LLM_THRESHOLD": 0.35,
+  "metrics": {
+    "auto_merge_precision": 0.972972972972973,
+    "auto_merge_recall": 0.8,
+    "auto_merge_f1": 0.8780487804878049,
+    "auto_merge_fp": 1,
+    "llm_zone_coverage": 0.56
+  },
+  "generated_at": "2026-01-28T20:39:10.453463"
+}
