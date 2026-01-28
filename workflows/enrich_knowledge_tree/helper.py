@@ -208,5 +208,3 @@ def create_refined_paragraphs_from_segments(
             )
 
     return refined
-
-

@@ -51,8 +51,8 @@ class IngestFilePipelineTest(unittest.TestCase):
     """
 
     # Test configuration
-    SAMPLE_FILE = Path("data/input/vku_tuyen_sinh.pdf")
-    RAW_JSON = Path("data/ingest_file/raw_json/vku_tuyen_sinh.json")
+    SAMPLE_FILE = Path("data/input/SGK-Lich-su-12-Canh-dieu.pdf")
+    RAW_JSON = Path("data/ingest_file/raw_json/SGK-Lich-su-12-Canh-dieu.json")
     CREATED_BY = UUID("550e8400-e29b-41d4-a716-446655440000")
     BASE_OUTPUT_DIR = Path("tests/workflows/output")
 

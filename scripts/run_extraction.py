@@ -282,14 +282,14 @@ def get_llm_extractor(client: ArangoClient) -> LLMRelationExtractor:
     Returns:
         LLMRelationExtractor with db and ontology_handler for tier-based filtering
     """
-    from config.ontologies.education import EDUCATION_ONTOLOGY
+    from config.ontologies.history import HISTORY_ONTOLOGY
     from workflows.extract_relations.llm_extractor import LLMRelationExtractor
 
     # Initialize with OntologyHandler for Centroid-based relation filtering
     ontology_handler = OntologyHandler(client.db)
 
     return LLMRelationExtractor(
-        ontology=EDUCATION_ONTOLOGY,
+        ontology=HISTORY_ONTOLOGY,
         db=client.db,
         ontology_handler=ontology_handler,
     )
