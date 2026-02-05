@@ -18,7 +18,7 @@ class ParagraphMetadata(BaseModel):
     """Metadata for ParagraphNode."""
 
     page: int | None = Field(None, description="Page number in source document")
-    bbox: list[int] = Field(default_factory=list, description="Bounding box [x1, y1, x2, y2]")
+    bbox: list[float] = Field(default_factory=list, description="Bounding box [x1, y1, x2, y2]")
     position: str | None = Field(
         None, description="Position reference (e.g., 'SGK Vật Lý 12, Trang 6')"
     )
@@ -45,7 +45,7 @@ class ImageMetadata(BaseModel):
     """Metadata for ImageNode."""
 
     page: int | None = Field(None, description="Page number where image is located")
-    bbox: list[int] = Field(default_factory=list, description="Bounding box [x1, y1, x2, y2]")
+    bbox: list[float] = Field(default_factory=list, description="Bounding box [x1, y1, x2, y2]")
     position: str | None = Field(None, description="Position reference")
 
 
@@ -69,7 +69,7 @@ class TableMetadata(BaseModel):
     """Metadata for TableNode."""
 
     page: int | None = Field(None, description="Page number where table is located")
-    bbox: list[int] = Field(default_factory=list, description="Bounding box [x1, y1, x2, y2]")
+    bbox: list[float] = Field(default_factory=list, description="Bounding box [x1, y1, x2, y2]")
     position: str | None = Field(None, description="Position reference")
 
 
