@@ -170,9 +170,7 @@ class RelationScorer:
         n = len(relations)
 
         # SIGNAL 1: EMBEDDING SCORES (Fully Vectorized)
-        embedding_scores = self._compute_embedding_scores(
-            query_embedding, relations, n
-        )
+        embedding_scores = self._compute_embedding_scores(query_embedding, relations, n)
 
         # SIGNAL 2: AFFINITY SCORES (Fast dictionary lookup)
         affinity_scores = self._compute_affinity_scores(query_type, relations, n)
@@ -290,9 +288,7 @@ class RelationScorer:
             # Filter empty keywords
             valid_keywords = [kw for kw in keywords if kw and kw.strip()]
             if valid_keywords:
-                matched = sum(
-                    1 for kw in valid_keywords if kw.lower() in query_text_lower
-                )
+                matched = sum(1 for kw in valid_keywords if kw.lower() in query_text_lower)
                 keyword_scores[i] = matched / len(valid_keywords)
 
         return keyword_scores

@@ -4,7 +4,7 @@ Coordinates the full retrieval pipeline:
 1. Embed query (if not pre-computed)
 2. Filter relation candidates (multi-signal scoring)
 3. Route query (LLM classification + relation selection)
-4. Execute retrieval strategy (parallel where applicable)
+4. Execute retrieval strategy
 5. Traverse relations (parallel per relation type)
 6. Return results
 """
@@ -26,7 +26,7 @@ from .models import (
     RetrievalStrategy,
 )
 from .relation_scorer import (
-    QUERY_TYPE_BASE_K,
+    QUERY_TYPE_BASE_K,  # noqa: F401 — re-exported for external consumers
     RelationScorer,
     compute_adaptive_k,
 )
@@ -35,12 +35,6 @@ from .router import QueryRouter
 if TYPE_CHECKING:
     from arango.database import StandardDatabase
     from llm_gateway_client.client import AIGatewayClient
-
-# =============================================================================
-# Retrieval Constants
-# =============================================================================
-
-CONTENT_RELATIONS_MIN_K = 1  # Minimum K when dividing top_k
 
 
 class QueryRetrievalWorkflow:
@@ -128,12 +122,7 @@ class QueryRetrievalWorkflow:
             llm_routing_time_ms=llm_routing_time_ms,
         )
 
-        # Step 6: Check if retrieval needed
-        if classification.strategy == RetrievalStrategy.NO_RETRIEVAL:
-            result.total_time_ms = (time.time() - total_start) * 1000
-            return result
-
-        # Step 7: Execute retrieval strategy
+        # Step 6: Execute retrieval strategy
         retrieval_start = time.time()
         await self._execute_strategy(
             result=result,
@@ -166,9 +155,9 @@ class QueryRetrievalWorkflow:
 
     async def _embed_query(self, query: str) -> list[float]:
         """Embed query using LLM client."""
-        from llm_gateway_client.models.request import GatewayEmbedRequest
+        from llm_gateway_client.models.embedding import EmbeddingRequest
 
-        request = GatewayEmbedRequest(texts=[query])
+        request = EmbeddingRequest(input=[query])
         response = await self.llm.embed(request)
 
         if response.embeddings and len(response.embeddings) > 0:
@@ -255,112 +244,37 @@ class QueryRetrievalWorkflow:
         source_id: str | None,
     ) -> None:
         """Execute retrieval strategy."""
-        from arango_client.handlers import SearchHandler
-
-        search_handler = SearchHandler(self.db)
         strategy = result.classification.strategy
 
-        # Ensure minimum K for split strategies
-        split_top_k = max(top_k // 2, CONTENT_RELATIONS_MIN_K)
+        if strategy == RetrievalStrategy.TOP_DOWN:
+            # E1: Top-Down Retrieval — structure search → content descent
+            from workflows.query_retrieval.strategies import TopDownRetrieval
 
-        if strategy == RetrievalStrategy.CONTENT_ONLY:
-            await self._search_content(
-                result, search_handler, query_embedding, top_k, source_id
+            top_down = TopDownRetrieval(db=self.db)
+            content_results = await top_down.execute(
+                query_embedding=query_embedding,
+                top_k=top_k,
+                source_id=source_id,
             )
+            result.content_results = content_results
+            result.top_down_metrics = top_down.metrics.to_dict()
 
-        elif strategy == RetrievalStrategy.CONTENT_WITH_RELATIONS:
-            await self._search_content(
-                result, search_handler, query_embedding, split_top_k, source_id
+        else:
+            # Fallback: use TOP_DOWN for all unimplemented strategies
+            self._log.warning(
+                "Strategy not yet implemented, falling back to TOP_DOWN",
+                requested=strategy.value,
             )
+            from workflows.query_retrieval.strategies import TopDownRetrieval
 
-        elif strategy == RetrievalStrategy.STRUCTURE_FIRST:
-            await self._search_structure(
-                result, search_handler, query_embedding, top_k, source_id
+            top_down = TopDownRetrieval(db=self.db)
+            content_results = await top_down.execute(
+                query_embedding=query_embedding,
+                top_k=top_k,
+                source_id=source_id,
             )
-
-        elif strategy == RetrievalStrategy.MULTI_SOURCE_AGGREGATE:
-            # Run content and structure searches in PARALLEL
-            await asyncio.gather(
-                self._search_content(
-                    result, search_handler, query_embedding, split_top_k, source_id
-                ),
-                self._search_structure(
-                    result, search_handler, query_embedding, split_top_k, source_id
-                ),
-            )
-
-    async def _search_content(
-        self,
-        result: QueryRetrievalOutput,
-        search_handler,
-        query_embedding: list[float],
-        top_k: int,
-        source_id: str | None,
-    ) -> None:
-        """Content search with async wrapper for blocking I/O."""
-        try:
-            search_results = await asyncio.get_event_loop().run_in_executor(
-                self._executor,
-                lambda: search_handler.vector_search_content(
-                    query_vector=query_embedding,
-                    limit=top_k,
-                    source_id=source_id,
-                ),
-            )
-
-            for search_result in search_results:
-                result.content_results.append(
-                    ContentWithContext(
-                        node_id=search_result.node.id or "",
-                        text=(
-                            search_result.node.attributes.get("text", "")
-                            if search_result.node.attributes
-                            else ""
-                        ),
-                        score=search_result.score,
-                        node_type=(
-                            search_result.node.node_type.value
-                            if search_result.node.node_type
-                            else "paragraph"
-                        ),
-                    )
-                )
-        except Exception as e:
-            self._log.warning("Content search failed", error=str(e))
-
-    async def _search_structure(
-        self,
-        result: QueryRetrievalOutput,
-        search_handler,
-        query_embedding: list[float],
-        top_k: int,
-        source_id: str | None,
-    ) -> None:
-        """Structure search with async wrapper for blocking I/O."""
-        try:
-            search_results = await asyncio.get_event_loop().run_in_executor(
-                self._executor,
-                lambda: search_handler.vector_search_structure(
-                    query_vector=query_embedding,
-                    limit=top_k,
-                    source_id=source_id,
-                ),
-            )
-
-            for search_result in search_results:
-                result.structure_results.append(
-                    {
-                        "node_id": search_result.node.id,
-                        "title": (
-                            search_result.node.attributes.get("title", "")
-                            if search_result.node.attributes
-                            else ""
-                        ),
-                        "score": search_result.score,
-                    }
-                )
-        except Exception as e:
-            self._log.warning("Structure search failed", error=str(e))
+            result.content_results = content_results
+            result.top_down_metrics = top_down.metrics.to_dict()
 
     async def _traverse_relations(
         self,
@@ -416,10 +330,7 @@ class QueryRetrievalWorkflow:
                 result.related_by_relation[rel_type].append(
                     ContentWithContext(
                         node_id=node.get("_key", ""),
-                        text=(
-                            node.get("text", "")
-                            or node.get("attributes", {}).get("text", "")
-                        ),
+                        text=(node.get("text", "") or node.get("attributes", {}).get("text", "")),
                         score=0.0,
                         node_type=node.get("node_type", "paragraph"),
                         found_via_relation=rel_type,

@@ -47,22 +47,17 @@ class QueryType(str, Enum):
 
 
 class RetrievalStrategy(str, Enum):
-    """Retrieval strategies based on query type."""
+    """6 retrieval strategies for ontology-guided traversal comparison."""
 
-    # No retrieval needed (for OTHER type)
-    NO_RETRIEVAL = "no_retrieval"
+    # Baselines (no ontology relations)
+    VECTOR_ONLY = "vector_only"  # B1: cosine search on content_nodes
+    BM25 = "bm25"  # B2: fulltext/keyword search
+    HYBRID = "hybrid"  # B3: Vector + BM25 with RRF fusion
 
-    # Content search by embedding only
-    CONTENT_ONLY = "content_only"
-
-    # Content search + relation traverse
-    CONTENT_WITH_RELATIONS = "content_with_relations"
-
-    # Search structure tier first, get children
-    STRUCTURE_FIRST = "structure_first"
-
-    # Aggregate from multiple sources
-    MULTI_SOURCE_AGGREGATE = "multi_source_aggregate"
+    # Experimental (ontology-guided)
+    TOP_DOWN = "top_down"  # E1: structure → content descent
+    HORIZONTAL = "horizontal"  # E2: content ↔ content via relations
+    BOTTOM_UP = "bottom_up"  # E3: content → parent summaries
 
 
 @dataclass
@@ -151,6 +146,9 @@ class QueryRetrievalOutput:
     llm_routing_time_ms: float = 0.0
     retrieval_time_ms: float = 0.0
     total_time_ms: float = 0.0
+
+    # Strategy-specific metrics
+    top_down_metrics: dict | None = None
 
     # Stats
     total_results: int = 0

@@ -79,10 +79,8 @@ KEYWORD_RULES: dict[str, list[str]] = {
         "hi ",
         "thời tiết",
         "bằng mấy",
-        "cộng",
-        "trừ",
-        "nhân",
-        "chia",
+        "cộng trừ",
+        "nhân chia",
         "bạn là ai",
         "tên bạn",
     ],
@@ -145,7 +143,7 @@ def build_router_prompt(query: str, candidate_relations: str) -> str:
   "confidence": 0.9,
   "use_relations": false,
   "selected_relations": [],
-  "strategy": "content_only",
+  "strategy": "vector_only",
   "reasoning": "Brief"
 }}
 ```"""
@@ -285,13 +283,13 @@ class QueryRouter:
         ]
 
         if query_type == QueryType.OTHER:
-            strategy = RetrievalStrategy.NO_RETRIEVAL
+            strategy = RetrievalStrategy.VECTOR_ONLY
         elif query_type == QueryType.STRUCTURAL:
-            strategy = RetrievalStrategy.STRUCTURE_FIRST
+            strategy = RetrievalStrategy.TOP_DOWN
         elif use_relations:
-            strategy = RetrievalStrategy.CONTENT_WITH_RELATIONS
+            strategy = RetrievalStrategy.HORIZONTAL
         else:
-            strategy = RetrievalStrategy.CONTENT_ONLY
+            strategy = RetrievalStrategy.VECTOR_ONLY
 
         # Select relations if needed
         selected_relations: list[str] = []
@@ -326,27 +324,6 @@ class QueryRouter:
             candidates_count=candidates_count,
         )
 
-
-def _match_fallback_keywords(query: str) -> QueryType:
-    """Match query against fallback keyword rules (looser matching).
-
-    Args:
-        query: User query text
-
-    Returns:
-        Detected QueryType, defaults to FACTUAL if no match
-    """
-    query_lower = query.lower()
-
-    for query_type_str, keywords in FALLBACK_KEYWORD_RULES.items():
-        if any(kw in query_lower for kw in keywords):
-            try:
-                return QueryType(query_type_str)
-            except ValueError:
-                continue
-
-    return QueryType.FACTUAL
-
     def _format_candidates(self, candidates: list[RelationCandidate]) -> str:
         """Format relation candidates for LLM prompt."""
         if not candidates:
@@ -379,11 +356,11 @@ def _match_fallback_keywords(query: str) -> QueryType:
             query_type = QueryType.FACTUAL
 
         # Parse strategy
-        strategy_str = data.get("strategy", "content_only")
+        strategy_str = data.get("strategy", "vector_only")
         try:
             strategy = RetrievalStrategy(strategy_str)
         except ValueError:
-            strategy = RetrievalStrategy.CONTENT_ONLY
+            strategy = RetrievalStrategy.VECTOR_ONLY
 
         return QueryClassification(
             query_type=query_type,
@@ -405,3 +382,24 @@ def _match_fallback_keywords(query: str) -> QueryType:
 
         settings = get_settings()
         return getattr(settings, "LLM_WEAK_MODEL", None) or settings.LLM_CHAT_MODEL
+
+
+def _match_fallback_keywords(query: str) -> QueryType:
+    """Match query against fallback keyword rules (looser matching).
+
+    Args:
+        query: User query text
+
+    Returns:
+        Detected QueryType, defaults to FACTUAL if no match
+    """
+    query_lower = query.lower()
+
+    for query_type_str, keywords in FALLBACK_KEYWORD_RULES.items():
+        if any(kw in query_lower for kw in keywords):
+            try:
+                return QueryType(query_type_str)
+            except ValueError:
+                continue
+
+    return QueryType.FACTUAL

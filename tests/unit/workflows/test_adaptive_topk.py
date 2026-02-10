@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
-
-from workflows.query_retrieval.workflow import (
-    QUERY_TYPE_BASE_K,
-    MIN_K,
+from workflows.query_retrieval.relation_scorer import (
     MAX_K,
+    MIN_K,
+    QUERY_TYPE_BASE_K,
     compute_adaptive_k,
 )
 
