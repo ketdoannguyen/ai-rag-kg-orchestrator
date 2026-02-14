@@ -37,12 +37,12 @@ class RelationType(str, Enum):
     - Duplication: DUPLICATE_OF
     - Versioning: SUPERSEDES
 
-    TIER 2 - CONTENT (14):
+    TIER 2 - CONTENT (16):
     - Elaboration: ELABORATES, SUMMARIZES, EXEMPLIFIES, DEFINES
     - Logical: SUPPORTS, CONTRADICTS, CONTRASTS
     - Sequential: CONTINUES
     - Discourse: INTRODUCES, CONCLUDES, CONTEXTUALIZES
-    - Cross-modal: VISUALIZES
+    - Cross-modal: VISUALIZES, HAS_ILLUSTRATION, RELATED_TO
     - Educational: PREREQUISITE_OF, BUILDS_UPON
     """
 
@@ -93,8 +93,10 @@ class RelationType(str, Enum):
     CONCLUDES = "CONCLUDES"  # A concludes content from B
     CONTEXTUALIZES = "CONTEXTUALIZES"  # A provides background for B
 
-    # Cross-modal (1)
+    # Cross-modal (3)
     VISUALIZES = "VISUALIZES"  # Image/Table visualizes Paragraph
+    HAS_ILLUSTRATION = "HAS_ILLUSTRATION"  # Paragraph references Image/Table
+    RELATED_TO = "RELATED_TO"  # General cross-reference relationship
 
     # Educational (2)
     PREREQUISITE_OF = "PREREQUISITE_OF"  # Must understand A before B
@@ -743,7 +745,7 @@ Phân biệt với:
         tiers=[TIER_2_CONTENT],
     ),
     # =========================================================================
-    # TIER 2 ONLY - CROSS-MODAL (1 relation)
+    # TIER 2 ONLY - CROSS-MODAL (3 relations)
     # =========================================================================
     RelationConstraint(
         relation_type=RelationType.VISUALIZES,
@@ -765,6 +767,55 @@ Phân biệt với:
 - EXEMPLIFIES: Ví dụ bằng văn bản""",
         families=[ELABORATIVE],
         keywords=["minh họa", "hình ảnh", "bảng", "biểu đồ", "sơ đồ"],
+        tiers=[TIER_2_CONTENT],
+    ),
+    RelationConstraint(
+        relation_type=RelationType.HAS_ILLUSTRATION,
+        source_node_types=[PARAGRAPH],
+        target_node_types=[IMAGE, TABLE],
+        summary="Đoạn văn A có hình ảnh/bảng B minh họa",
+        description="""Quan hệ tham chiếu trực quan: Paragraph tham chiếu đến Image/Table.
+
+Đặc điểm:
+- Inverse của VISUALIZES
+- Source là PARAGRAPH
+- Target là IMAGE hoặc TABLE
+- Dùng khi paragraph đề cập "xem hình X", "bảng Y cho thấy"
+
+Ví dụ:
+- "Như hình 1 cho thấy, diễn biến trận đánh..." HAS_ILLUSTRATION "Hình 1: Bản đồ trận Bạch Đằng"
+- "Bảng dưới đây thống kê các cuộc khởi nghĩa" HAS_ILLUSTRATION "Bảng 2: Thống kê"
+
+Phân biệt với:
+- VISUALIZES: Từ hình/bảng → đoạn văn (inverse)
+- REFERS_TO: Tham chiếu chung, không phải trực quan""",
+        families=[ELABORATIVE, STRUCTURAL],
+        keywords=["xem hình", "hình dưới", "bảng sau", "như hình", "trong hình"],
+        tiers=[TIER_2_CONTENT],
+    ),
+    RelationConstraint(
+        relation_type=RelationType.RELATED_TO,
+        source_node_types=ALL_TYPES,
+        target_node_types=ALL_TYPES,
+        is_symmetric=True,
+        summary="Hai đoạn có liên quan chung về chủ đề/nội dung",
+        description="""Quan hệ liên quan chung: A và B có liên quan nhưng không thuộc loại cụ thể.
+
+Đặc điểm:
+- Symmetric - A ↔ B
+- Fallback relationship khi không xác định được quan hệ cụ thể hơn
+- Thể hiện có sự liên quan về chủ đề nhưng không phải elaboration, contrast, etc.
+
+Ví dụ:
+- "Chính sách thuế nhà Nguyễn" RELATED_TO "Đời sống nông dân thế kỷ 19"
+- "Văn hóa thời Lý" RELATED_TO "Phật giáo Đại Việt"
+
+Phân biệt với:
+- SIMILAR_TO: Tương đồng cao về ngữ nghĩa
+- REFERS_TO: Tham chiếu trực tiếp
+- ELABORATES: Mở rộng chi tiết""",
+        families=[COMPARATIVE, ELABORATIVE],
+        keywords=["liên quan", "có liên hệ", "liên quan đến", "gắn với"],
         tiers=[TIER_2_CONTENT],
     ),
     # =========================================================================
