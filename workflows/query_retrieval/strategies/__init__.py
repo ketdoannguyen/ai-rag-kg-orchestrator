@@ -11,12 +11,14 @@ from workflows.query_retrieval.strategies.base import (
     get_executor,
     to_content_with_context,
 )
+from workflows.query_retrieval.strategies.bottom_up import BottomUpRetrieval
 from workflows.query_retrieval.strategies.horizontal import HorizontalRetrieval
 from workflows.query_retrieval.strategies.top_down import TopDownRetrieval
 
 __all__ = [
     "TopDownRetrieval",
     "HorizontalRetrieval",
+    "BottomUpRetrieval",
     "cosine_similarity_batch",
     "to_content_with_context",
     "get_executor",

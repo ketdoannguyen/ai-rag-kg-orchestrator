@@ -264,6 +264,18 @@ class QueryRetrievalWorkflow:
             result.content_results = content_results
             result.horizontal_metrics = horizontal.metrics.to_dict()
 
+        elif strategy == RetrievalStrategy.BOTTOM_UP:
+            # E3: Bottom-Up Retrieval — content → parent summaries
+            from workflows.query_retrieval.strategies import BottomUpRetrieval
+
+            bottom_up = BottomUpRetrieval(db=self.db, graph_name=self.graph_name)
+            content_results = await bottom_up.execute(
+                query_embedding=query_embedding,
+                top_k=top_k,
+            )
+            result.content_results = content_results
+            result.bottom_up_metrics = bottom_up.metrics.to_dict()
+
         else:
             # Fallback: use TOP_DOWN for all unimplemented strategies
             self._log.warning(

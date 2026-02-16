@@ -150,6 +150,7 @@ class QueryRetrievalOutput:
     # Strategy-specific metrics
     top_down_metrics: dict | None = None
     horizontal_metrics: dict | None = None
+    bottom_up_metrics: dict | None = None
 
     # Stats
     total_results: int = 0

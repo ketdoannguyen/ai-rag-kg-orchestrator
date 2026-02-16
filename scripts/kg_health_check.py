@@ -71,6 +71,7 @@ THRESHOLDS = {
     "avg_degree": {"green": 3.0, "yellow": 1.5},
     "total_tier2_edges": {"green": 500, "yellow": 200},
     "embedding_coverage_pct": {"green": 90.0, "yellow": 70.0},
+    "summary_coverage_pct": {"green": 80.0, "yellow": 60.0},  # E3 pre-condition
 }
 
 STATUS_ICONS = {
@@ -194,6 +195,42 @@ def check_embedding_coverage(db) -> dict:
     return next(cursor)
 
 
+def check_summary_coverage(db) -> dict:
+    """CHECK 6: Structure node summary coverage (E3 Bottom-Up pre-condition).
+
+    Checks what percentage of structure_nodes and root_nodes have
+    non-empty summary fields. Required for E3 Bottom-Up Retrieval
+    which returns parent summaries instead of content.
+    """
+    cursor = db.aql.execute("""
+        LET structure_with_summary = LENGTH(
+            FOR s IN structure_nodes
+                FILTER s.summary != null AND s.summary != ""
+                RETURN 1
+        )
+        LET root_with_summary = LENGTH(
+            FOR r IN root_nodes
+                FILTER r.summary != null AND r.summary != ""
+                RETURN 1
+        )
+        LET total_structure = LENGTH(structure_nodes)
+        LET total_root = LENGTH(root_nodes)
+        LET total = total_structure + total_root
+        LET with_summary = structure_with_summary + root_with_summary
+        RETURN {
+            structure_with_summary: structure_with_summary,
+            root_with_summary: root_with_summary,
+            total_structure: total_structure,
+            total_root: total_root,
+            total: total,
+            with_summary: with_summary,
+            without_summary: total - with_summary,
+            coverage_pct: total > 0 ? ROUND(with_summary * 1000.0 / total) / 10 : 0
+        }
+    """)
+    return next(cursor)
+
+
 # =============================================================================
 # Report
 # =============================================================================
@@ -224,6 +261,9 @@ def run_all_checks(db) -> dict:
     emb_coverage = check_embedding_coverage(db)
     logger.info("CHECK 5 done: embedding coverage", **emb_coverage)
 
+    summary_coverage = check_summary_coverage(db)
+    logger.info("CHECK 6 done: summary coverage", **summary_coverage)
+
     total_tier2_edges = count_tier2_edges(edge_types)
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
@@ -233,6 +273,7 @@ def run_all_checks(db) -> dict:
         "tier2_coverage": coverage,
         "degree_stats": degree_stats,
         "embedding_coverage": emb_coverage,
+        "summary_coverage": summary_coverage,
         "total_tier2_edges": total_tier2_edges,
         "elapsed_ms": round(elapsed_ms, 1),
     }
@@ -244,12 +285,14 @@ def classify_and_report(results: dict) -> str:
     avg_degree = results["degree_stats"]["avg_degree"]
     total_tier2 = results["total_tier2_edges"]
     emb_pct = results["embedding_coverage"]["coverage_pct"]
+    summary_pct = results["summary_coverage"]["coverage_pct"]
 
     classifications = {
         "tier2_coverage_pct": classify_metric("tier2_coverage_pct", coverage_pct),
         "avg_degree": classify_metric("avg_degree", avg_degree),
         "total_tier2_edges": classify_metric("total_tier2_edges", total_tier2),
         "embedding_coverage_pct": classify_metric("embedding_coverage_pct", emb_pct),
+        "summary_coverage_pct": classify_metric("summary_coverage_pct", summary_pct),
     }
 
     # Overall verdict: Red if any red, else Green
@@ -258,7 +301,7 @@ def classify_and_report(results: dict) -> str:
 
     # Print report
     print("\n" + "=" * 60)
-    print("  KG HEALTH CHECK — E2 Horizontal Retrieval Readiness")
+    print("  KG HEALTH CHECK — E2/E3 Retrieval Readiness")
     print("=" * 60)
 
     totals = results["totals"]
@@ -275,11 +318,22 @@ def classify_and_report(results: dict) -> str:
         ("Avg degree (Tier 2)", f"{avg_degree:.2f}", classifications["avg_degree"]),
         ("Total Tier 2 edges", f"{total_tier2:,}", classifications["total_tier2_edges"]),
         ("Embedding coverage", f"{emb_pct:.1f}%", classifications["embedding_coverage_pct"]),
+        ("Summary coverage (E3)", f"{summary_pct:.1f}%", classifications["summary_coverage_pct"]),
     ]
 
     for label, value, status in rows:
         icon = STATUS_ICONS[status]
         print(f"  {label:<30} {value:>10}  {icon} {status.upper()}")
+
+    # E3 specific summary coverage details
+    summary_cov = results["summary_coverage"]
+    print("\n  E3 Summary Details:")
+    print(
+        f"    Structure nodes with summary: {summary_cov['structure_with_summary']}/{summary_cov['total_structure']}"
+    )
+    print(
+        f"    Root nodes with summary: {summary_cov['root_with_summary']}/{summary_cov['total_root']}"
+    )
 
     # Edge type breakdown (top 10)
     print(f"\n  {'Relation Type':<30} {'Count':>8}")
@@ -330,6 +384,9 @@ def main() -> None:
         "total_tier2_edges": classify_metric("total_tier2_edges", results["total_tier2_edges"]),
         "embedding_coverage_pct": classify_metric(
             "embedding_coverage_pct", results["embedding_coverage"]["coverage_pct"]
+        ),
+        "summary_coverage_pct": classify_metric(
+            "summary_coverage_pct", results["summary_coverage"]["coverage_pct"]
         ),
     }
     output_path.write_text(json.dumps(results, indent=2, default=str))
