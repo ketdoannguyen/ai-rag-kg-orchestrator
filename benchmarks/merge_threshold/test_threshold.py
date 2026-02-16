@@ -103,9 +103,21 @@ async def compute_similarities(
     load_dotenv()
 
     # Use OpenAI API directly
-    api_key = os.getenv("EMBEDDING_API_KEY") or os.getenv("LLM_EMBEDDING_API_KEY") or os.getenv("LLM_API_KEY")
-    api_base = os.getenv("EMBEDDING_API_BASE") or os.getenv("LLM_EMBEDDING_API_BASE") or "https://api.openai.com/v1"
-    model = os.getenv("EMBEDDING_MODEL") or os.getenv("LLM_EMBEDDING_MODEL") or "text-embedding-3-small"
+    api_key = (
+        os.getenv("EMBEDDING_API_KEY")
+        or os.getenv("LLM_EMBEDDING_API_KEY")
+        or os.getenv("LLM_API_KEY")
+    )
+    api_base = (
+        os.getenv("EMBEDDING_API_BASE")
+        or os.getenv("LLM_EMBEDDING_API_BASE")
+        or "https://api.openai.com/v1"
+    )
+    model = (
+        os.getenv("EMBEDDING_MODEL")
+        or os.getenv("LLM_EMBEDDING_MODEL")
+        or "text-embedding-3-small"
+    )
 
     client = AsyncOpenAI(api_key=api_key, base_url=api_base)
 
@@ -138,7 +150,9 @@ async def compute_similarities(
     for i in range(0, len(all_texts), batch_size):
         batch = all_texts[i : i + batch_size]
         if verbose:
-            print(f"  Embedding batch {i // batch_size + 1}/{(len(all_texts) + batch_size - 1) // batch_size}")
+            print(
+                f"  Embedding batch {i // batch_size + 1}/{(len(all_texts) + batch_size - 1) // batch_size}"
+            )
 
         response = await client.embeddings.create(
             model=model,
@@ -252,25 +266,33 @@ def analyze_errors(
         actual_merge = sample.should_merge
 
         if predicted_merge and not actual_merge:
-            false_positives.append({
-                "id": sample.id,
-                "similarity": similarity,
-                "category": sample.category.value if hasattr(sample.category, 'value') else str(sample.category),
-                "relation_a": sample.relation_a_name,
-                "relation_b": sample.relation_b_name,
-                "reasoning": sample.reasoning,
-                "is_boundary": sample.is_boundary_case,
-            })
+            false_positives.append(
+                {
+                    "id": sample.id,
+                    "similarity": similarity,
+                    "category": sample.category.value
+                    if hasattr(sample.category, "value")
+                    else str(sample.category),
+                    "relation_a": sample.relation_a_name,
+                    "relation_b": sample.relation_b_name,
+                    "reasoning": sample.reasoning,
+                    "is_boundary": sample.is_boundary_case,
+                }
+            )
         elif not predicted_merge and actual_merge:
-            false_negatives.append({
-                "id": sample.id,
-                "similarity": similarity,
-                "category": sample.category.value if hasattr(sample.category, 'value') else str(sample.category),
-                "relation_a": sample.relation_a_name,
-                "relation_b": sample.relation_b_name,
-                "reasoning": sample.reasoning,
-                "is_boundary": sample.is_boundary_case,
-            })
+            false_negatives.append(
+                {
+                    "id": sample.id,
+                    "similarity": similarity,
+                    "category": sample.category.value
+                    if hasattr(sample.category, "value")
+                    else str(sample.category),
+                    "relation_a": sample.relation_a_name,
+                    "relation_b": sample.relation_b_name,
+                    "reasoning": sample.reasoning,
+                    "is_boundary": sample.is_boundary_case,
+                }
+            )
 
     # Sort by similarity (FP: highest first, FN: lowest first)
     false_positives.sort(key=lambda x: -x["similarity"])
@@ -309,21 +331,25 @@ def generate_report(
         merge_count = len([s for s in cat_samples if s.should_merge])
         no_merge_count = len([s for s in cat_samples if not s.should_merge])
         merge_label = f"Yes ({merge_count})" if merge_count > 0 else f"No ({no_merge_count})"
-        lines.append(f"| {cat.value} | {len(cat_samples)} | {merge_label} | {cat.name.replace('_', ' ').title()} |")
+        lines.append(
+            f"| {cat.value} | {len(cat_samples)} | {merge_label} | {cat.name.replace('_', ' ').title()} |"
+        )
 
-    lines.extend([
-        "",
-        f"**Positive samples (should_merge=True):** {len(get_positive_samples())}",
-        f"**Negative samples (should_merge=False):** {len(get_negative_samples())}",
-        f"**Boundary cases:** {len(get_boundary_cases())}",
-        "",
-        "---",
-        "",
-        "## 2. Threshold Comparison",
-        "",
-        "| Threshold | Accuracy | Precision | Recall | F1 | F2 | TP | TN | FP | FN |",
-        "|-----------|----------|-----------|--------|----|----|----|----|----|----|",
-    ])
+    lines.extend(
+        [
+            "",
+            f"**Positive samples (should_merge=True):** {len(get_positive_samples())}",
+            f"**Negative samples (should_merge=False):** {len(get_negative_samples())}",
+            f"**Boundary cases:** {len(get_boundary_cases())}",
+            "",
+            "---",
+            "",
+            "## 2. Threshold Comparison",
+            "",
+            "| Threshold | Accuracy | Precision | Recall | F1 | F2 | TP | TN | FP | FN |",
+            "|-----------|----------|-----------|--------|----|----|----|----|----|----|",
+        ]
+    )
 
     for r in sorted(results, key=lambda x: x.threshold):
         marker = " ⭐" if r.threshold == optimal_threshold else ""
@@ -334,31 +360,35 @@ def generate_report(
             f"{r.false_positives} | {r.false_negatives} |"
         )
 
-    lines.extend([
-        "",
-        "**Legend:**",
-        "- **Precision**: Of all merges predicted, how many were correct? (High = few false merges)",
-        "- **Recall**: Of all should-merge pairs, how many did we catch? (High = few missed merges)",
-        "- **F2**: Precision-weighted score (penalizes false positives more)",
-        "",
-        "---",
-        "",
-        "## 3. Optimal Threshold Analysis",
-        "",
-        f"### Recommended Threshold: **{optimal_threshold}**",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "**Legend:**",
+            "- **Precision**: Of all merges predicted, how many were correct? (High = few false merges)",
+            "- **Recall**: Of all should-merge pairs, how many did we catch? (High = few missed merges)",
+            "- **F2**: Precision-weighted score (penalizes false positives more)",
+            "",
+            "---",
+            "",
+            "## 3. Optimal Threshold Analysis",
+            "",
+            f"### Recommended Threshold: **{optimal_threshold}**",
+            "",
+        ]
+    )
 
     # Get errors for optimal threshold
     errors = analyze_errors(samples, similarities, optimal_threshold)
 
-    lines.extend([
-        f"### False Positives ({len(errors['false_positives'])} cases) - CRITICAL",
-        "",
-        "These pairs were incorrectly predicted to MERGE (similarity >= threshold but should NOT merge):",
-        "**These are the most dangerous errors - they corrupt the knowledge graph!**",
-        "",
-    ])
+    lines.extend(
+        [
+            f"### False Positives ({len(errors['false_positives'])} cases) - CRITICAL",
+            "",
+            "These pairs were incorrectly predicted to MERGE (similarity >= threshold but should NOT merge):",
+            "**These are the most dangerous errors - they corrupt the knowledge graph!**",
+            "",
+        ]
+    )
 
     if errors["false_positives"]:
         for fp in errors["false_positives"]:
@@ -371,14 +401,16 @@ def generate_report(
     else:
         lines.append("*No false positives - excellent!*")
 
-    lines.extend([
-        "",
-        f"### False Negatives ({len(errors['false_negatives'])} cases)",
-        "",
-        "These pairs were incorrectly predicted to NOT MERGE (similarity < threshold but SHOULD merge):",
-        "(These are less critical - they just create duplicates that can be fixed later)",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            f"### False Negatives ({len(errors['false_negatives'])} cases)",
+            "",
+            "These pairs were incorrectly predicted to NOT MERGE (similarity < threshold but SHOULD merge):",
+            "(These are less critical - they just create duplicates that can be fixed later)",
+            "",
+        ]
+    )
 
     if errors["false_negatives"]:
         for fn in errors["false_negatives"]:
@@ -392,52 +424,62 @@ def generate_report(
         lines.append("*No false negatives*")
 
     # Similarity distribution
-    lines.extend([
-        "",
-        "---",
-        "",
-        "## 4. Similarity Distribution",
-        "",
-        "### Positive Samples (should_merge=True)",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "---",
+            "",
+            "## 4. Similarity Distribution",
+            "",
+            "### Positive Samples (should_merge=True)",
+            "",
+        ]
+    )
 
     positive_sims = [similarities[s.id] for s in samples if s.should_merge]
     if positive_sims:
-        lines.extend([
-            f"- Min: {min(positive_sims):.3f}",
-            f"- Max: {max(positive_sims):.3f}",
-            f"- Mean: {np.mean(positive_sims):.3f}",
-            f"- Median: {np.median(positive_sims):.3f}",
-            f"- Std: {np.std(positive_sims):.3f}",
-        ])
+        lines.extend(
+            [
+                f"- Min: {min(positive_sims):.3f}",
+                f"- Max: {max(positive_sims):.3f}",
+                f"- Mean: {np.mean(positive_sims):.3f}",
+                f"- Median: {np.median(positive_sims):.3f}",
+                f"- Std: {np.std(positive_sims):.3f}",
+            ]
+        )
 
-    lines.extend([
-        "",
-        "### Negative Samples (should_merge=False)",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "### Negative Samples (should_merge=False)",
+            "",
+        ]
+    )
 
     negative_sims = [similarities[s.id] for s in samples if not s.should_merge]
     if negative_sims:
-        lines.extend([
-            f"- Min: {min(negative_sims):.3f}",
-            f"- Max: {max(negative_sims):.3f}",
-            f"- Mean: {np.mean(negative_sims):.3f}",
-            f"- Median: {np.median(negative_sims):.3f}",
-            f"- Std: {np.std(negative_sims):.3f}",
-        ])
+        lines.extend(
+            [
+                f"- Min: {min(negative_sims):.3f}",
+                f"- Max: {max(negative_sims):.3f}",
+                f"- Mean: {np.mean(negative_sims):.3f}",
+                f"- Median: {np.median(negative_sims):.3f}",
+                f"- Std: {np.std(negative_sims):.3f}",
+            ]
+        )
 
     # Find overlap zone
     if positive_sims and negative_sims:
         overlap_low = max(min(positive_sims), min(negative_sims))
         overlap_high = min(max(positive_sims), max(negative_sims))
 
-        lines.extend([
-            "",
-            "### Overlap Analysis",
-            "",
-        ])
+        lines.extend(
+            [
+                "",
+                "### Overlap Analysis",
+                "",
+            ]
+        )
 
         if overlap_low < overlap_high:
             lines.append(f"- **Overlap zone:** {overlap_low:.3f} - {overlap_high:.3f}")
@@ -449,66 +491,82 @@ def generate_report(
             lines.append(f"- **Positive samples in overlap:** {overlap_positive}")
             lines.append(f"- **Negative samples in overlap:** {overlap_negative}")
         else:
-            lines.append("- **No overlap** - clear separation between positive and negative samples!")
+            lines.append(
+                "- **No overlap** - clear separation between positive and negative samples!"
+            )
 
     # Recommendations
-    lines.extend([
-        "",
-        "---",
-        "",
-        "## 5. Recommendations",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "---",
+            "",
+            "## 5. Recommendations",
+            "",
+        ]
+    )
 
     optimal_result = next(r for r in results if r.threshold == optimal_threshold)
 
-    lines.extend([
-        f"### Primary Recommendation: `EXTRACTION_MERGE_THRESHOLD = {optimal_threshold}`",
-        "",
-        f"At this threshold:",
-        f"- **Accuracy:** {optimal_result.accuracy:.1%}",
-        f"- **Precision:** {optimal_result.precision:.1%} (of predicted merges, {optimal_result.precision:.0%} are correct)",
-        f"- **Recall:** {optimal_result.recall:.1%} (of should-merge pairs, we catch {optimal_result.recall:.0%})",
-        f"- **False Positives:** {optimal_result.false_positives} (merged when shouldn't - DANGEROUS)",
-        f"- **False Negatives:** {optimal_result.false_negatives} (didn't merge when should - recoverable)",
-        "",
-    ])
+    lines.extend(
+        [
+            f"### Primary Recommendation: `EXTRACTION_MERGE_THRESHOLD = {optimal_threshold}`",
+            "",
+            "At this threshold:",
+            f"- **Accuracy:** {optimal_result.accuracy:.1%}",
+            f"- **Precision:** {optimal_result.precision:.1%} (of predicted merges, {optimal_result.precision:.0%} are correct)",
+            f"- **Recall:** {optimal_result.recall:.1%} (of should-merge pairs, we catch {optimal_result.recall:.0%})",
+            f"- **False Positives:** {optimal_result.false_positives} (merged when shouldn't - DANGEROUS)",
+            f"- **False Negatives:** {optimal_result.false_negatives} (didn't merge when should - recoverable)",
+            "",
+        ]
+    )
 
     # Risk analysis
     if optimal_result.false_positives == 0:
         lines.append("✅ **Zero false positives** - no risk of corrupting knowledge graph!")
     elif optimal_result.false_positives <= 2:
-        lines.append(f"⚠️ **Low false positive risk** ({optimal_result.false_positives} cases) - monitor these in production")
+        lines.append(
+            f"⚠️ **Low false positive risk** ({optimal_result.false_positives} cases) - monitor these in production"
+        )
     else:
-        lines.append(f"🔴 **High false positive risk** ({optimal_result.false_positives} cases) - consider raising threshold")
+        lines.append(
+            f"🔴 **High false positive risk** ({optimal_result.false_positives} cases) - consider raising threshold"
+        )
 
-    lines.extend([
-        "",
-        "### Action Items",
-        "",
-        f"1. Update `config/extraction.py`: `EXTRACTION_MERGE_THRESHOLD = {optimal_threshold}`",
-        "2. Monitor false positive rate in production logs",
-        "3. Review any false positive cases manually before deployment",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "### Action Items",
+            "",
+            f"1. Update `config/extraction.py`: `EXTRACTION_MERGE_THRESHOLD = {optimal_threshold}`",
+            "2. Monitor false positive rate in production logs",
+            "3. Review any false positive cases manually before deployment",
+            "",
+        ]
+    )
 
     # All similarities for reference
-    lines.extend([
-        "---",
-        "",
-        "## 6. All Sample Similarities",
-        "",
-        "| ID | Category | Relation A | Relation B | Similarity | Should Merge | Boundary |",
-        "|----|----------|------------|------------|------------|--------------|----------|",
-    ])
+    lines.extend(
+        [
+            "---",
+            "",
+            "## 6. All Sample Similarities",
+            "",
+            "| ID | Category | Relation A | Relation B | Similarity | Should Merge | Boundary |",
+            "|----|----------|------------|------------|------------|--------------|----------|",
+        ]
+    )
 
     sorted_samples = sorted(samples, key=lambda s: -similarities[s.id])
     for s in sorted_samples:
         sim = similarities[s.id]
-        cat = s.category.value if hasattr(s.category, 'value') else str(s.category)
+        cat = s.category.value if hasattr(s.category, "value") else str(s.category)
         merge = "Yes" if s.should_merge else "No"
         boundary = "🔥" if s.is_boundary_case else ""
-        lines.append(f"| {s.id} | {cat[:15]} | {s.relation_a_name[:15]} | {s.relation_b_name[:15]} | {sim:.3f} | {merge} | {boundary} |")
+        lines.append(
+            f"| {s.id} | {cat[:15]} | {s.relation_a_name[:15]} | {s.relation_b_name[:15]} | {sim:.3f} | {merge} | {boundary} |"
+        )
 
     return "\n".join(lines)
 
@@ -550,7 +608,11 @@ async def main():
     print("=" * 70)
 
     # Check for cached similarities
-    cache_path = Path(args.cache) if args.cache else Path(__file__).parent / "results" / "similarities_cache.json"
+    cache_path = (
+        Path(args.cache)
+        if args.cache
+        else Path(__file__).parent / "results" / "similarities_cache.json"
+    )
     similarities = {}
 
     if cache_path.exists() and not args.no_cache:
@@ -582,6 +644,7 @@ async def main():
         except Exception as e:
             print(f"\nError computing similarities: {e}")
             import traceback
+
             traceback.print_exc()
             return
 
@@ -595,7 +658,9 @@ async def main():
     print("\n" + "=" * 70)
     print("RESULTS SUMMARY")
     print("=" * 70)
-    print(f"\n{'Threshold':<12} {'Accuracy':<10} {'Precision':<10} {'Recall':<10} {'F1':<10} {'F2':<10} {'FP':<5} {'FN':<5}")
+    print(
+        f"\n{'Threshold':<12} {'Accuracy':<10} {'Precision':<10} {'Recall':<10} {'F1':<10} {'F2':<10} {'FP':<5} {'FN':<5}"
+    )
     print("-" * 70)
 
     for r in sorted(results, key=lambda x: x.threshold):
@@ -621,14 +686,18 @@ async def main():
     errors = analyze_errors(samples, similarities, optimal_threshold)
 
     if errors["false_positives"]:
-        print(f"\n⚠️  FALSE POSITIVES (merged when shouldn't):")
+        print("\n⚠️  FALSE POSITIVES (merged when shouldn't):")
         for fp in errors["false_positives"][:5]:
             print(f"   - {fp['relation_a']} vs {fp['relation_b']} (sim={fp['similarity']:.3f})")
 
     # Generate report
     report = generate_report(results, similarities, samples, optimal_threshold)
 
-    output_path = Path(args.output) if args.output else Path(__file__).parent / "results" / "threshold_analysis.md"
+    output_path = (
+        Path(args.output)
+        if args.output
+        else Path(__file__).parent / "results" / "threshold_analysis.md"
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:
         f.write(report)
@@ -639,9 +708,13 @@ async def main():
     positive_sims = [similarities[s.id] for s in samples if s.should_merge]
     negative_sims = [similarities[s.id] for s in samples if not s.should_merge]
 
-    print(f"\n📊 Similarity Distribution:")
-    print(f"   Positive (merge): {min(positive_sims):.3f} - {max(positive_sims):.3f} (mean: {np.mean(positive_sims):.3f})")
-    print(f"   Negative (no merge): {min(negative_sims):.3f} - {max(negative_sims):.3f} (mean: {np.mean(negative_sims):.3f})")
+    print("\n📊 Similarity Distribution:")
+    print(
+        f"   Positive (merge): {min(positive_sims):.3f} - {max(positive_sims):.3f} (mean: {np.mean(positive_sims):.3f})"
+    )
+    print(
+        f"   Negative (no merge): {min(negative_sims):.3f} - {max(negative_sims):.3f} (mean: {np.mean(negative_sims):.3f})"
+    )
 
     # Suggest threshold based on distribution
     suggested = (min(positive_sims) + max(negative_sims)) / 2

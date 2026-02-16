@@ -932,8 +932,7 @@ Dùng cho taxonomy chi tiết.
 Ví dụ: "Khởi nghĩa nông dân" IS_SUBTYPE_OF "Phong trào đấu tranh"
 """,
         should_merge=True,
-        reasoning="IS_SUBTYPE_OF và IS_A về bản chất giống nhau trong taxonomy. "
-        "Có thể merge.",
+        reasoning="IS_SUBTYPE_OF và IS_A về bản chất giống nhau trong taxonomy. Có thể merge.",
         is_boundary_case=False,
     ),
     RelationSample(

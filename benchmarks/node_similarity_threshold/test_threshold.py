@@ -131,9 +131,21 @@ async def compute_similarities(
     load_dotenv()
 
     # Use OpenAI API directly
-    api_key = os.getenv("EMBEDDING_API_KEY") or os.getenv("LLM_EMBEDDING_API_KEY") or os.getenv("LLM_API_KEY")
-    api_base = os.getenv("EMBEDDING_API_BASE") or os.getenv("LLM_EMBEDDING_API_BASE") or "https://api.openai.com/v1"
-    model = os.getenv("EMBEDDING_MODEL") or os.getenv("LLM_EMBEDDING_MODEL") or "text-embedding-3-small"
+    api_key = (
+        os.getenv("EMBEDDING_API_KEY")
+        or os.getenv("LLM_EMBEDDING_API_KEY")
+        or os.getenv("LLM_API_KEY")
+    )
+    api_base = (
+        os.getenv("EMBEDDING_API_BASE")
+        or os.getenv("LLM_EMBEDDING_API_BASE")
+        or "https://api.openai.com/v1"
+    )
+    model = (
+        os.getenv("EMBEDDING_MODEL")
+        or os.getenv("LLM_EMBEDDING_MODEL")
+        or "text-embedding-3-small"
+    )
 
     client = AsyncOpenAI(api_key=api_key, base_url=api_base)
 
@@ -163,15 +175,14 @@ async def compute_similarities(
     # Process batches in parallel with semaphore to limit concurrency
     semaphore = asyncio.Semaphore(max_concurrent)
 
-    async def embed_with_semaphore(batch_idx: int, batch: list[str]) -> tuple[int, list[list[float]]]:
+    async def embed_with_semaphore(
+        batch_idx: int, batch: list[str]
+    ) -> tuple[int, list[list[float]]]:
         async with semaphore:
             return await embed_batch(client, model, batch, batch_idx, verbose)
 
     # Launch all tasks in parallel
-    tasks = [
-        embed_with_semaphore(idx, batch)
-        for idx, batch in enumerate(batches)
-    ]
+    tasks = [embed_with_semaphore(idx, batch) for idx, batch in enumerate(batches)]
 
     # Wait for all to complete
     batch_results = await asyncio.gather(*tasks)
@@ -244,13 +255,12 @@ def evaluate_thresholds(
             # For merge metrics, count as "not auto-merged"
             if should_merge:
                 auto_merge_fn += 1
+        # Separate zone
+        elif not should_merge:
+            separate_tn += 1
         else:
-            # Separate zone
-            if not should_merge:
-                separate_tn += 1
-            else:
-                separate_fp += 1  # Kept separate but should merge
-                auto_merge_fn += 1
+            separate_fp += 1  # Kept separate but should merge
+            auto_merge_fn += 1
 
     # Calculate metrics
     total = len(samples)
@@ -454,75 +464,87 @@ def generate_report(
         cat_samples = get_samples_by_category(cat)
         merge_count = len([s for s in cat_samples if s.should_merge])
         no_merge_count = len([s for s in cat_samples if not s.should_merge])
-        lines.append(f"| {cat.value} | {len(cat_samples)} | Yes: {merge_count}, No: {no_merge_count} |")
+        lines.append(
+            f"| {cat.value} | {len(cat_samples)} | Yes: {merge_count}, No: {no_merge_count} |"
+        )
 
-    lines.extend([
-        "",
-        f"**Positive samples (should_merge=True):** {len(get_positive_samples())}",
-        f"**Negative samples (should_merge=False):** {len(get_negative_samples())}",
-        f"**Boundary cases:** {len(get_boundary_cases())}",
-        "",
-        "---",
-        "",
-        "## 3. Similarity Distribution Analysis",
-        "",
-        "### By Ground Truth (should_merge)",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            f"**Positive samples (should_merge=True):** {len(get_positive_samples())}",
+            f"**Negative samples (should_merge=False):** {len(get_negative_samples())}",
+            f"**Boundary cases:** {len(get_boundary_cases())}",
+            "",
+            "---",
+            "",
+            "## 3. Similarity Distribution Analysis",
+            "",
+            "### By Ground Truth (should_merge)",
+            "",
+        ]
+    )
 
     pos_stats = distribution["by_should_merge"]["True"]
     neg_stats = distribution["by_should_merge"]["False"]
 
-    lines.extend([
-        "| Metric | Should Merge (True) | Should NOT Merge (False) |",
-        "|--------|---------------------|--------------------------|",
-        f"| Count | {pos_stats['count']} | {neg_stats['count']} |",
-        f"| Min | {pos_stats['min']:.3f} | {neg_stats['min']:.3f} |",
-        f"| Max | {pos_stats['max']:.3f} | {neg_stats['max']:.3f} |",
-        f"| Mean | {pos_stats['mean']:.3f} | {neg_stats['mean']:.3f} |",
-        f"| Median | {pos_stats['median']:.3f} | {neg_stats['median']:.3f} |",
-        "",
-    ])
+    lines.extend(
+        [
+            "| Metric | Should Merge (True) | Should NOT Merge (False) |",
+            "|--------|---------------------|--------------------------|",
+            f"| Count | {pos_stats['count']} | {neg_stats['count']} |",
+            f"| Min | {pos_stats['min']:.3f} | {neg_stats['min']:.3f} |",
+            f"| Max | {pos_stats['max']:.3f} | {neg_stats['max']:.3f} |",
+            f"| Mean | {pos_stats['mean']:.3f} | {neg_stats['mean']:.3f} |",
+            f"| Median | {pos_stats['median']:.3f} | {neg_stats['median']:.3f} |",
+            "",
+        ]
+    )
 
     # Overlap analysis
-    pos_min = pos_stats['min']
-    pos_max = pos_stats['max']
-    neg_min = neg_stats['min']
-    neg_max = neg_stats['max']
+    pos_min = pos_stats["min"]
+    pos_max = pos_stats["max"]
+    neg_min = neg_stats["min"]
+    neg_max = neg_stats["max"]
 
     overlap_low = max(pos_min, neg_min)
     overlap_high = min(pos_max, neg_max)
 
     if overlap_low < overlap_high:
-        lines.extend([
-            "### Overlap Zone",
-            "",
-            f"**Overlap range:** {overlap_low:.3f} - {overlap_high:.3f}",
-            f"**Overlap width:** {overlap_high - overlap_low:.3f}",
-            "",
-            "⚠️ There is overlap between positive and negative samples. This means no threshold can perfectly separate them.",
-            "",
-        ])
+        lines.extend(
+            [
+                "### Overlap Zone",
+                "",
+                f"**Overlap range:** {overlap_low:.3f} - {overlap_high:.3f}",
+                f"**Overlap width:** {overlap_high - overlap_low:.3f}",
+                "",
+                "⚠️ There is overlap between positive and negative samples. This means no threshold can perfectly separate them.",
+                "",
+            ]
+        )
     else:
-        lines.extend([
-            "### Separation Analysis",
-            "",
-            "✅ **No overlap** - positive and negative samples are well-separated!",
-            f"**Gap:** {neg_max:.3f} (max negative) to {pos_min:.3f} (min positive)",
-            "",
-        ])
+        lines.extend(
+            [
+                "### Separation Analysis",
+                "",
+                "✅ **No overlap** - positive and negative samples are well-separated!",
+                f"**Gap:** {neg_max:.3f} (max negative) to {pos_min:.3f} (min positive)",
+                "",
+            ]
+        )
 
     # Threshold comparison table
-    lines.extend([
-        "---",
-        "",
-        "## 4. Threshold Comparison",
-        "",
-        "### Top 10 Configurations (sorted by F1, then by FP)",
-        "",
-        "| Auto-Merge | LLM | Precision | Recall | F1 | FP | LLM% | Separate% |",
-        "|------------|-----|-----------|--------|----|----|------|-----------|",
-    ])
+    lines.extend(
+        [
+            "---",
+            "",
+            "## 4. Threshold Comparison",
+            "",
+            "### Top 10 Configurations (sorted by F1, then by FP)",
+            "",
+            "| Auto-Merge | LLM | Precision | Recall | F1 | FP | LLM% | Separate% |",
+            "|------------|-----|-----------|--------|----|----|------|-----------|",
+        ]
+    )
 
     # Sort by F1 descending, then FP ascending
     sorted_results = sorted(all_results, key=lambda r: (-r.auto_merge_f1, r.auto_merge_fp))[:10]
@@ -538,17 +560,19 @@ def generate_report(
         )
 
     # False positives analysis
-    lines.extend([
-        "",
-        "---",
-        "",
-        "## 5. Error Analysis at Optimal Threshold",
-        "",
-        f"### Auto-Merge False Positives ({optimal.auto_merge_fp} cases)",
-        "",
-        "These pairs were auto-merged but SHOULD NOT have been merged:",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "---",
+            "",
+            "## 5. Error Analysis at Optimal Threshold",
+            "",
+            f"### Auto-Merge False Positives ({optimal.auto_merge_fp} cases)",
+            "",
+            "These pairs were auto-merged but SHOULD NOT have been merged:",
+            "",
+        ]
+    )
 
     fps = []
     for sample in samples:
@@ -567,12 +591,14 @@ def generate_report(
         lines.append("✅ *No false positives at optimal threshold*")
         lines.append("")
 
-    lines.extend([
-        f"### Auto-Merge False Negatives ({optimal.auto_merge_fn} cases)",
-        "",
-        "These pairs should have been merged but were NOT auto-merged:",
-        "",
-    ])
+    lines.extend(
+        [
+            f"### Auto-Merge False Negatives ({optimal.auto_merge_fn} cases)",
+            "",
+            "These pairs should have been merged but were NOT auto-merged:",
+            "",
+        ]
+    )
 
     fns = []
     for sample in samples:
@@ -583,7 +609,9 @@ def generate_report(
 
     if fns:
         for sample, sim, zone in sorted(fns, key=lambda x: -x[1])[:10]:  # Top 10
-            lines.append(f"- **ID {sample.id}** (sim={sim:.3f}, zone={zone}, cat={sample.category.value})")
+            lines.append(
+                f"- **ID {sample.id}** (sim={sim:.3f}, zone={zone}, cat={sample.category.value})"
+            )
             lines.append(f"  - This will be sent to {zone} zone instead of auto-merge")
             lines.append("")
     else:
@@ -591,14 +619,16 @@ def generate_report(
         lines.append("")
 
     # All samples table
-    lines.extend([
-        "---",
-        "",
-        "## 6. All Sample Similarities",
-        "",
-        "| ID | Category | Similarity | Should Merge | Predicted Zone |",
-        "|----|----------|------------|--------------|----------------|",
-    ])
+    lines.extend(
+        [
+            "---",
+            "",
+            "## 6. All Sample Similarities",
+            "",
+            "| ID | Category | Similarity | Should Merge | Predicted Zone |",
+            "|----|----------|------------|--------------|----------------|",
+        ]
+    )
 
     sorted_samples = sorted(samples, key=lambda s: -similarities[s.id])
     for s in sorted_samples:
@@ -614,38 +644,46 @@ def generate_report(
         lines.append(f"| {s.id} | {cat} | {sim:.3f} | {merge} | {zone} |")
 
     # Recommendations
-    lines.extend([
-        "",
-        "---",
-        "",
-        "## 7. Recommendations",
-        "",
-        f"### Primary Recommendation",
-        "",
-        "```python",
-        "# config/extraction.py",
-        f"EXTRACTION_AUTO_MERGE_THRESHOLD = {optimal.auto_merge_threshold}",
-        f"EXTRACTION_LLM_THRESHOLD = {optimal.llm_threshold}",
-        "```",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "---",
+            "",
+            "## 7. Recommendations",
+            "",
+            "### Primary Recommendation",
+            "",
+            "```python",
+            "# config/extraction.py",
+            f"EXTRACTION_AUTO_MERGE_THRESHOLD = {optimal.auto_merge_threshold}",
+            f"EXTRACTION_LLM_THRESHOLD = {optimal.llm_threshold}",
+            "```",
+            "",
+        ]
+    )
 
     if optimal.auto_merge_fp == 0:
-        lines.append("✅ **Zero false positives** - no risk of incorrectly merging distinct nodes!")
+        lines.append(
+            "✅ **Zero false positives** - no risk of incorrectly merging distinct nodes!"
+        )
     else:
-        lines.append(f"⚠️ **{optimal.auto_merge_fp} false positives** - consider raising AUTO_MERGE_THRESHOLD")
+        lines.append(
+            f"⚠️ **{optimal.auto_merge_fp} false positives** - consider raising AUTO_MERGE_THRESHOLD"
+        )
 
-    lines.extend([
-        "",
-        "### Decision Flow at Optimal Thresholds",
-        "",
-        "```",
-        f"Similarity >= {optimal.auto_merge_threshold:.2f}  →  AUTO-MERGE (no LLM needed)",
-        f"Similarity >= {optimal.llm_threshold:.2f}  →  Send to LLM for decision",
-        f"Similarity < {optimal.llm_threshold:.2f}   →  Keep SEPARATE",
-        "```",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "### Decision Flow at Optimal Thresholds",
+            "",
+            "```",
+            f"Similarity >= {optimal.auto_merge_threshold:.2f}  →  AUTO-MERGE (no LLM needed)",
+            f"Similarity >= {optimal.llm_threshold:.2f}  →  Send to LLM for decision",
+            f"Similarity < {optimal.llm_threshold:.2f}   →  Keep SEPARATE",
+            "```",
+            "",
+        ]
+    )
 
     return "\n".join(lines)
 
@@ -687,7 +725,11 @@ async def main():
     print("=" * 70)
 
     # Check for cached similarities
-    cache_path = Path(args.cache) if args.cache else Path(__file__).parent / "results" / "similarities_cache.json"
+    cache_path = (
+        Path(args.cache)
+        if args.cache
+        else Path(__file__).parent / "results" / "similarities_cache.json"
+    )
     similarities = {}
 
     if cache_path.exists() and not args.no_cache:
@@ -719,6 +761,7 @@ async def main():
         except Exception as e:
             print(f"\nError computing similarities: {e}")
             import traceback
+
             traceback.print_exc()
             return
 
@@ -736,33 +779,43 @@ async def main():
     print("RESULTS SUMMARY")
     print("=" * 70)
 
-    print(f"\n🏆 Optimal Thresholds:")
+    print("\n🏆 Optimal Thresholds:")
     print(f"   AUTO_MERGE_THRESHOLD = {optimal.auto_merge_threshold}")
     print(f"   LLM_THRESHOLD = {optimal.llm_threshold}")
 
-    print(f"\nAuto-Merge Zone Metrics:")
+    print("\nAuto-Merge Zone Metrics:")
     print(f"   Precision: {optimal.auto_merge_precision:.1%}")
     print(f"   Recall: {optimal.auto_merge_recall:.1%}")
     print(f"   F1 Score: {optimal.auto_merge_f1:.1%}")
-    print(f"   False Positives: {optimal.auto_merge_fp} {'⚠️ CRITICAL' if optimal.auto_merge_fp > 0 else '✅'}")
+    print(
+        f"   False Positives: {optimal.auto_merge_fp} {'⚠️ CRITICAL' if optimal.auto_merge_fp > 0 else '✅'}"
+    )
 
-    print(f"\nLLM Zone:")
+    print("\nLLM Zone:")
     print(f"   Coverage: {optimal.llm_zone_coverage:.1%} of pairs sent to LLM")
 
-    print(f"\nSeparate Zone:")
+    print("\nSeparate Zone:")
     print(f"   Precision: {optimal.separate_precision:.1%}")
 
     # Distribution insight
     pos_stats = distribution["by_should_merge"]["True"]
     neg_stats = distribution["by_should_merge"]["False"]
-    print(f"\n📊 Similarity Distribution:")
-    print(f"   Positive (merge): {pos_stats['min']:.3f} - {pos_stats['max']:.3f} (mean: {pos_stats['mean']:.3f})")
-    print(f"   Negative (no merge): {neg_stats['min']:.3f} - {neg_stats['max']:.3f} (mean: {neg_stats['mean']:.3f})")
+    print("\n📊 Similarity Distribution:")
+    print(
+        f"   Positive (merge): {pos_stats['min']:.3f} - {pos_stats['max']:.3f} (mean: {pos_stats['mean']:.3f})"
+    )
+    print(
+        f"   Negative (no merge): {neg_stats['min']:.3f} - {neg_stats['max']:.3f} (mean: {neg_stats['mean']:.3f})"
+    )
 
     # Generate and save report
     report = generate_report(optimal, all_results, similarities, samples, distribution)
 
-    output_path = Path(args.output) if args.output else Path(__file__).parent / "results" / "threshold_analysis.md"
+    output_path = (
+        Path(args.output)
+        if args.output
+        else Path(__file__).parent / "results" / "threshold_analysis.md"
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:
         f.write(report)
@@ -772,18 +825,22 @@ async def main():
     # Save optimal config
     config_path = output_path.parent / "optimal_config.json"
     with open(config_path, "w") as f:
-        json.dump({
-            "EXTRACTION_AUTO_MERGE_THRESHOLD": optimal.auto_merge_threshold,
-            "EXTRACTION_LLM_THRESHOLD": optimal.llm_threshold,
-            "metrics": {
-                "auto_merge_precision": optimal.auto_merge_precision,
-                "auto_merge_recall": optimal.auto_merge_recall,
-                "auto_merge_f1": optimal.auto_merge_f1,
-                "auto_merge_fp": optimal.auto_merge_fp,
-                "llm_zone_coverage": optimal.llm_zone_coverage,
+        json.dump(
+            {
+                "EXTRACTION_AUTO_MERGE_THRESHOLD": optimal.auto_merge_threshold,
+                "EXTRACTION_LLM_THRESHOLD": optimal.llm_threshold,
+                "metrics": {
+                    "auto_merge_precision": optimal.auto_merge_precision,
+                    "auto_merge_recall": optimal.auto_merge_recall,
+                    "auto_merge_f1": optimal.auto_merge_f1,
+                    "auto_merge_fp": optimal.auto_merge_fp,
+                    "llm_zone_coverage": optimal.llm_zone_coverage,
+                },
+                "generated_at": datetime.now().isoformat(),
             },
-            "generated_at": datetime.now().isoformat(),
-        }, f, indent=2)
+            f,
+            indent=2,
+        )
     print(f"📄 Optimal config saved to: {config_path}")
 
 
