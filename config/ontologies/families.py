@@ -1,8 +1,13 @@
-"""Relation family definitions and affinity matrix.
+"""Relation family definitions.
 
 Families group related relations for:
-1. Affinity scoring in query retrieval
-2. Family inference for new relations
+1. Family inference for new relations
+2. Display/categorization purposes
+
+Note: FAMILY_AFFINITY_MATRIX has been removed because:
+- The affinity values were arbitrary without scientific justification
+- Scoring is now handled by HybridRelationScorer using BM25 + Embedding + RRF
+- See: Cormack et al. "Reciprocal rank fusion" (SIGIR 2009)
 """
 
 from __future__ import annotations
@@ -17,10 +22,8 @@ STRUCTURAL = "structural"
 
 ALL_FAMILIES = [CAUSAL, TEMPORAL, COMPARATIVE, ELABORATIVE, PARTICIPATION, STRUCTURAL]
 
-# Default affinity for unknown types
-DEFAULT_AFFINITY = 0.5
 
-# Family metadata
+# Family metadata (kept - useful for display and keyword inference)
 FAMILY_METADATA: dict[str, dict[str, str | list[str]]] = {
     CAUSAL: {
         "name": "Nhân quả",
@@ -62,114 +65,6 @@ FAMILY_METADATA: dict[str, dict[str, str | list[str]]] = {
     },
 }
 
-# Query Type → Family Affinity Matrix
-# Values: 0.0 (no affinity) to 1.0 (perfect match)
-FAMILY_AFFINITY_MATRIX: dict[str, dict[str, float]] = {
-    "causal": {
-        CAUSAL: 1.0,
-        TEMPORAL: 0.6,
-        COMPARATIVE: 0.2,
-        ELABORATIVE: 0.3,
-        PARTICIPATION: 0.4,
-        STRUCTURAL: 0.1,
-    },
-    "comparison": {
-        CAUSAL: 0.2,
-        TEMPORAL: 0.3,
-        COMPARATIVE: 1.0,
-        ELABORATIVE: 0.4,
-        PARTICIPATION: 0.2,
-        STRUCTURAL: 0.2,
-    },
-    "figure": {
-        CAUSAL: 0.4,
-        TEMPORAL: 0.4,
-        COMPARATIVE: 0.3,
-        ELABORATIVE: 0.3,
-        PARTICIPATION: 1.0,
-        STRUCTURAL: 0.1,
-    },
-    "concept": {
-        CAUSAL: 0.3,
-        TEMPORAL: 0.2,
-        COMPARATIVE: 0.5,
-        ELABORATIVE: 1.0,
-        PARTICIPATION: 0.2,
-        STRUCTURAL: 0.6,
-    },
-    "factual": {
-        CAUSAL: 0.4,
-        TEMPORAL: 0.6,
-        COMPARATIVE: 0.4,
-        ELABORATIVE: 0.5,
-        PARTICIPATION: 0.4,
-        STRUCTURAL: 0.3,
-    },
-    "lesson_synthesis": {
-        CAUSAL: 0.8,
-        TEMPORAL: 0.5,
-        COMPARATIVE: 0.5,
-        ELABORATIVE: 0.5,
-        PARTICIPATION: 0.4,
-        STRUCTURAL: 0.2,
-    },
-    "structural": {
-        CAUSAL: 0.1,
-        TEMPORAL: 0.3,
-        COMPARATIVE: 0.2,
-        ELABORATIVE: 0.3,
-        PARTICIPATION: 0.1,
-        STRUCTURAL: 1.0,
-    },
-    "other": {
-        CAUSAL: 0.0,
-        TEMPORAL: 0.0,
-        COMPARATIVE: 0.0,
-        ELABORATIVE: 0.0,
-        PARTICIPATION: 0.0,
-        STRUCTURAL: 0.0,
-    },
-}
-
-
-def get_affinity(query_type: str, family: str) -> float:
-    """Get affinity score between query type and family.
-
-    Args:
-        query_type: Query type (causal, comparison, etc.)
-        family: Family name (causal, temporal, etc.)
-
-    Returns:
-        Affinity score 0.0 - 1.0
-    """
-    # Null check
-    if not query_type or not family:
-        return DEFAULT_AFFINITY
-
-    query_type_lower = query_type.lower()
-    family_lower = family.lower()
-
-    if query_type_lower not in FAMILY_AFFINITY_MATRIX:
-        return DEFAULT_AFFINITY
-
-    return FAMILY_AFFINITY_MATRIX[query_type_lower].get(family_lower, DEFAULT_AFFINITY)
-
-
-def get_max_affinity(query_type: str, families: list[str]) -> float:
-    """Get maximum affinity from a list of families.
-
-    Args:
-        query_type: Query type
-        families: List of family names
-
-    Returns:
-        Maximum affinity score
-    """
-    if not families or not query_type:
-        return DEFAULT_AFFINITY
-
-    return max(get_affinity(query_type, f) for f in families)
-
 
 def get_family_metadata(family: str) -> dict[str, str | list[str]] | None:
     """Get metadata for a family.
@@ -187,6 +82,8 @@ def get_family_metadata(family: str) -> dict[str, str | list[str]] | None:
 
 def get_families_for_keywords(text: str) -> list[str]:
     """Get families that match keywords in text.
+
+    Useful for inferring relation families based on text content.
 
     Args:
         text: Text to search for keywords

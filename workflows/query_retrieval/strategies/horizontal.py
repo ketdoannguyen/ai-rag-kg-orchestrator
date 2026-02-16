@@ -261,16 +261,21 @@ class HorizontalRetrieval:
         query: str,
         query_embedding: list[float],
         query_type: str,
-    ) -> list[tuple[str, float, float, float, float]]:
-        """Score and select top-K Tier 2 relations using RelationScorer.
+        top_k_relations: int = 10,
+    ) -> list[tuple[str, float, float, float]]:
+        """Score and select top-K Tier 2 relations using HybridRelationScorer.
+
+        Uses BM25 + Embedding hybrid scoring with RRF fusion.
+        K is a configurable parameter for evaluation purposes.
 
         Args:
-            query: User query text
-            query_embedding: Query embedding vector
-            query_type: Query type for adaptive K
+            query: User query text (for BM25 lexical matching)
+            query_embedding: Query embedding vector (for semantic matching)
+            query_type: Query type (kept for API compatibility, not used)
+            top_k_relations: Number of top relations to select (default: 10)
 
         Returns:
-            Top-K scored relations as (id, final, emb, aff, kw) tuples
+            Top-K scored relations as (id, rrf_score, bm25_score, emb_score) tuples
         """
         t0 = time.perf_counter()
 
@@ -292,14 +297,13 @@ class HorizontalRetrieval:
             self.metrics.latency_relation_ms = (time.perf_counter() - t0) * 1000
             return []
 
-        # Score all relations
-        from workflows.query_retrieval.relation_scorer import RelationScorer, compute_adaptive_k
+        # Score all relations using hybrid BM25 + Embedding + RRF
+        from workflows.query_retrieval.relation_scorer import HybridRelationScorer
 
-        scorer = RelationScorer()
-        scored = scorer.score_all_vectorized(
+        scorer = HybridRelationScorer()
+        scored = scorer.score_all(
             query=query,
             query_embedding=query_embedding,
-            query_type=query_type,
             relations=tier2_relations,
         )
 
@@ -307,10 +311,8 @@ class HorizontalRetrieval:
             self.metrics.latency_relation_ms = (time.perf_counter() - t0) * 1000
             return []
 
-        # Adaptive K selection
-        scores_only = [s[1] for s in scored]
-        k = compute_adaptive_k(scores_only, query_type)
-        selected = scored[:k]
+        # Simple top-K selection (K is evaluation-driven, not arbitrary per-query-type)
+        selected = scored[:top_k_relations]
 
         # Update metrics
         self.metrics.relations_scored = len(scored)

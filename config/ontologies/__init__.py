@@ -39,15 +39,12 @@ from .families import (
     CAUSAL,
     COMPARATIVE,
     ELABORATIVE,
-    FAMILY_AFFINITY_MATRIX,
     FAMILY_METADATA,
     PARTICIPATION,
     STRUCTURAL,
     TEMPORAL,
-    get_affinity,
     get_families_for_keywords,
     get_family_metadata,
-    get_max_affinity,
 )
 from .history import (
     HISTORY_ONTOLOGY,
@@ -155,9 +152,6 @@ __all__ = [
     "STRUCTURAL",
     "ALL_FAMILIES",
     "FAMILY_METADATA",
-    "FAMILY_AFFINITY_MATRIX",
-    "get_affinity",
-    "get_max_affinity",
     "get_family_metadata",
     "get_families_for_keywords",
 ]

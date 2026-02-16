@@ -23,6 +23,8 @@ dependencies = [
     "alembic>=1.17.2",
     "tenacity>=9.1.0",
     "pyvis>=0.3.2",
+    "rank-bm25>=0.2.2",  # BM25 scoring for hybrid retrieval (Robertson et al. 1994)
+    "loguru>=0.7.3",
 ]
 
 [project.optional-dependencies]

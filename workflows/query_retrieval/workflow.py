@@ -25,11 +25,7 @@ from .models import (
     RelationCandidate,
     RetrievalStrategy,
 )
-from .relation_scorer import (
-    QUERY_TYPE_BASE_K,  # noqa: F401 — re-exported for external consumers
-    RelationScorer,
-    compute_adaptive_k,
-)
+from .relation_scorer import HybridRelationScorer
 from .router import QueryRouter
 
 if TYPE_CHECKING:
@@ -171,21 +167,20 @@ class QueryRetrievalWorkflow:
         query_type: str,
         top_k: int | None,
     ) -> list[RelationCandidate]:
-        """Filter relations using multi-signal scoring with adaptive K.
+        """Filter relations using BM25 + Embedding hybrid scoring with RRF fusion.
 
-        Uses 3 signals:
-        1. Embedding similarity (cosine)
-        2. Family affinity (query_type → relation families)
-        3. Keyword matching
+        Uses 2 signals combined via Reciprocal Rank Fusion (Cormack et al. 2009):
+        1. BM25 lexical matching (Robertson et al. 1994)
+        2. Embedding similarity (cosine)
 
         Args:
-            query: User query text
-            query_embedding: Query embedding
-            query_type: Primary query type (from pre-classification)
-            top_k: Fixed number of relations (overrides adaptive K if provided)
+            query: User query text (for BM25)
+            query_embedding: Query embedding (for cosine similarity)
+            query_type: Primary query type (kept for API compatibility, not used)
+            top_k: Number of relations to return (default: 10)
 
         Returns:
-            Top-K relation candidates sorted by multi-signal score
+            Top-K relation candidates sorted by RRF score
         """
         from arango_client.handlers import OntologyHandler
 
@@ -197,29 +192,24 @@ class QueryRetrievalWorkflow:
         if not relations:
             return []
 
-        # Multi-signal scoring
-        scorer = RelationScorer()
-        scored = scorer.score_all_vectorized(
+        # Hybrid scoring with BM25 + Embedding + RRF
+        scorer = HybridRelationScorer()
+        scored = scorer.score_all(
             query=query,
             query_embedding=query_embedding,
-            query_type=query_type,
             relations=relations,
         )
 
         if not scored:
             return []
 
-        # Determine K using adaptive algorithm
-        if top_k is not None:
-            k = top_k
-        else:
-            scores = [s[1] for s in scored]  # final_score is at index 1
-            k = compute_adaptive_k(scores, query_type)
+        # Simple top-K selection (K is evaluation-driven parameter)
+        k = top_k if top_k is not None else 10
 
         # Log top scores for debugging
         self._log.debug(
             "Relation filtering complete",
-            top_3=[(s[0], f"{s[1]:.3f}") for s in scored[:3]],
+            top_3=[(s[0], f"{s[1]:.4f}") for s in scored[:3]],
             selected_k=k,
         )
 
@@ -227,13 +217,14 @@ class QueryRetrievalWorkflow:
         relation_map = {getattr(r, "id", ""): r for r in relations}
 
         # Convert to RelationCandidate with description
+        # New scorer returns 4-tuples: (id, rrf_score, bm25_score, emb_score)
         return [
             RelationCandidate(
                 relation_type=rel_id,
                 description=getattr(relation_map.get(rel_id), "description", "") or "",
-                similarity=final_score,
+                similarity=rrf_score,
             )
-            for rel_id, final_score, _, _, _ in scored[:k]
+            for rel_id, rrf_score, _, _ in scored[:k]
         ]
 
     async def _execute_strategy(

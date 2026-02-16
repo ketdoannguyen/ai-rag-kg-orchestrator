@@ -20,11 +20,16 @@ class TestOntologyCompleteness:
         """Validate families module is complete."""
         from config.ontologies import families
 
+        # Core functionality that remains
         assert hasattr(families, "ALL_FAMILIES")
         assert hasattr(families, "FAMILY_METADATA")
-        assert hasattr(families, "FAMILY_AFFINITY_MATRIX")
-        assert hasattr(families, "get_affinity")
-        assert hasattr(families, "get_max_affinity")
+        assert hasattr(families, "get_family_metadata")
+        assert hasattr(families, "get_families_for_keywords")
+
+        # These should NOT exist anymore (removed arbitrary constants)
+        assert not hasattr(families, "FAMILY_AFFINITY_MATRIX")
+        assert not hasattr(families, "get_affinity")
+        assert not hasattr(families, "get_max_affinity")
 
     def test_no_duplicate_relation_ids(self):
         """Check for duplicate relation IDs."""
@@ -48,23 +53,3 @@ class TestOntologyCompleteness:
         from config.ontologies.families import ALL_FAMILIES
 
         assert len(ALL_FAMILIES) == 6
-
-    def test_affinity_matrix_complete(self):
-        """Test affinity matrix covers all query types."""
-        from config.ontologies.families import ALL_FAMILIES, FAMILY_AFFINITY_MATRIX
-
-        expected_query_types = [
-            "causal",
-            "comparison",
-            "figure",
-            "concept",
-            "factual",
-            "lesson_synthesis",
-            "structural",
-            "other",
-        ]
-
-        for qt in expected_query_types:
-            assert qt in FAMILY_AFFINITY_MATRIX, f"Missing query type: {qt}"
-            for family in ALL_FAMILIES:
-                assert family in FAMILY_AFFINITY_MATRIX[qt], f"Missing family {family} for {qt}"
