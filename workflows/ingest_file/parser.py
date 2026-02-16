@@ -612,7 +612,40 @@ class TextbookParser:
                 block_type = block.get("block_type")
 
                 content_node = None
-                if block_type in ["Text", "ListGroup", "Caption"]:
+                content_nodes = []  # For block types that produce multiple nodes
+
+                if block_type == "ListGroup":
+                    # ListGroup has children (ListItems) that contain the actual content
+                    # The ListGroup's own HTML only has <content-ref> tags (empty text)
+                    children = block.get("children", [])
+                    if children:
+                        for child in children:
+                            if child.get("block_type") == "ListItem":
+                                child_text = self._clean_html(child.get("html", ""))
+                                if child_text:
+                                    child_bbox = child.get("bbox", [])
+                                    content_nodes.append(
+                                        ParagraphNode(
+                                            attributes=ParagraphAttributes(text=child_text),
+                                            metadata=ParagraphMetadata(
+                                                page=page_num,
+                                                bbox=child_bbox if child_bbox else [],
+                                            ),
+                                        )
+                                    )
+                    else:
+                        # No children - try parsing ListGroup HTML directly (fallback)
+                        text = self._clean_html(block.get("html", ""))
+                        if text:
+                            content_node = ParagraphNode(
+                                attributes=ParagraphAttributes(text=text),
+                                metadata=ParagraphMetadata(
+                                    page=page_num,
+                                    bbox=bbox if bbox else [],
+                                ),
+                            )
+
+                elif block_type in ["Text", "Caption"]:
                     text = self._clean_html(block.get("html", ""))
                     if text:
                         content_node = ParagraphNode(
@@ -656,6 +689,10 @@ class TextbookParser:
 
                 if content_node:
                     self.parent_stack[-1].children.append(content_node)
+
+                # Handle ListGroup that produces multiple nodes
+                for node in content_nodes:
+                    self.parent_stack[-1].children.append(node)
 
                 j += 1
 
