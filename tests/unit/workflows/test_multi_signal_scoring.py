@@ -171,9 +171,7 @@ class TestRRFFusion:
         # Create relations where BM25 scores are very different in magnitude
         # but RRF should normalize them via ranks
         rels = []
-        for i, (bm25_mult, emb_val) in enumerate(
-            [(100.0, 0.9), (10.0, 0.8), (1.0, 0.7)]
-        ):
+        for i, (bm25_mult, emb_val) in enumerate([(100.0, 0.9), (10.0, 0.8), (1.0, 0.7)]):
             rel = Mock()
             rel.id = f"REL_{i}"
             rel.embedding = [emb_val, 0.0, 0.0]

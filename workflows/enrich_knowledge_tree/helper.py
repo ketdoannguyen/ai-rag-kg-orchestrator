@@ -138,7 +138,11 @@ def create_refined_paragraphs_from_segments(
                 intentionally_excluded.add(idx)
                 logger.debug(
                     f"Item {idx} excluded by LLM",
-                    extra={"index": idx, "reason": reason, "text_preview": items[idx - 1]["text"][:50]},
+                    extra={
+                        "index": idx,
+                        "reason": reason,
+                        "text_preview": items[idx - 1]["text"][:50],
+                    },
                 )
 
     for seg in segments:
