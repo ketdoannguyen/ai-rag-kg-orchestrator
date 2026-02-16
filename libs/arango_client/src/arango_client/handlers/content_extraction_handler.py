@@ -151,7 +151,7 @@ class ContentExtractionHandler(BaseExtractionHandler):
 
         Args:
             node: The node to find similar nodes for (should be unreviewed)
-            limit: Maximum number of results
+            limit: Maximum number of results (None = no limit, return all above threshold)
             min_similarity: Minimum similarity threshold
             cross_source: If True, search across all sources
 
@@ -163,12 +163,14 @@ class ContentExtractionHandler(BaseExtractionHandler):
 
         validate_embedding(node.embedding)
 
-        limit = limit or self.settings.EXTRACTION_MAX_CANDIDATES_PER_NODE
         min_similarity = min_similarity or self.settings.EXTRACTION_LLM_THRESHOLD
         collection_name = Collections.CONTENT_NODES
 
         # Build source filter
         source_filter = "" if cross_source else "FILTER doc.source_id == @source_id"
+
+        # Build optional limit clause
+        limit_clause = "LIMIT @limit" if limit is not None else ""
 
         # Compare against REVIEWED nodes only
         # This implements the logic: unreviewed nodes compare with reviewed (stable) nodes
@@ -181,7 +183,7 @@ class ContentExtractionHandler(BaseExtractionHandler):
             LET similarity = COSINE_SIMILARITY(doc.embedding, @embedding)
             FILTER similarity >= @min_similarity
             SORT similarity DESC
-            LIMIT @limit
+            {limit_clause}
             RETURN {{
                 doc: doc,
                 similarity: similarity
@@ -193,8 +195,10 @@ class ContentExtractionHandler(BaseExtractionHandler):
             "node_key": str(node.id),
             "embedding": node.embedding,
             "min_similarity": min_similarity,
-            "limit": limit,
         }
+
+        if limit is not None:
+            bind_vars["limit"] = limit
 
         if not cross_source and node.source_id:
             bind_vars["source_id"] = str(node.source_id)
@@ -415,6 +419,9 @@ class ContentExtractionHandler(BaseExtractionHandler):
                 "Invalid relation type, using fallback",
                 provided=relation_type,
                 fallback=self.settings.EXTRACTION_FALLBACK_RELATION,
+                allowed_count=len(allowed_relations),
+                source_node=str(source_node.id)[:50],
+                target_node=str(target_node.id)[:50],
             )
             relation_type = self.settings.EXTRACTION_FALLBACK_RELATION
 

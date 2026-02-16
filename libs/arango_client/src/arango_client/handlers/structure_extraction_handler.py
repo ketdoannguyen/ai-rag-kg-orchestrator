@@ -284,7 +284,7 @@ class StructureExtractionHandler(BaseExtractionHandler):
 
         Args:
             node: Structure node to find similar nodes for (should be unreviewed)
-            max_candidates: Maximum candidates (default from settings)
+            max_candidates: Maximum candidates (None = no limit, return all above threshold)
             exclude_ids: Node IDs to exclude from search
             cross_source: If True, search across all sources
 
@@ -292,7 +292,6 @@ class StructureExtractionHandler(BaseExtractionHandler):
             List of similar structure nodes sorted by similarity
         """
         exclude_ids = exclude_ids or set()
-        max_candidates = max_candidates or self.settings.EXTRACTION_MAX_CANDIDATES_PER_NODE
 
         if not node.embedding:
             return []
@@ -302,6 +301,9 @@ class StructureExtractionHandler(BaseExtractionHandler):
         # Cosine similarity query - compare against REVIEWED nodes only
         # This implements the logic: unreviewed nodes compare with reviewed (stable) nodes
         source_filter = "" if cross_source else "FILTER doc.source_id == @source_id"
+
+        # Build optional limit clause
+        limit_clause = "LIMIT @limit" if max_candidates is not None else ""
 
         query = f"""
         FOR doc IN @@collection
@@ -313,7 +315,7 @@ class StructureExtractionHandler(BaseExtractionHandler):
             LET similarity = COSINE_SIMILARITY(doc.embedding, @embedding)
             FILTER similarity >= @min_threshold
             SORT similarity DESC
-            LIMIT @limit
+            {limit_clause}
             RETURN {{
                 doc: doc,
                 similarity: similarity
@@ -326,8 +328,10 @@ class StructureExtractionHandler(BaseExtractionHandler):
             "level": node.level,
             "embedding": node.embedding,
             "min_threshold": self.settings.EXTRACTION_LLM_THRESHOLD,
-            "limit": max_candidates,
         }
+
+        if max_candidates is not None:
+            bind_vars["limit"] = max_candidates
 
         if not cross_source and node.source_id:
             bind_vars["source_id"] = str(node.source_id)
@@ -628,6 +632,9 @@ class StructureExtractionHandler(BaseExtractionHandler):
                 "Invalid relation type, using fallback",
                 provided=relation_type,
                 fallback=self.settings.EXTRACTION_FALLBACK_RELATION,
+                allowed_count=len(allowed_relations),
+                source_node=str(source.id)[:50],
+                target_node=str(target.id)[:50],
             )
             relation_type = self.settings.EXTRACTION_FALLBACK_RELATION
 
