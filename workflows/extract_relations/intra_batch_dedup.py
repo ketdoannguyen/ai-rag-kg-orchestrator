@@ -2,11 +2,18 @@
 
 This module handles Phase 1 of the Two-Phase extraction:
 1. Compute pairwise similarities within batch (using numpy for performance)
-2. Build connected components using Union-Find (O(alpha(n)) ~ O(1) per operation)
-3. Identify merge operations and relation candidates
+2. Only compare nodes at the SAME LEVEL (prevents cross-level pairing)
+3. Build connected components using Union-Find (O(alpha(n)) ~ O(1) per operation)
+4. Identify merge operations and relation candidates
+
+Same-level comparison:
+- Structure nodes have varying levels (1=CHỦ ĐỀ, 2=BÀI, 3=MỤC, etc.)
+- Only nodes at the same level are compared for similarity
+- Content nodes always have level=0, so they auto-match
 
 Key benefits:
 - Catches intra-batch duplicates that would be missed with reviewed-only comparison
+- Prevents incorrect cross-level pairing (e.g., CHỦ ĐỀ 1 vs BÀI 3)
 - No race conditions (all computation done before any writes)
 - Deterministic merge direction (older node or lower ID becomes target)
 """
@@ -191,9 +198,14 @@ def find_intra_batch_components(
 
     This is Phase 1 of Two-Phase extraction:
     1. Compute pairwise similarity matrix (O(n^2 * d), vectorized)
-    2. Use Union-Find to find merge components (>= merge_threshold) if allow_merge=True
-    3. Identify relation candidates (relation_threshold <= sim < merge_threshold)
-    4. If allow_merge=False, treat high-similarity pairs as high_similarity_candidates
+    2. Only compare nodes at the SAME LEVEL (prevents cross-level pairing)
+    3. Use Union-Find to find merge components (>= merge_threshold) if allow_merge=True
+    4. Identify relation candidates (relation_threshold <= sim < merge_threshold)
+    5. If allow_merge=False, treat high-similarity pairs as high_similarity_candidates
+
+    Same-level comparison:
+    - Structure nodes have varying levels (1, 2, 3...) - only same-level nodes are compared
+    - Content nodes always have level=0 - they auto-match within batch
 
     Args:
         nodes: List of nodes in the batch (all unreviewed)
@@ -219,15 +231,18 @@ def find_intra_batch_components(
             similarity_matrix=np.array([[1.0]]),
         )
 
-    # Step 1: Extract embeddings and track valid indices
+    # Step 1: Extract embeddings, levels, and track valid indices
     embeddings: list[list[float]] = []
     valid_indices: list[int] = []
+    node_levels: list[int] = []  # Track level for same-level comparison
 
     for i, node in enumerate(nodes):
         embedding = getattr(node, "embedding", None)
         if embedding and len(embedding) > 0:
             embeddings.append(embedding)
             valid_indices.append(i)
+            # Get node level (default 0 for content nodes)
+            node_levels.append(getattr(node, "level", 0))
 
     if len(embeddings) < 2:
         # Not enough embeddings for comparison
@@ -255,6 +270,12 @@ def find_intra_batch_components(
 
     for i in range(len(embeddings)):
         for j in range(i + 1, len(embeddings)):
+            # Only compare nodes at the same level
+            # This ensures structure nodes (level 1, 2, 3...) only compare within level
+            # Content nodes always have level=0, so they auto-match
+            if node_levels[i] != node_levels[j]:
+                continue
+
             sim = float(similarity_matrix[i, j])
 
             if sim >= merge_threshold:
