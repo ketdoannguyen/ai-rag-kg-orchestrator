@@ -18,7 +18,6 @@ from workflows.extract_relations.relation_validator import (
     NewRelationValidator,
     NodeInfo,
     StrongLLMRelationOutput,
-    ValidationResult,
 )
 
 

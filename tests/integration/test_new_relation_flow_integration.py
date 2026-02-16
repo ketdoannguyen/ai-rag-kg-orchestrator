@@ -198,7 +198,6 @@ async def run_all_tests(clear_db: bool = True) -> list[TestResult]:
     from config.langfuse import configure_langfuse
     from config.llm_gateway import build_llm_gateway_client
     from config.settings import get_settings
-
     from workflows.extract_relations.relation_validator import NewRelationValidator
 
     settings = get_settings()
@@ -340,7 +339,7 @@ def print_summary(results: list[TestResult]) -> None:
         if r.similarity_merge:
             print(f"  → MERGED (similarity: {r.similarity_score:.2f})")
         elif r.stored_to_db:
-            print(f"  → STORED as new relation")
+            print("  → STORED as new relation")
         elif r.error:
             print(f"  → ERROR: {r.error}")
 

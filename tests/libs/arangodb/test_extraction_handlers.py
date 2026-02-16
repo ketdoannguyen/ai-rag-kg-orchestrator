@@ -56,7 +56,6 @@ def mock_settings():
     settings = MagicMock()
     settings.EXTRACTION_AUTO_MERGE_THRESHOLD = 0.72
     settings.EXTRACTION_LLM_THRESHOLD = 0.4
-    settings.EXTRACTION_MAX_CANDIDATES_PER_NODE = 10
     settings.EXTRACTION_BATCH_SIZE = 100
     settings.EXTRACTION_FALLBACK_RELATION = "SIMILAR_TO"
     return settings

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 
 class TestOntologyCompleteness:
     """Validate all ontology definitions are complete."""

@@ -38,7 +38,6 @@ def mock_settings() -> MagicMock:
     settings.EXTRACTION_LLM_THRESHOLD = 0.40
     settings.EXTRACTION_LLM_BATCH_SIZE = 5
     settings.EXTRACTION_FALLBACK_RELATION = "SIMILAR_TO"
-    settings.EXTRACTION_MAX_CANDIDATES_PER_NODE = 10
     return settings
 
 
@@ -83,10 +82,14 @@ def create_mock_structure_node(
     node.embedding = embedding
     node.source_id = uuid.UUID(source_id) if source_id else uuid.uuid4()
 
-    # Mock attributes
+    # Mock attributes - use actual string values, not MagicMock
     attrs = MagicMock()
     attrs.title = title
+    attrs.code = ""  # Add code attribute for _get_structure_text
     node.attributes = attrs
+
+    # Add summary attribute directly on node (not on attributes)
+    node.summary = None
 
     return node
 
@@ -164,7 +167,7 @@ class TestProcessStructureLLMBatchEmbeddings:
             confidence=0.8,
         )
         workflow.llm_extractor = MagicMock()
-        workflow.llm_extractor.verify_batch = AsyncMock(return_value=[mock_result])
+        workflow.llm_extractor.verify_batches_parallel = AsyncMock(return_value=[mock_result])
 
         # Mock structure handler
         workflow.structure_handler = MagicMock()
@@ -180,11 +183,12 @@ class TestProcessStructureLLMBatchEmbeddings:
         )
 
         # Assert - verify that verify_batch was called
-        workflow.llm_extractor.verify_batch.assert_called_once()
-        call_args = workflow.llm_extractor.verify_batch.call_args
+        workflow.llm_extractor.verify_batches_parallel.assert_called_once()
+        call_args = workflow.llm_extractor.verify_batches_parallel.call_args
 
-        # Extract the node_pairs from the call
-        node_pairs = call_args[0][0]  # First positional argument
+        # Extract the node_pairs from the call (batches is list of lists)
+        batches = call_args[0][0]  # First positional argument is list of batches
+        node_pairs = batches[0]  # First batch
 
         # Verify embeddings are passed to NodePair
         assert len(node_pairs) == 1
@@ -232,7 +236,7 @@ class TestProcessStructureLLMBatchEmbeddings:
             confidence=0.8,
         )
         workflow.llm_extractor = MagicMock()
-        workflow.llm_extractor.verify_batch = AsyncMock(return_value=[mock_result])
+        workflow.llm_extractor.verify_batches_parallel = AsyncMock(return_value=[mock_result])
 
         # Mock structure handler
         workflow.structure_handler = MagicMock()
@@ -248,9 +252,10 @@ class TestProcessStructureLLMBatchEmbeddings:
         )
 
         # Assert
-        workflow.llm_extractor.verify_batch.assert_called_once()
-        call_args = workflow.llm_extractor.verify_batch.call_args
-        node_pairs = call_args[0][0]
+        workflow.llm_extractor.verify_batches_parallel.assert_called_once()
+        call_args = workflow.llm_extractor.verify_batches_parallel.call_args
+        batches = call_args[0][0]  # First positional argument is list of batches
+        node_pairs = batches[0]  # First batch
 
         # Verify embeddings are None in NodePair
         assert len(node_pairs) == 1
@@ -588,7 +593,7 @@ class TestProcessLLMBatchContentTierEmbeddings:
             confidence=0.8,
         )
         workflow.llm_extractor = MagicMock()
-        workflow.llm_extractor.verify_batch = AsyncMock(return_value=[mock_result])
+        workflow.llm_extractor.verify_batches_parallel = AsyncMock(return_value=[mock_result])
 
         # Mock content handler
         workflow.content_handler = MagicMock()
@@ -606,9 +611,10 @@ class TestProcessLLMBatchContentTierEmbeddings:
         )
 
         # Assert - verify embeddings were passed to NodePair
-        workflow.llm_extractor.verify_batch.assert_called_once()
-        call_args = workflow.llm_extractor.verify_batch.call_args
-        node_pairs = call_args[0][0]
+        workflow.llm_extractor.verify_batches_parallel.assert_called_once()
+        call_args = workflow.llm_extractor.verify_batches_parallel.call_args
+        batches = call_args[0][0]  # First positional argument is list of batches
+        node_pairs = batches[0]  # First batch
 
         assert len(node_pairs) == 1
         pair = node_pairs[0]
@@ -656,7 +662,7 @@ class TestProcessLLMBatchContentTierEmbeddings:
             confidence=0.8,
         )
         workflow.llm_extractor = MagicMock()
-        workflow.llm_extractor.verify_batch = AsyncMock(return_value=[mock_result])
+        workflow.llm_extractor.verify_batches_parallel = AsyncMock(return_value=[mock_result])
 
         # Mock content handler
         workflow.content_handler = MagicMock()
@@ -674,9 +680,10 @@ class TestProcessLLMBatchContentTierEmbeddings:
         )
 
         # Assert
-        workflow.llm_extractor.verify_batch.assert_called_once()
-        call_args = workflow.llm_extractor.verify_batch.call_args
-        node_pairs = call_args[0][0]
+        workflow.llm_extractor.verify_batches_parallel.assert_called_once()
+        call_args = workflow.llm_extractor.verify_batches_parallel.call_args
+        batches = call_args[0][0]  # First positional argument is list of batches
+        node_pairs = batches[0]  # First batch
 
         assert len(node_pairs) == 1
         pair = node_pairs[0]
@@ -732,7 +739,7 @@ class TestProcessStructureLLMBatchResults:
             confidence=0.95,
         )
         workflow.llm_extractor = MagicMock()
-        workflow.llm_extractor.verify_batch = AsyncMock(return_value=[mock_result])
+        workflow.llm_extractor.verify_batches_parallel = AsyncMock(return_value=[mock_result])
 
         # Mock structure handler
         workflow.structure_handler = MagicMock()
@@ -796,7 +803,7 @@ class TestProcessStructureLLMBatchResults:
             is_in_top_k=True,
         )
         workflow.llm_extractor = MagicMock()
-        workflow.llm_extractor.verify_batch = AsyncMock(return_value=[mock_result])
+        workflow.llm_extractor.verify_batches_parallel = AsyncMock(return_value=[mock_result])
 
         # Mock structure handler
         workflow.structure_handler = MagicMock()
@@ -862,7 +869,7 @@ class TestProcessStructureLLMBatchResults:
             confidence=0.7,
         )
         workflow.llm_extractor = MagicMock()
-        workflow.llm_extractor.verify_batch = AsyncMock(return_value=[mock_result])
+        workflow.llm_extractor.verify_batches_parallel = AsyncMock(return_value=[mock_result])
 
         # Mock structure handler
         workflow.structure_handler = MagicMock()
@@ -1006,7 +1013,7 @@ class TestDryRunMode:
             confidence=0.9,
         )
         workflow.llm_extractor = MagicMock()
-        workflow.llm_extractor.verify_batch = AsyncMock(return_value=[mock_result])
+        workflow.llm_extractor.verify_batches_parallel = AsyncMock(return_value=[mock_result])
 
         # Mock structure handler
         workflow.structure_handler = MagicMock()
@@ -1090,3 +1097,156 @@ class TestNodePairConstruction:
 
         assert pair.node_a_embedding is None
         assert pair.node_b_embedding is None
+
+
+# =========================================================================
+# Test: Intra-batch same-level filtering
+# =========================================================================
+
+
+class TestIntraBatchSameLevelFiltering:
+    """Tests for same-level filtering in find_intra_batch_components."""
+
+    def test_same_level_nodes_are_compared(
+        self, sample_embedding: list[float], sample_embedding_2: list[float]
+    ) -> None:
+        """Test that nodes at the same level are compared for similarity."""
+        from workflows.extract_relations.intra_batch_dedup import find_intra_batch_components
+
+        # Create nodes at same level (level=2) with high similarity
+        node_a = create_mock_structure_node(
+            node_id="11111111-1111-1111-1111-111111111111",
+            title="Chapter 1",
+            level=2,
+            embedding=sample_embedding,
+        )
+        node_b = create_mock_structure_node(
+            node_id="22222222-2222-2222-2222-222222222222",
+            title="Chapter 2",
+            level=2,
+            embedding=sample_embedding,  # Same embedding = high similarity
+        )
+
+        result = find_intra_batch_components(
+            nodes=[node_a, node_b],
+            merge_threshold=0.72,
+            relation_threshold=0.40,
+            allow_merge=False,  # Structure tier
+        )
+
+        # Should have high_similarity_candidates since same level
+        assert len(result.high_similarity_candidates) == 1
+        assert result.high_similarity_candidates[0].node_a_idx == 0
+        assert result.high_similarity_candidates[0].node_b_idx == 1
+
+    def test_different_level_nodes_not_compared(self, sample_embedding: list[float]) -> None:
+        """Test that nodes at different levels are NOT compared."""
+        from workflows.extract_relations.intra_batch_dedup import find_intra_batch_components
+
+        # Create nodes at DIFFERENT levels with identical embeddings
+        node_chu_de = create_mock_structure_node(
+            node_id="11111111-1111-1111-1111-111111111111",
+            title="CHỦ ĐỀ 1",
+            level=1,  # Higher level (topic)
+            embedding=sample_embedding,
+        )
+        node_bai = create_mock_structure_node(
+            node_id="22222222-2222-2222-2222-222222222222",
+            title="BÀI 3",
+            level=2,  # Lower level (lesson)
+            embedding=sample_embedding,  # Same embedding = would be high similarity
+        )
+
+        result = find_intra_batch_components(
+            nodes=[node_chu_de, node_bai],
+            merge_threshold=0.72,
+            relation_threshold=0.40,
+            allow_merge=False,
+        )
+
+        # Should have NO candidates since different levels
+        assert len(result.high_similarity_candidates) == 0
+        assert len(result.relation_candidates) == 0
+        # Both nodes should be leaders (standalone)
+        assert len(result.leaders) == 2
+
+    def test_mixed_levels_only_same_level_compared(
+        self, sample_embedding: list[float], sample_embedding_2: list[float]
+    ) -> None:
+        """Test that only same-level nodes are compared in a mixed batch."""
+        from workflows.extract_relations.intra_batch_dedup import find_intra_batch_components
+
+        # Create nodes at multiple levels
+        node_l1_a = create_mock_structure_node(
+            node_id="11111111-1111-1111-1111-111111111111",
+            title="CHỦ ĐỀ 1",
+            level=1,
+            embedding=sample_embedding,
+        )
+        node_l1_b = create_mock_structure_node(
+            node_id="22222222-2222-2222-2222-222222222222",
+            title="CHỦ ĐỀ 2",
+            level=1,
+            embedding=sample_embedding,  # Same embedding = high similarity
+        )
+        node_l2_a = create_mock_structure_node(
+            node_id="33333333-3333-3333-3333-333333333333",
+            title="BÀI 1",
+            level=2,
+            embedding=sample_embedding_2,
+        )
+        node_l2_b = create_mock_structure_node(
+            node_id="44444444-4444-4444-4444-444444444444",
+            title="BÀI 2",
+            level=2,
+            embedding=sample_embedding_2,  # Same embedding = high similarity
+        )
+
+        result = find_intra_batch_components(
+            nodes=[node_l1_a, node_l1_b, node_l2_a, node_l2_b],
+            merge_threshold=0.72,
+            relation_threshold=0.40,
+            allow_merge=False,
+        )
+
+        # Should have 2 high_similarity_candidates (one for each level pair)
+        assert len(result.high_similarity_candidates) == 2
+
+        # Verify pairs are at same levels
+        for candidate in result.high_similarity_candidates:
+            node_a = [node_l1_a, node_l1_b, node_l2_a, node_l2_b][candidate.node_a_idx]
+            node_b = [node_l1_a, node_l1_b, node_l2_a, node_l2_b][candidate.node_b_idx]
+            assert node_a.level == node_b.level, (
+                f"Mismatched levels: {node_a.level} != {node_b.level}"
+            )
+
+    def test_content_nodes_always_same_level(self, sample_embedding: list[float]) -> None:
+        """Test that content nodes (level=0) are always compared."""
+        from workflows.extract_relations.intra_batch_dedup import find_intra_batch_components
+
+        # Content nodes always have level=0
+        node_a = create_mock_content_node(
+            node_id="11111111-1111-1111-1111-111111111111",
+            content="Content A",
+            embedding=sample_embedding,
+        )
+        node_a.level = 0  # Content nodes have level=0
+        node_a.created_at = "2024-01-01T00:00:00Z"  # For sorting in Union-Find
+
+        node_b = create_mock_content_node(
+            node_id="22222222-2222-2222-2222-222222222222",
+            content="Content B",
+            embedding=sample_embedding,
+        )
+        node_b.level = 0
+        node_b.created_at = "2024-01-01T00:00:01Z"
+
+        result = find_intra_batch_components(
+            nodes=[node_a, node_b],
+            merge_threshold=0.72,
+            relation_threshold=0.40,
+            allow_merge=True,  # Content tier allows merge
+        )
+
+        # Should have merge operations since same level (0) and high similarity
+        assert len(result.merge_operations) == 1

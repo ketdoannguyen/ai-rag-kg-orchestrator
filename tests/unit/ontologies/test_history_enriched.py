@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from config.ontologies.families import ALL_FAMILIES
 from config.ontologies.history import HISTORY_RELATION_CONSTRAINTS
 
