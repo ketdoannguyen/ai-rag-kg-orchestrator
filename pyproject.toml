@@ -122,6 +122,10 @@ pythonpath = ["."]
 addopts = "--import-mode=prepend"
 asyncio_mode = "auto"
 norecursedirs = ["docker", "data"]
+markers = [
+    "integration: integration tests requiring external services (ArangoDB, LLM)",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
 
 [tool.isort]
 profile = "black"

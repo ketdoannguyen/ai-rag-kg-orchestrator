@@ -16,14 +16,17 @@ from __future__ import annotations
 
 import asyncio
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import numpy as np
 from loguru import logger
 
 from workflows.query_retrieval.models import ContentWithContext
+from workflows.query_retrieval.strategies.base import (
+    cosine_similarity_batch,
+    get_executor,
+    to_content_with_context,
+)
 
 if TYPE_CHECKING:
     from arango.database import StandardDatabase
@@ -149,8 +152,6 @@ class TopDownRetrieval:
         metrics: Collected metrics from last execution
     """
 
-    _executor = ThreadPoolExecutor(max_workers=4)
-
     def __init__(
         self,
         db: StandardDatabase,
@@ -159,6 +160,7 @@ class TopDownRetrieval:
         self.metrics = TopDownMetrics()
         self._pool_cache: dict[str, list[dict]] = {}
         self._log = logger.bind(strategy="top_down")
+        self._executor = get_executor()
 
     async def execute(
         self,
@@ -289,43 +291,6 @@ class TopDownRetrieval:
         self._pool_cache.clear()
 
     # =========================================================================
-    # Shared: Vectorized Cosine Similarity
-    # =========================================================================
-
-    @staticmethod
-    def _cosine_similarity_batch(
-        query_embedding: list[float],
-        embeddings: list[list[float]],
-    ) -> np.ndarray:
-        """Compute cosine similarity between query and a batch of embeddings.
-
-        Args:
-            query_embedding: Query embedding vector
-            embeddings: List of embedding vectors to compare against
-
-        Returns:
-            1-D numpy array of cosine scores clipped to [0, 1]
-        """
-        query_vec = np.array(query_embedding, dtype=np.float32)
-        query_norm = np.linalg.norm(query_vec)
-
-        if query_norm == 0 or not embeddings:
-            return np.zeros(len(embeddings), dtype=np.float32)
-
-        emb_matrix = np.array(embeddings, dtype=np.float32)
-        row_norms = np.linalg.norm(emb_matrix, axis=1)
-
-        scores = np.zeros(len(embeddings), dtype=np.float32)
-        valid_mask = row_norms > 0
-
-        if valid_mask.any():
-            dot_products = emb_matrix @ query_vec
-            scores[valid_mask] = dot_products[valid_mask] / (row_norms[valid_mask] * query_norm)
-            scores = np.clip(scores, 0, 1)
-
-        return scores
-
-    # =========================================================================
     # Step 1: Structure Cosine Search
     # =========================================================================
 
@@ -363,9 +328,7 @@ class TopDownRetrieval:
         if not nodes_with_emb:
             return []
 
-        scores = self._cosine_similarity_batch(
-            query_embedding, [n["embedding"] for n in nodes_with_emb]
-        )
+        scores = cosine_similarity_batch(query_embedding, [n["embedding"] for n in nodes_with_emb])
 
         # Attach scores and sort
         scored_nodes = []
@@ -463,11 +426,9 @@ class TopDownRetrieval:
 
         if not nodes_with_emb:
             # Fallback: return nodes without scores
-            return [self._to_content_with_context(n, score=0.0) for n in content_nodes[:top_k]]
+            return [to_content_with_context(n, score=0.0) for n in content_nodes[:top_k]]
 
-        scores = self._cosine_similarity_batch(
-            query_embedding, [n["embedding"] for n in nodes_with_emb]
-        )
+        scores = cosine_similarity_batch(query_embedding, [n["embedding"] for n in nodes_with_emb])
 
         # Pair nodes with scores (without mutating input dicts)
         scored_pairs = sorted(
@@ -478,28 +439,13 @@ class TopDownRetrieval:
 
         # Build results: scored nodes first, then unscored if needed
         results = [
-            self._to_content_with_context(node, float(score))
-            for node, score in scored_pairs[:top_k]
+            to_content_with_context(node, float(score)) for node, score in scored_pairs[:top_k]
         ]
 
         remaining = top_k - len(results)
         if remaining > 0 and nodes_without_emb:
             results.extend(
-                self._to_content_with_context(n, score=0.0) for n in nodes_without_emb[:remaining]
+                to_content_with_context(n, score=0.0) for n in nodes_without_emb[:remaining]
             )
 
         return results
-
-    @staticmethod
-    def _to_content_with_context(
-        node_data: dict,
-        score: float,
-    ) -> ContentWithContext:
-        """Convert a harvested node dict to ContentWithContext."""
-        return ContentWithContext(
-            node_id=node_data.get("_key", node_data.get("_id", "")),
-            text=node_data.get("text", ""),
-            score=score,
-            node_type=node_data.get("node_type", "paragraph"),
-            found_via_relation=None,
-        )

@@ -259,6 +259,20 @@ class QueryRetrievalWorkflow:
             result.content_results = content_results
             result.top_down_metrics = top_down.metrics.to_dict()
 
+        elif strategy == RetrievalStrategy.HORIZONTAL:
+            # E2: Horizontal Retrieval — content ↔ content via Tier 2 relations
+            from workflows.query_retrieval.strategies import HorizontalRetrieval
+
+            horizontal = HorizontalRetrieval(db=self.db, graph_name=self.graph_name)
+            content_results = await horizontal.execute(
+                query=result.query,
+                query_embedding=query_embedding,
+                query_type=result.classification.query_type.value,
+                top_k=top_k,
+            )
+            result.content_results = content_results
+            result.horizontal_metrics = horizontal.metrics.to_dict()
+
         else:
             # Fallback: use TOP_DOWN for all unimplemented strategies
             self._log.warning(
