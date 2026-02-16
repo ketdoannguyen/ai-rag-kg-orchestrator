@@ -83,11 +83,22 @@ class ExtractionSettings(BaseSettings):
     # LLM Settings
     # =========================================================================
     EXTRACTION_LLM_BATCH_SIZE: int = Field(
-        default=8,
+        default=15,
         description="Number of node pairs to process in single LLM call. "
-        "Increased from 5 to 8 for fewer API calls and better token efficiency.",
+        "Increased from 8 to 15 for fewer API calls and better token efficiency.",
         ge=1,
-        le=15,
+        le=30,
+    )
+
+    # =========================================================================
+    # Parallel Processing Settings
+    # =========================================================================
+    MAX_CONCURRENT_LLM_CALLS: int = Field(
+        default=15,
+        description="Maximum concurrent LLM API calls for parallel batch processing. "
+        "Increase for faster extraction (uses more RAM and API rate limit).",
+        ge=1,
+        le=20,
     )
 
     # =========================================================================
@@ -101,10 +112,10 @@ class ExtractionSettings(BaseSettings):
     )
 
     EXTRACTION_LLM_THRESHOLD: float = Field(
-        default=0.35,
+        default=0.40,
         description="Node similarity >= this triggers LLM extraction. "
         "Below this, nodes are kept separate. "
-        "Raised from 0.40 to reduce noise and LLM costs.",
+        "Raised from 0.35 based on benchmark: all samples in 0.35-0.40 are true negatives.",
         ge=0.2,
         le=0.95,
     )
@@ -113,14 +124,14 @@ class ExtractionSettings(BaseSettings):
     # Processing Settings
     # =========================================================================
     EXTRACTION_BATCH_SIZE: int = Field(
-        default=100,
+        default=200,
         description="Number of nodes to process in each batch.",
         ge=10,
         le=500,
     )
 
     EXTRACTION_PARALLEL_WORKERS: int = Field(
-        default=10,
+        default=20,
         description="Number of parallel workers for async processing.",
         ge=1,
         le=50,
@@ -131,13 +142,6 @@ class ExtractionSettings(BaseSettings):
         description="Maximum LLM calls per extraction run. Set to high value for accuracy-first mode.",
         ge=1,
         le=999999,
-    )
-
-    EXTRACTION_MAX_CANDIDATES_PER_NODE: int = Field(
-        default=10,
-        description="Maximum similar nodes to consider for each new node.",
-        ge=1,
-        le=50,
     )
 
     # =========================================================================
@@ -160,7 +164,7 @@ class ExtractionSettings(BaseSettings):
     )
 
     EXTRACTION_MAX_CONCURRENT_COLLECTIONS: int = Field(
-        default=5,
+        default=10,
         description="Max concurrent similarity searches in cross-batch processing.",
         ge=1,
         le=20,
