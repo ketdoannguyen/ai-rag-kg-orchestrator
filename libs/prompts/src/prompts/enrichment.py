@@ -31,43 +31,53 @@ def build_detail_merge_prompt(
 
     content = "\n".join(lines)
 
+    # Calculate minimum chunk size (40% of max to ensure meaningful chunks)
+    min_chunk_size = int(max_chunk_size * 0.4)
+
     return f"""You are an expert in text optimization for RAG retrieval.
 
-PRIMARY TASK: MAXIMALLY MERGE semantically related items into independent segments.
-SECONDARY TASK: Provide ONE overall summary max 200 characters for the entire section.
+PRIMARY TASK: Merge semantically related items into SELF-CONTAINED segments.
+SECONDARY TASK: Report excluded items and provide section summary.
 
-MERGING PRINCIPLES (CRITICAL - READ CAREFULLY):
-- HARD LIMIT: {max_chunk_size} characters per segment. This is ABSOLUTE, NO EXCEPTIONS.
-- If merged text would exceed {max_chunk_size} chars, you MUST:
-  a) Split into multiple segments, OR
-  b) Keep items separate (do NOT merge)
-- GOAL: Merge semantically related texts to APPROACH (but never exceed) {max_chunk_size} chars.
-- MERGE items that belong to the same idea, explanation, or example chain.
-- NEVER merge texts with DIFFERENT topics/subjects just to reach max size.
-- Short segments (100-300 chars) are PERFECTLY ACCEPTABLE if standalone.
-- BEFORE outputting each segment, COUNT the characters. If > {max_chunk_size}, FIX IT.
+=== SIZE CONSTRAINTS ===
+- MINIMUM: {min_chunk_size} chars. If below, MERGE with related content.
+- MAXIMUM: {max_chunk_size} chars. NEVER exceed.
+- IDEAL: {int(max_chunk_size * 0.6)}-{int(max_chunk_size * 0.9)} chars.
 
-CONSTRAINTS ON TEXT:
-1. DO NOT translate or paraphrase; keep original language and wording.
-2. When merging, join sentences VERBATIM (preserve punctuation, casing, accents).
-3. If extra context is needed, reuse headings/text from the input, copied exactly.
-4. For each segment, also produce a short (<= 8 words) summary in the SAME language.
-5. Include estimated_char_count for each segment (MUST be <= {max_chunk_size}).
+=== EXCLUSION RULES ===
+EXCLUDE these items (put in excluded_indices with reason):
+- "image_ref": Items starting with "Hình", "Figure", "Bảng", "Table", "Sơ đồ", "Biểu đồ"
+- "question": Standalone questions starting with "Nêu...", "Trình bày...", "Phân tích...", "Giải thích...", "Tại sao...", "Vì sao..."
 
-OUTPUT FORMAT: Pure JSON, no markdown, no explanation:
+=== TIMELINE DATA ===
+If you see standalone dates (e.g., "12-6-1941", "Từ 28-11 đến 1-12-1943"):
+- These are likely from a timeline/table extraction.
+- PAIR each date with its corresponding event text.
+- If no matching event, EXCLUDE with reason "orphan_date".
+
+=== MERGING RULES ===
+- MERGE: Items about SAME topic/event + intro sentences with their list items.
+- DO NOT MERGE: Different topics just to reach max size.
+- Each segment MUST be self-contained (no "as mentioned above").
+
+=== TEXT RULES ===
+- Keep original wording VERBATIM.
+- Summary: <= 8 words, same language.
+
+=== OUTPUT FORMAT ===
+Pure JSON only:
 {{
   "segments": [
-    {{
-      "source_indices": [1, 2],
-      "text": "Exact original sentences merged verbatim...",
-      "summary": "<= 8 words, same language",
-      "estimated_char_count": 450
-    }}
+    {{"source_indices": [1, 2], "text": "...", "summary": "...", "estimated_char_count": 650}}
   ],
-  "section_summary": "High-level summary for the entire section (same language) max 500 characters"
+  "excluded_indices": [
+    {{"index": 13, "reason": "image_ref"}}
+  ],
+  "section_summary": "max 500 chars"
 }}
 
-If nothing should be merged, output one segment per original item.
+=== COVERAGE CHECK ===
+Every input index (1 to N) MUST appear in EITHER segments.source_indices OR excluded_indices.
 
 Context: {context}
 Input (numbered starting from 1):
@@ -80,14 +90,16 @@ def build_structure_enrich_prompt(
     children_content: list[dict[str, Any]],
     summary_style: str = "informative",
     short: bool = False,
+    breadcrumb: list[str] | None = None,
 ) -> str:
-    """Build prompt for enriching a structure node with a summary.
+    """Build prompt for enriching a structure node with a RAG-optimized summary.
 
     Args:
         title: Section title
         children_content: List of child content dicts
         summary_style: Style hint (e.g., 'informative', 'concise')
         short: Whether to generate a short summary
+        breadcrumb: Hierarchical path to this section for context
     """
     blocks: list[str] = []
     for idx, item in enumerate(children_content, start=1):
@@ -101,20 +113,38 @@ def build_structure_enrich_prompt(
 
     joined = "\n\n".join(blocks)
 
-    return f"""You are an expert summarizer for knowledge trees.
+    context_line = ""
+    if breadcrumb:
+        context_line = f"CONTEXT PATH: {' > '.join(breadcrumb)}\n\n"
 
-Task: Write a {"short" if short else "comprehensive"} {summary_style} summary for the section below.
+    char_limit = 300 if short else 500
 
-Requirements:
-- Same language as input content
-- Concise, focused on key ideas
-- Preserve key terminology
+    return f"""You are an expert summarizer optimizing content for RAG retrieval.
 
-Output JSON only:
-{{ "summary": "Summary text here... max 500 characters" }}
-
-SECTION TITLE: {title}
+{context_line}SECTION: {title}
 
 CONTENT:
 {joined}
+
+=== RAG-OPTIMIZED SUMMARY TASK ===
+
+Write a {summary_style} summary that enables effective semantic search retrieval.
+
+CRITICAL REQUIREMENTS:
+1. BE SPECIFIC - Include actual names, dates, numbers, not just references
+   - BAD: "Trình bày ba trụ cột của ASEAN..."
+   - GOOD: "Ba trụ cột ASEAN gồm: (1) Chính trị-An ninh, (2) Kinh tế, (3) Văn hóa-Xã hội"
+
+2. PRESERVE ALL ENTITIES - Names, organizations, years, statistics
+   - BAD: "Tổ chức thành lập vào thập niên 60..."
+   - GOOD: "ASEAN thành lập ngày 8-8-1967 bởi 5 nước: Indonesia, Malaysia, Philippines, Singapore, Thái Lan"
+
+3. SELF-CONTAINED - Summary must be understandable without reading original content
+
+4. ANSWER IMPLICIT QUESTIONS - What? When? Who? Where? Why? How?
+
+5. SAME LANGUAGE as input content
+
+OUTPUT FORMAT (JSON only):
+{{ "summary": "RAG-optimized summary, max {char_limit} chars" }}
 """

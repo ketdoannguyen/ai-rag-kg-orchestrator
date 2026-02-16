@@ -106,6 +106,7 @@ def create_refined_paragraphs_from_segments(
     segments: list[dict[str, Any]],
     items: list[dict[str, Any]],
     parent: StructureNode,
+    excluded_indices: list[dict[str, Any]] | None = None,
 ) -> list[ParagraphNode]:
     """Create new ParagraphNodes from LLM segments.
 
@@ -113,6 +114,7 @@ def create_refined_paragraphs_from_segments(
         segments: LLM output segments with text, summary, and optional metadata
         items: Original items for reference
         parent: Parent StructureNode
+        excluded_indices: List of {"index": int, "reason": str} for intentionally excluded items
 
     Note:
         This function tracks consumed indices and recovers missing items
@@ -125,6 +127,19 @@ def create_refined_paragraphs_from_segments(
     refined: list[ParagraphNode] = []
     # Track which 1-indexed items have been consumed by segments
     consumed_indices: set[int] = set()
+
+    # Track intentionally excluded indices
+    intentionally_excluded: set[int] = set()
+    if excluded_indices:
+        for exc in excluded_indices:
+            idx = exc.get("index")
+            reason = exc.get("reason", "unknown")
+            if isinstance(idx, int) and 1 <= idx <= len(items):
+                intentionally_excluded.add(idx)
+                logger.debug(
+                    f"Item {idx} excluded by LLM",
+                    extra={"index": idx, "reason": reason, "text_preview": items[idx - 1]["text"][:50]},
+                )
 
     for seg in segments:
         indices = seg.get("source_indices", [])
@@ -171,9 +186,10 @@ def create_refined_paragraphs_from_segments(
     if not refined:
         return _fallback_to_originals(items, parent)
 
-    # Check for missing indices and recover them as separate paragraphs
+    # Check for missing indices (not in segments AND not intentionally excluded)
     all_indices = set(range(1, len(items) + 1))
-    missing_indices = all_indices - consumed_indices
+    accounted_indices = consumed_indices | intentionally_excluded
+    missing_indices = all_indices - accounted_indices
 
     if missing_indices:
         logger.warning(
@@ -182,6 +198,7 @@ def create_refined_paragraphs_from_segments(
                 "missing_indices": sorted(missing_indices),
                 "total_items": len(items),
                 "consumed_count": len(consumed_indices),
+                "excluded_count": len(intentionally_excluded),
             },
         )
         # Append missing items as separate paragraphs to prevent data loss

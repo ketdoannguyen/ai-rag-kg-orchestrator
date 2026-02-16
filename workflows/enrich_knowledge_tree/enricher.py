@@ -134,29 +134,14 @@ class KnowledgeTreeEnricher:
         workflow_input: EnrichKnowledgeTreeInput,
         semaphore: asyncio.Semaphore,
     ) -> None:
-        """Post-order processing for a single StructureNode."""
-        if not isinstance(node, StructureNode):
-            return
+        """Post-order processing for a single StructureNode.
 
-        # Acquire global section semaphore to limit concurrency
-        async with semaphore:
-            await self._process_structure_node_inner(
-                node=node,
-                breadcrumb=breadcrumb,
-                state=state,
-                workflow_input=workflow_input,
-                semaphore=semaphore,
-            )
-
-    async def _process_structure_node_inner(
-        self,
-        node: StructureNode,
-        breadcrumb: list[str],
-        state: _EnrichState,
-        workflow_input: EnrichKnowledgeTreeInput,
-        semaphore: asyncio.Semaphore,
-    ) -> None:
-        """Actual logic for processing a StructureNode (expects semaphore held)."""
+        The semaphore is NOT acquired here — only at LLM call sites.
+        Wrapping the entire recursive traversal with the semaphore caused
+        deadlocks when the tree had more structure nodes than semaphore
+        slots: parents held slots while waiting for children that could
+        never acquire their own slots.
+        """
         if not isinstance(node, StructureNode):
             return
 
@@ -191,6 +176,7 @@ class KnowledgeTreeEnricher:
             breadcrumb=breadcrumb,
             state=state,
             workflow_input=workflow_input,
+            semaphore=semaphore,
         )
 
         # Replace children with refined version (images + refined paragraphs/tables + structure children)
@@ -208,6 +194,7 @@ class KnowledgeTreeEnricher:
                 breadcrumb=breadcrumb,
                 state=state,
                 workflow_input=workflow_input,
+                semaphore=semaphore,
             )
 
         # Attach summary to node
@@ -232,6 +219,7 @@ class KnowledgeTreeEnricher:
         breadcrumb: list[str],
         state: _EnrichState,
         workflow_input: EnrichKnowledgeTreeInput,
+        semaphore: asyncio.Semaphore,
     ) -> tuple[list[KnowledgeNode], dict[str, int], str | None]:
         """Refine DETAIL children (Paragraph/Table) of a StructureNode.
 
@@ -305,15 +293,18 @@ class KnowledgeTreeEnricher:
             breadcrumb=breadcrumb,
             workflow_input=workflow_input,
             state=state,
+            semaphore=semaphore,
         )
 
         segments = detail_result.get("segments", [])
         detail_section_summary = detail_result.get("section_summary")
+        excluded_indices = detail_result.get("excluded_indices", [])
 
         refined_paragraphs = create_refined_paragraphs_from_segments(
             segments=segments,
             items=collected_items,
             parent=node,
+            excluded_indices=excluded_indices,
         )
 
         refined_detail_count = len(refined_paragraphs)
@@ -340,6 +331,7 @@ class KnowledgeTreeEnricher:
         breadcrumb: list[str],
         workflow_input: EnrichKnowledgeTreeInput,
         state: _EnrichState,
+        semaphore: asyncio.Semaphore | None = None,
     ) -> dict[str, Any]:
         """Call LLM to merge/refine detail items.
 
@@ -374,7 +366,11 @@ class KnowledgeTreeEnricher:
         )
 
         try:
-            response = await self._invoke_with_retry(request)
+            if semaphore:
+                async with semaphore:
+                    response = await self._invoke_with_retry(request)
+            else:
+                response = await self._invoke_with_retry(request)
             state.stats.detail_llm_calls += 1
         except Exception as e:
             logger.error(
@@ -392,15 +388,23 @@ class KnowledgeTreeEnricher:
                 logger.error("Invalid segments format in detail LLM response")
                 return {"segments": [], "section_summary": None}
             section_summary = (data.get("section_summary") or "").strip() or None
+            excluded_indices = data.get("excluded_indices", [])
+            if not isinstance(excluded_indices, list):
+                excluded_indices = []
             logger.debug(
                 "Detail LLM response",
                 extra={
                     "section": section,
                     "raw_response": content,
                     "segments": segments,
+                    "excluded_indices": excluded_indices,
                 },
             )
-            return {"segments": segments, "section_summary": section_summary}
+            return {
+                "segments": segments,
+                "section_summary": section_summary,
+                "excluded_indices": excluded_indices,
+            }
         except Exception as e:
             logger.error(
                 "Failed to parse detail LLM response; keeping original detail nodes",
@@ -417,6 +421,7 @@ class KnowledgeTreeEnricher:
         breadcrumb: list[str],
         state: _EnrichState,
         workflow_input: EnrichKnowledgeTreeInput,
+        semaphore: asyncio.Semaphore | None = None,
     ) -> str | None:
         """Generate a full summary for a StructureNode, leveraging children summaries."""
         children_content: list[dict[str, Any]] = []
@@ -454,6 +459,7 @@ class KnowledgeTreeEnricher:
             children_content=children_content,
             summary_style=workflow_input.enrich_config.summary_style,
             short=False,
+            breadcrumb=breadcrumb,
         )
         section_label = " > ".join(breadcrumb)
         logger.debug(
@@ -471,6 +477,7 @@ class KnowledgeTreeEnricher:
             workflow_input=workflow_input,
             state=state,
             section_label=section_label,
+            semaphore=semaphore,
         )
 
     async def _invoke_structure_llm_for_summary(
@@ -479,6 +486,7 @@ class KnowledgeTreeEnricher:
         workflow_input: EnrichKnowledgeTreeInput,
         state: _EnrichState,
         section_label: str | None = None,
+        semaphore: asyncio.Semaphore | None = None,
     ) -> str | None:
         """Call LLM for structure-level enrichment, expecting a JSON with 'summary'."""
         request = GatewayInvokeRequest(
@@ -493,7 +501,11 @@ class KnowledgeTreeEnricher:
         )
 
         try:
-            response = await self._invoke_with_retry(request)
+            if semaphore:
+                async with semaphore:
+                    response = await self._invoke_with_retry(request)
+            else:
+                response = await self._invoke_with_retry(request)
             state.stats.structure_llm_calls += 1
         except Exception as e:
             logger.error(
