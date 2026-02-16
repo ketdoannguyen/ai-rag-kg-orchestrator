@@ -53,6 +53,8 @@ class ExtractionResult:
     is_in_top_k: bool = False  # True if relation was in filtered top-k list
     used_fallback: bool = False  # True if fallback relation was used
     validated: bool = False  # True if new relation was validated by Strong LLM
+    approved_as_new: bool = False  # True if new relation was approved by Strong LLM
+    merged_with_existing: bool = False  # True if new relation merged with existing
 
 
 @dataclass
@@ -90,7 +92,7 @@ class LLMRelationExtractor:
 
     # Concurrency control for parallel LLM calls
     # Increased from 5 to allow more concurrent batches when using verify_batches_parallel
-    MAX_CONCURRENT_LLM_CALLS = 3
+    MAX_CONCURRENT_LLM_CALLS = 15  # Increased from 3 for faster parallel processing
 
     def __init__(
         self,
@@ -98,6 +100,7 @@ class LLMRelationExtractor:
         ontology: BaseOntology | None = None,
         db: StandardDatabase | None = None,
         ontology_handler: OntologyHandler | None = None,
+        on_new_relation_stored: callable | None = None,
     ) -> None:
         """Initialize LLM relation extractor.
 
@@ -106,11 +109,14 @@ class LLMRelationExtractor:
             ontology: Base ontology for fallback (if no handler)
             db: ArangoDB database connection
             ontology_handler: Handler for ontology operations (preferred)
+            on_new_relation_stored: Callback to invoke when a new relation is stored.
+                Used to invalidate handler caches after adding relations to ontology.
         """
         self._settings = settings
         self._ontology = ontology
         self._db = db
         self._ontology_handler = ontology_handler
+        self._on_new_relation_stored = on_new_relation_stored
         self._llm_client = None
         self._relation_validator = None
         self._log = logger.bind(component="llm_extractor")
@@ -152,6 +158,7 @@ class LLMRelationExtractor:
                 db=self._db,
                 ontology_handler=self._ontology_handler,
                 llm_client=self._llm_client,
+                on_new_relation_stored=self._on_new_relation_stored,
             )
         return self._relation_validator
 
@@ -174,10 +181,45 @@ class LLMRelationExtractor:
 
     @property
     def llm_semaphore(self) -> asyncio.Semaphore:
-        """Get LLM semaphore for rate limiting (lazy load)."""
+        """Get LLM semaphore for rate limiting (lazy load).
+
+        Uses MAX_CONCURRENT_LLM_CALLS from settings for configurability.
+        """
         if self._llm_semaphore is None:
-            self._llm_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_LLM_CALLS)
+            # Get from settings if available, otherwise use class default
+            max_concurrent = getattr(
+                self.settings, "MAX_CONCURRENT_LLM_CALLS", self.MAX_CONCURRENT_LLM_CALLS
+            )
+            self._llm_semaphore = asyncio.Semaphore(max_concurrent)
         return self._llm_semaphore
+
+    def _get_allowed_relation_ids_for_tier(
+        self, tier: RelationTier | str | None
+    ) -> frozenset[str]:
+        """Get allowed relation IDs for a tier.
+
+        Note: No caching because new relations can be created during extraction.
+
+        Args:
+            tier: Tier to get relations for. None returns empty set.
+
+        Returns:
+            Frozenset of allowed relation IDs for the tier.
+        """
+        if tier is None or self.ontology_handler is None:
+            return frozenset()
+
+        try:
+            relations = self.ontology_handler.get_by_tier(tier)
+            relation_ids = frozenset(r.id for r in relations)
+            return relation_ids
+        except Exception as e:
+            self._log.warning(
+                "Failed to get allowed relations for tier",
+                tier=tier,
+                error=str(e),
+            )
+            return frozenset()
 
     # =========================================================================
     # Text Sanitization
@@ -317,11 +359,16 @@ class LLMRelationExtractor:
     ) -> ExtractionResult:
         """Extract relation from a single pair of nodes.
 
-        Retries LLM call up to MAX_PARSE_RETRIES times when JSON parsing fails.
+        Retries LLM call up to MAX_PARSE_RETRIES times when:
+        - JSON parsing fails
+        - LLM returns invalid relation types (is_new_relation=false but relation not in ontology)
         """
         top_k_relations = self._get_top_k_relation_ids(
             node_a_embedding, node_b_embedding, tier=tier
         )
+
+        # Get allowed relation IDs for validation
+        allowed_relation_ids = self._get_allowed_relation_ids_for_tier(tier)
 
         prompt = self._build_single_prompt(
             node_a_type=node_a_type,
@@ -339,7 +386,11 @@ class LLMRelationExtractor:
         for attempt in range(self.MAX_PARSE_RETRIES):
             try:
                 response = await self._call_llm(prompt)
-                result = self._parse_response(response, top_k_relations)
+                result = self._parse_response(
+                    response,
+                    top_k_relations,
+                    allowed_relation_ids=allowed_relation_ids,
+                )
 
                 # Validate new relation if LLM suggested one
                 if result.is_new_relation and result.relation_type:
@@ -437,7 +488,9 @@ class LLMRelationExtractor:
     ) -> list[ExtractionResult]:
         """Extract relations for multiple pairs in a single LLM call.
 
-        Retries LLM call up to MAX_PARSE_RETRIES times when JSON parsing fails.
+        Retries LLM call up to MAX_PARSE_RETRIES times when:
+        - JSON parsing fails
+        - LLM returns invalid relation types (is_new_relation=false but relation not in ontology)
         """
         if not pairs:
             return []
@@ -464,13 +517,34 @@ class LLMRelationExtractor:
             tier=tier,
         )
 
+        # Get allowed relation IDs for validation
+        allowed_relation_ids = self._get_allowed_relation_ids_for_tier(tier)
+
         prompt = self._build_batch_prompt(pairs, tier=tier)
         last_error: Exception | None = None
 
         for attempt in range(self.MAX_PARSE_RETRIES):
             try:
                 response = await self._call_llm(prompt)
-                results = self._parse_batch_response(response, len(pairs), top_k_relations)
+                results = self._parse_batch_response(
+                    response,
+                    len(pairs),
+                    top_k_relations,
+                    allowed_relation_ids=allowed_relation_ids,
+                )
+
+                # Log NEW relations from weak LLM
+                for i, result in enumerate(results):
+                    pair = pairs[i]
+                    if result.is_new_relation:
+                        self._log.info(
+                            f"📊 WEAK LLM → NEW RELATION [{i + 1}/{len(results)}]\n"
+                            f"  → Node A: [{pair.node_a_type}] {pair.node_a_text[:60]}...\n"
+                            f"  → Node B: [{pair.node_b_type}] {pair.node_b_text[:60]}...\n"
+                            f"  → Proposed: {result.relation_type}\n"
+                            f"  → Description: {result.new_relation_description[:80] if result.new_relation_description else 'N/A'}...\n"
+                            f"  → Confidence: {result.confidence:.2f}"
+                        )
 
                 # Validate and store new relations (same as single pair)
                 validated_results = []
@@ -501,6 +575,11 @@ class LLMRelationExtractor:
                                 description=validated_result.new_relation_description,
                                 tier=tier,
                             )
+                            self._log.info(
+                                f"✨ FINAL: NEW relation stored: {validated_result.relation_type}"
+                            )
+                        else:
+                            self._log.info(f"✨ FINAL: MERGED → {validated_result.relation_type}")
                         validated_results.append(validated_result)
                     else:
                         validated_results.append(result)
@@ -614,6 +693,22 @@ class LLMRelationExtractor:
             batch_count=len(batches),
         )
 
+        # Summary statistics for visibility
+        new_relations = sum(1 for r in all_results if r.is_new_relation)
+        existing_relations = sum(
+            1 for r in all_results if not r.is_new_relation and r.relation_type
+        )
+        merged_relations = sum(1 for r in all_results if r.merged_with_existing)
+        fallback_relations = sum(1 for r in all_results if r.used_fallback)
+        self._log.info(
+            f"📈 BATCH SUMMARY\n"
+            f"  → Total: {len(all_results)}\n"
+            f"  → New relations: {new_relations}\n"
+            f"  → Existing relations: {existing_relations}\n"
+            f"  → Merged with existing: {merged_relations}\n"
+            f"  → Fallback used: {fallback_relations}"
+        )
+
         return all_results
 
     def _build_batch_prompt(
@@ -662,6 +757,7 @@ class LLMRelationExtractor:
         response: str,
         expected_count: int,
         top_k_relations: set[str] | None = None,
+        allowed_relation_ids: frozenset[str] | None = None,
     ) -> list[ExtractionResult]:
         """Parse batch response into list of results.
 
@@ -669,9 +765,13 @@ class LLMRelationExtractor:
             response: LLM response string
             expected_count: Expected number of results
             top_k_relations: Set of relation IDs in top-k for tracking
+            allowed_relation_ids: Set of valid relation IDs for validation.
+                If provided, raises ValueError when is_new_relation=false
+                but relation_type is not in this set.
 
         Raises:
-            ValueError: If JSON parsing fails or response format is invalid
+            ValueError: If JSON parsing fails, response format is invalid,
+                or LLM returns invalid relation type with is_new_relation=false
         """
         fallback_relation = self.settings.EXTRACTION_FALLBACK_RELATION
         fallback_result = ExtractionResult(
@@ -689,9 +789,27 @@ class LLMRelationExtractor:
             raise ValueError("Batch response is not a list")
 
         results = []
-        for item in data:
+        invalid_relations: list[tuple[int, str]] = []
+
+        for idx, item in enumerate(data):
             relation_type = item.get("relation_type")
             is_new = item.get("is_new_relation", False)
+
+            # Handle string "null" as actual null
+            if relation_type == "null":
+                relation_type = None
+
+            # Validate: if is_new_relation=false but relation_type not in allowed set
+            # This catches LLM hallucination where it claims to use existing relation
+            # but actually returns a non-existent relation type
+            if (
+                allowed_relation_ids
+                and relation_type is not None
+                and not is_new
+                and relation_type not in allowed_relation_ids
+            ):
+                invalid_relations.append((idx + 1, relation_type))
+
             is_in_top_k = (
                 not is_new and relation_type is not None and relation_type in top_k_relations
             )
@@ -709,6 +827,14 @@ class LLMRelationExtractor:
                     is_in_top_k=is_in_top_k,
                     used_fallback=used_fallback,
                 )
+            )
+
+        # Raise error if any invalid relations found - triggers retry
+        if invalid_relations:
+            invalid_str = ", ".join(f"pair {i}: {r}" for i, r in invalid_relations)
+            raise ValueError(
+                f"LLM returned invalid relation types with is_new_relation=false: {invalid_str}. "
+                "Relation must exist in ontology or set is_new_relation=true."
             )
 
         # Pad with fallback results if needed
@@ -803,15 +929,19 @@ class LLMRelationExtractor:
         self,
         response: str,
         top_k_relations: set[str] | None = None,
+        allowed_relation_ids: frozenset[str] | None = None,
     ) -> ExtractionResult:
         """Parse single response into ExtractionResult.
 
         Args:
             response: LLM response string
             top_k_relations: Set of relation IDs in top-k for tracking
+            allowed_relation_ids: Set of valid relation IDs for validation.
+                If provided, raises ValueError when is_new_relation=false
+                but relation_type is not in this set.
 
         Raises:
-            ValueError: If JSON parsing fails (caller should handle retry)
+            ValueError: If JSON parsing fails or LLM returns invalid relation type
         """
         fallback_relation = self.settings.EXTRACTION_FALLBACK_RELATION
         top_k_relations = top_k_relations or set()
@@ -820,6 +950,23 @@ class LLMRelationExtractor:
 
         relation_type = data.get("relation_type")
         is_new = data.get("is_new_relation", False)
+
+        # Handle string "null" as actual null
+        if relation_type == "null":
+            relation_type = None
+
+        # Validate: if is_new_relation=false but relation_type not in allowed set
+        if (
+            allowed_relation_ids
+            and relation_type is not None
+            and not is_new
+            and relation_type not in allowed_relation_ids
+        ):
+            raise ValueError(
+                f"LLM returned invalid relation type '{relation_type}' with is_new_relation=false. "
+                "Relation must exist in ontology or set is_new_relation=true."
+            )
+
         is_in_top_k = not is_new and relation_type is not None and relation_type in top_k_relations
 
         used_fallback = relation_type == fallback_relation
@@ -924,6 +1071,8 @@ class LLMRelationExtractor:
                 is_in_top_k=False,
                 used_fallback=False,
                 validated=True,
+                approved_as_new=False,
+                merged_with_existing=True,  # Merged with existing relation
             )
         elif validation_result.is_valid:
             # Valid new relation
@@ -937,6 +1086,8 @@ class LLMRelationExtractor:
                 is_in_top_k=False,
                 used_fallback=False,
                 validated=True,
+                approved_as_new=True,  # Approved as new relation by Strong LLM
+                merged_with_existing=False,
             )
         else:
             # Validation failed, using fallback
@@ -950,6 +1101,8 @@ class LLMRelationExtractor:
                 is_in_top_k=False,
                 used_fallback=True,
                 validated=False,
+                approved_as_new=False,
+                merged_with_existing=False,
             )
 
     # =========================================================================

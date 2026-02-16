@@ -96,29 +96,53 @@ class ExtractRelationsWorkflow:
         db: StandardDatabase,
         settings: ExtractionSettings,
         ontology: BaseOntology,
+        progress_callback: callable | None = None,
     ) -> None:
         self.db = db
         self.settings = settings
         self.ontology = ontology
+        self._progress_callback = progress_callback
 
-        # Initialize handlers
-        self.content_handler = ContentExtractionHandler(db, settings)
-        self.structure_handler = StructureExtractionHandler(db, settings)
+        # Initialize handlers - OntologyHandler FIRST to share across all components
+        # This ensures cache consistency when new relations are added
         self.ontology_handler = OntologyHandler(db)
+        self.content_handler = ContentExtractionHandler(
+            db, settings, ontology_handler=self.ontology_handler
+        )
+        self.structure_handler = StructureExtractionHandler(
+            db, settings, ontology_handler=self.ontology_handler
+        )
 
-        # Initialize LLM extractor
+        # Initialize LLM extractor with cache invalidation callback
+        # When a new relation is stored, invalidate handler caches so they pick up the new relation
         self.llm_extractor = LLMRelationExtractor(
             settings=settings,
             ontology=ontology,
             db=db,
             ontology_handler=self.ontology_handler,
+            on_new_relation_stored=self._invalidate_handler_caches,
         )
         self._log = logger.bind(workflow="extract_relations")
         self._debug_logger: ExtractionDebugLogger | None = None
 
+    def _invalidate_handler_caches(self) -> None:
+        """Invalidate caches in all extraction handlers.
+
+        Called when a new relation is stored to ensure handlers
+        pick up the newly added relation type.
+        """
+        self.content_handler.invalidate_cache()
+        self.structure_handler.invalidate_cache()
+        self._log.debug("Invalidated extraction handler caches after new relation stored")
+
     def enable_debug_logging(self, output_dir: str | None = None) -> None:
         """Enable debug logging for this workflow."""
         self._debug_logger = get_debug_logger(output_dir)
+
+    def _report_progress(self, message: str, **kwargs) -> None:
+        """Report progress via callback if set."""
+        if self._progress_callback:
+            self._progress_callback(message, **kwargs)
 
     async def run(self, input_data: ExtractRelationsInput) -> ExtractRelationsOutput:
         """Execute the relation extraction workflow."""
@@ -331,9 +355,9 @@ class ExtractRelationsWorkflow:
         result = NodeProcessResult()
 
         # Find similar structures by embedding (cross-batch with reviewed nodes)
+        # No limit - return all candidates above threshold
         similar = await self.structure_handler.find_similar_structures(
             node,
-            max_candidates=self.settings.EXTRACTION_MAX_CANDIDATES_PER_NODE,
             exclude_ids=exclude_ids,
             cross_source=cross_source,
         )
@@ -456,18 +480,28 @@ class ExtractRelationsWorkflow:
                 )
             )
 
-        # Process in batches
+        # Split into batches for parallel processing
         batch_size = self.settings.EXTRACTION_LLM_BATCH_SIZE
-        results = []
+        batches = [node_pairs[i : i + batch_size] for i in range(0, len(node_pairs), batch_size)]
+        total_batches = len(batches)
 
-        for i in range(0, len(node_pairs), batch_size):
-            batch = node_pairs[i : i + batch_size]
-            batch_results = await self.llm_extractor.verify_batch(
-                batch, tier=RelationTier.TIER_1_STRUCTURE
-            )
-            results.extend(batch_results)
-            output.llm_calls_used += 1
-            tier_stats.pairs_sent_to_llm += len(batch)
+        self._log.info(
+            "Processing structure LLM batches in parallel",
+            total_batches=total_batches,
+            max_concurrent=self.settings.MAX_CONCURRENT_LLM_CALLS,
+        )
+        self._report_progress(
+            f"Processing {total_batches} structure LLM batches in parallel",
+            total_batches=total_batches,
+            max_concurrent=self.settings.MAX_CONCURRENT_LLM_CALLS,
+        )
+
+        # Use verify_batches_parallel for concurrent LLM calls
+        results = await self.llm_extractor.verify_batches_parallel(
+            batches, tier=RelationTier.TIER_1_STRUCTURE
+        )
+        output.llm_calls_used += total_batches
+        tier_stats.pairs_sent_to_llm += len(node_pairs)
 
         # Apply results
         for idx, candidate in enumerate(candidates):
@@ -512,11 +546,28 @@ class ExtractRelationsWorkflow:
             # else: relation_type=null means no relation, keep separate
 
     def _get_structure_text(self, node: StructureNode) -> str:
-        """Get representative text from structure node."""
+        """Get representative text from structure node.
+
+        Combines title (from attributes) and summary (from node) for richer context.
+        """
+        parts = []
+
+        # Get title from attributes
         attrs = getattr(node, "attributes", None)
-        if not attrs:
-            return ""
-        return getattr(attrs, "title", "") or ""
+        if attrs:
+            code = getattr(attrs, "code", "")
+            if code:
+                parts.append(code)
+            title = getattr(attrs, "title", "")
+            if title:
+                parts.append(title)
+
+        # Get summary directly from node (not from attributes!)
+        summary = getattr(node, "summary", None)
+        if summary:
+            parts.append(summary)
+
+        return " - ".join(parts) if parts else ""
 
     # =========================================================================
     # Tier 2: Content Extraction (Two-Phase)
@@ -574,6 +625,7 @@ class ExtractRelationsWorkflow:
         # Compute similarity matrix within batch, merge connected components
         # ═══════════════════════════════════════════════════════════════════
         self._log.info("Phase 1: Intra-batch deduplication")
+        self._report_progress("Phase 1: Intra-batch deduplication", nodes=len(nodes))
 
         intra_result = find_intra_batch_components(
             nodes=nodes,
@@ -614,6 +666,11 @@ class ExtractRelationsWorkflow:
             merged=len(intra_result.merge_operations),
             relation_candidates=len(intra_result.relation_candidates),
         )
+        self._report_progress(
+            "Phase 1 complete",
+            leaders=len(intra_result.leaders),
+            merged=len(intra_result.merge_operations),
+        )
 
         # ═══════════════════════════════════════════════════════════════════
         # PHASE 2: CROSS-BATCH PROCESSING (REFACTORED - Multi-Node)
@@ -621,6 +678,7 @@ class ExtractRelationsWorkflow:
         # Key fix: Process ALL similar nodes >= 0.40, not just best match
         # ═══════════════════════════════════════════════════════════════════
         self._log.info("Phase 2: Cross-batch processing (multi-node)")
+        self._report_progress("Phase 2: Cross-batch processing", leaders=len(intra_result.leaders))
 
         processed_ids: set[str] = set(merged_ids)
         to_mark_reviewed: list[str] = []
@@ -778,53 +836,98 @@ class ExtractRelationsWorkflow:
         self._log.info("Processing LLM batch", pair_count=len(pairs))
 
         # Convert to NodePair format for batch extraction with embeddings for Centroid Filtering
+        # Skip pairs where either node has empty text (prevents useless LLM calls)
         node_pairs = []
-        for node_a, node_b, similarity in pairs:
+        valid_pair_indices = []  # Track which original pairs are valid
+        skipped_count = 0
+
+        for idx, (node_a, node_b, similarity) in enumerate(pairs):
+            text_a = self._get_node_text(node_a)
+            text_b = self._get_node_text(node_b)
+
+            # Skip pairs with empty content - no point in calling LLM
+            if not text_a or not text_b:
+                skipped_count += 1
+                self._log.debug(
+                    "Skipping pair with empty content",
+                    node_a_id=str(node_a.id),
+                    node_b_id=str(node_b.id),
+                    text_a_empty=not text_a,
+                    text_b_empty=not text_b,
+                )
+                continue
+
             node_pairs.append(
                 NodePair(
                     node_a_id=str(node_a.id),
                     node_a_type=self._get_node_type_str(node_a),
-                    node_a_text=self._get_node_text(node_a),
+                    node_a_text=text_a,
                     node_b_id=str(node_b.id),
                     node_b_type=self._get_node_type_str(node_b),
-                    node_b_text=self._get_node_text(node_b),
+                    node_b_text=text_b,
                     similarity_score=similarity,
                     node_a_embedding=node_a.embedding,
                     node_b_embedding=node_b.embedding,
                 )
             )
+            valid_pair_indices.append(idx)
 
-        # Process in batches of EXTRACTION_LLM_BATCH_SIZE
-        batch_size = self.settings.EXTRACTION_LLM_BATCH_SIZE
-        results = []
-
-        for i in range(0, len(node_pairs), batch_size):
-            batch = node_pairs[i : i + batch_size]
-            batch_results = await self.llm_extractor.verify_batch(
-                batch, tier=RelationTier.TIER_2_CONTENT
+        if skipped_count > 0:
+            self._log.warning(
+                "Skipped pairs with empty content",
+                skipped=skipped_count,
+                valid=len(node_pairs),
             )
-            results.extend(batch_results)
-            output.llm_calls_used += 1
 
-            # Debug logging: log LLM batch
-            if self._debug_logger:
-                batch_debug_results = [
-                    {
-                        "should_merge": r.should_merge,
-                        "relation_type": r.relation_type,
-                        "confidence": r.confidence,
-                        "reasoning": r.reasoning[:100] if r.reasoning else "",
-                    }
-                    for r in batch_results
-                ]
-                self._debug_logger.log_llm_batch("tier_2_content", len(batch), batch_debug_results)
+        if not node_pairs:
+            self._log.info("No valid pairs to process after filtering empty content")
+            return
 
-        # Apply results
-        for idx, (node_a, node_b, _) in enumerate(pairs):
-            if idx >= len(results):
+        # Split into batches for parallel processing
+        batch_size = self.settings.EXTRACTION_LLM_BATCH_SIZE
+        batches = [node_pairs[i : i + batch_size] for i in range(0, len(node_pairs), batch_size)]
+        total_batches = len(batches)
+
+        self._log.info(
+            "Processing LLM batches in parallel",
+            total_batches=total_batches,
+            max_concurrent=self.settings.MAX_CONCURRENT_LLM_CALLS,
+            pairs_per_batch=batch_size,
+        )
+        self._report_progress(
+            f"Processing {total_batches} LLM batches in parallel",
+            total_batches=total_batches,
+            max_concurrent=self.settings.MAX_CONCURRENT_LLM_CALLS,
+        )
+
+        # Use verify_batches_parallel for concurrent LLM calls
+        results = await self.llm_extractor.verify_batches_parallel(
+            batches, tier=RelationTier.TIER_2_CONTENT
+        )
+        output.llm_calls_used += total_batches
+
+        # Debug logging: log batch summary
+        if self._debug_logger:
+            batch_debug_results = [
+                {
+                    "should_merge": r.should_merge,
+                    "relation_type": r.relation_type,
+                    "confidence": r.confidence,
+                    "reasoning": r.reasoning[:100] if r.reasoning else "",
+                }
+                for r in results
+            ]
+            self._debug_logger.log_llm_batch("tier_2_content", len(results), batch_debug_results)
+
+        self._log.info("LLM parallel batch processing complete", total_results=len(results))
+
+        # Apply results - use valid_pair_indices to map back to original pairs
+        for result_idx, llm_result in enumerate(results):
+            if result_idx >= len(valid_pair_indices):
                 break
 
-            llm_result = results[idx]
+            original_idx = valid_pair_indices[result_idx]
+            node_a, node_b, _ = pairs[original_idx]
             node_a_id = str(node_a.id)
             node_b_id = str(node_b.id)
 
@@ -847,7 +950,6 @@ class ExtractRelationsWorkflow:
                 processed_ids.add(node_a_id)
                 processed_ids.add(node_b_id)
                 output.content_nodes_processed += 1
-                tier_stats.nodes_processed += 1
                 output.content_nodes_merged += 1
                 tier_stats.llm_merged += 1
 
@@ -862,7 +964,7 @@ class ExtractRelationsWorkflow:
                             node_b_id=node_b_id,
                             node_b_type=self._get_node_type_str(node_b),
                             node_b_text=self._get_node_text(node_b)[:50],
-                            similarity=pairs[idx][2],
+                            similarity=pairs[original_idx][2],
                             decision="merge_llm",
                             llm_used=True,
                             llm_reasoning=llm_result.reasoning,
@@ -901,7 +1003,6 @@ class ExtractRelationsWorkflow:
                     )
                 processed_ids.add(node_a_id)
                 output.content_nodes_processed += 1
-                tier_stats.nodes_processed += 1
                 output.content_relations_created += 1
                 tier_stats.relations_total += 1
 
@@ -913,6 +1014,11 @@ class ExtractRelationsWorkflow:
                 if llm_result.is_new_relation:
                     tier_stats.relations_new += 1
                     output.new_relations_proposed += 1
+                    # Track approved and merged new relations
+                    if llm_result.approved_as_new:
+                        output.new_relations_approved += 1
+                    if llm_result.merged_with_existing:
+                        output.new_relations_merged += 1
 
                 to_mark_reviewed.append(node_a_id)
 
@@ -927,7 +1033,7 @@ class ExtractRelationsWorkflow:
                             node_b_id=node_b_id,
                             node_b_type=self._get_node_type_str(node_b),
                             node_b_text=self._get_node_text(node_b)[:50],
-                            similarity=pairs[idx][2],
+                            similarity=pairs[original_idx][2],
                             decision="relation",
                             relation_type=relation_type,
                             llm_used=True,
@@ -948,7 +1054,6 @@ class ExtractRelationsWorkflow:
                 # DO NOT create fallback relation, just mark as processed
                 processed_ids.add(node_a_id)
                 output.content_nodes_processed += 1
-                tier_stats.nodes_processed += 1
                 output.nodes_kept_separate += 1
                 tier_stats.kept_separate += 1
                 to_mark_reviewed.append(node_a_id)
@@ -960,6 +1065,16 @@ class ExtractRelationsWorkflow:
                     reasoning=llm_result.reasoning,
                 )
 
+        # Report LLM batch results summary
+        self._report_progress(
+            "LLM batch complete",
+            result={
+                "merged": tier_stats.llm_merged,
+                "relations": tier_stats.relations_total,
+                "kept_separate": tier_stats.kept_separate,
+            },
+        )
+
     def _get_node_type_str(self, node: ContentNode) -> str:
         """Get node type as string."""
         if hasattr(node.node_type, "value"):
@@ -967,16 +1082,15 @@ class ExtractRelationsWorkflow:
         return str(node.node_type)
 
     def _get_node_text(self, node: ContentNode) -> str:
-        """Get representative text from node."""
-        attrs = getattr(node, "attributes", None)
-        if not attrs:
-            return ""
+        """Get representative text from node.
 
-        for attr_name in ("summary", "content", "original_text"):
-            value = getattr(attrs, attr_name, None)
-            if value:
-                return value
-        return ""
+        Uses ContentNode.get_content_text() which handles:
+        - Top-level text field (used for embedding)
+        - Type-specific attributes (text, alt_text, extracted_text, caption)
+        """
+        # ContentNode has get_content_text() method that properly handles
+        # both top-level text field and type-specific attributes (dict)
+        return node.get_content_text()
 
     async def _collect_cross_batch_pairs(
         self,
@@ -1097,6 +1211,13 @@ class ExtractRelationsWorkflow:
             auto_merge_pairs=len(collection.auto_merge_pairs),
             llm_pairs=len(collection.llm_pairs),
             kept_separate=collection.kept_separate_count,
+        )
+
+        # Report collection result for progress tracking
+        self._report_progress(
+            "Cross-batch collection",
+            auto_merge=len(collection.auto_merge_pairs),
+            llm_pairs=len(collection.llm_pairs),
         )
 
         return collection

@@ -21,7 +21,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from arango_client.utils import normalize_tier
 from llm_gateway_client.models.request import GatewayChatTurn, GatewayInvokeRequest
 from loguru import logger
 from prompts import (
@@ -119,6 +118,7 @@ class NewRelationValidator:
         db: StandardDatabase | None = None,
         ontology_handler: OntologyHandler | None = None,
         llm_client: AIGatewayClient | None = None,
+        on_new_relation_stored: callable | None = None,
     ) -> None:
         """Initialize the validator.
 
@@ -127,11 +127,14 @@ class NewRelationValidator:
             db: ArangoDB database connection
             ontology_handler: Handler for ontology operations
             llm_client: LLM client for API calls
+            on_new_relation_stored: Callback to invoke after storing a new relation.
+                Used to invalidate handler caches.
         """
         self._settings = settings
         self._db = db
         self._ontology_handler = ontology_handler
         self._llm_client = llm_client
+        self._on_new_relation_stored = on_new_relation_stored
         self._log = logger.bind(component="relation_validator")
 
     @property
@@ -202,23 +205,12 @@ class NewRelationValidator:
         Returns:
             ValidationResult with final relation and metadata
         """
-        self._log.info(
-            "Validating new relation",
-            proposed=proposed_relation,
-            summary=summary[:100] if summary else None,
-        )
-
         # =========================================================
         # STEP 1: Check exact name match in DB
         # =========================================================
         if self.ontology_handler:
             existing = self.ontology_handler.get_by_id(proposed_relation)
             if existing:
-                self._log.info(
-                    "Relation exists in DB (exact match), returning for tier update by caller",
-                    relation=proposed_relation,
-                    existing_tiers=[normalize_tier(t) for t in existing.tiers],
-                )
                 return ValidationResult(
                     is_valid=True,
                     final_relation_type=proposed_relation,
@@ -255,10 +247,13 @@ class NewRelationValidator:
         relation_description = strong_output.description
 
         self._log.info(
-            "Strong LLM output",
-            accepted=strong_output.accepted,
-            relation_id=relation_id,
-            families=strong_output.families,
+            "🧠 STRONG LLM OUTPUT\n"
+            f"  → Accepted weak proposal: {strong_output.accepted}\n"
+            f"  → Relation ID: {relation_id}\n"
+            f"  → Name: {relation_name}\n"
+            f"  → Description: {relation_description[:100] if relation_description else 'N/A'}...\n"
+            f"  → Families: {strong_output.families}\n"
+            f"  → Reasoning: {strong_output.reasoning[:100]}..."
         )
 
         # =========================================================
@@ -269,9 +264,10 @@ class NewRelationValidator:
             existing = self.ontology_handler.get_by_id(relation_id)
             if existing:
                 self._log.info(
-                    "Strong LLM suggested existing relation, merging",
-                    proposed=proposed_relation,
-                    suggested=relation_id,
+                    "🔄 STRONG LLM → EXISTING RELATION\n"
+                    f"  → Proposed by weak: {proposed_relation}\n"
+                    f"  → Strong suggested: {relation_id}\n"
+                    f"  → Action: MERGE with existing"
                 )
                 return ValidationResult(
                     is_valid=True,
@@ -311,10 +307,11 @@ class NewRelationValidator:
             existing_id, similarity_score = similar_result
             if similarity_score >= self.settings.EXTRACTION_MERGE_THRESHOLD:
                 self._log.info(
-                    "Merging with existing relation",
-                    proposed=relation_id,
-                    existing=existing_id,
-                    similarity=similarity_score,
+                    "🔀 EMBEDDING SIMILARITY MATCH\n"
+                    f"  → Proposed: {relation_id}\n"
+                    f"  → Similar to: {existing_id}\n"
+                    f"  → Similarity: {similarity_score:.3f} (threshold: {self.settings.EXTRACTION_MERGE_THRESHOLD})\n"
+                    f"  → Action: MERGE with existing"
                 )
                 return ValidationResult(
                     is_valid=True,
@@ -525,10 +522,26 @@ class NewRelationValidator:
         """Store relation with retry logic for database resilience."""
         self.ontology_handler.create(relation)
         self._log.info(
-            "Stored new relation to DB",
-            id=relation_id,
-            families=families,
+            "🆕 STORED NEW RELATION TO DB\n"
+            f"  → ID: {relation_id}\n"
+            f"  → Families: {families}\n"
+            f"  → Action: Created new relation in ontology"
         )
+
+        # Invoke callback to invalidate caches after storing new relation
+        if self._on_new_relation_stored:
+            try:
+                self._on_new_relation_stored()
+                self._log.debug(
+                    "Cache invalidation callback invoked after storing relation",
+                    relation_id=relation_id,
+                )
+            except Exception as e:
+                self._log.warning(
+                    "Cache invalidation callback failed",
+                    error=str(e),
+                    relation_id=relation_id,
+                )
 
     # =========================================================================
     # Helper Methods
