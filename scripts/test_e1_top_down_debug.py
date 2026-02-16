@@ -492,7 +492,7 @@ async def main():
     )
 
     print(f"\n{'#' * 72}")
-    print(f"#  E1 TOP-DOWN RETRIEVAL — DEBUG SCRIPT")
+    print("#  E1 TOP-DOWN RETRIEVAL — DEBUG SCRIPT")
     print(f"#  Query: {query}")
     print(f"#  top_k={args.top_k}  k_structure={args.k_structure}  source_id={args.source_id}")
     print(f"{'#' * 72}")
@@ -612,7 +612,7 @@ async def main():
     # ── Done ──
     header("DONE")
     print(f"  Query: {query}")
-    print(f"  All steps completed. Review output above for correctness.\n")
+    print("  All steps completed. Review output above for correctness.\n")
 
 
 if __name__ == "__main__":
