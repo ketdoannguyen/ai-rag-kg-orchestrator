@@ -24,10 +24,16 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import numpy as np
 from loguru import logger
 
 from workflows.query_retrieval.models import ContentWithContext
-from workflows.query_retrieval.strategies.base import get_executor
+from workflows.query_retrieval.strategies.base import (
+    cosine_similarity_batch,
+    get_executor,
+    rrf_fusion_2way,
+)
+from workflows.query_retrieval.strategies.scoring import RRF_K, E3ScoringMethod
 
 if TYPE_CHECKING:
     from arango.database import StandardDatabase
@@ -118,7 +124,8 @@ FOR content IN @content_nodes
         parent_title: parent.attributes.title,
         parent_summary: parent.summary,
         parent_level: parent.level,
-        parent_node_type: parent.node_type
+        parent_node_type: parent.node_type,
+        parent_embedding: parent.embedding
     }
 """
 
@@ -155,6 +162,7 @@ class BottomUpRetrieval:
         query_embedding: list[float],
         top_k: int = DEFAULT_TOP_K,
         multiplier: int = OVER_RETRIEVAL_MULTIPLIER,
+        scoring_method: E3ScoringMethod = E3ScoringMethod.AVG_LOG,
     ) -> list[ContentWithContext]:
         """Execute E3 Bottom-Up Retrieval pipeline.
 
@@ -162,6 +170,7 @@ class BottomUpRetrieval:
             query_embedding: Query embedding vector (3072 dims)
             top_k: Number of parent summaries to return
             multiplier: Over-retrieval multiplier M
+            scoring_method: Scoring method to use (default: AVG_LOG for backward compat)
 
         Returns:
             List of ContentWithContext with parent summaries
@@ -187,8 +196,15 @@ class BottomUpRetrieval:
             self.metrics.latency_total_ms = (time.perf_counter() - total_start) * 1000
             return []
 
-        # Stage 3: Score parents
-        scored_parents = self._score_parents(parents_dict)
+        # Stage 3: Score parents based on scoring_method
+        if scoring_method == E3ScoringMethod.PARENT_COSINE:
+            scored_parents = self._score_parent_cosine(query_embedding, parents_dict)
+        elif scoring_method == E3ScoringMethod.AVG_LOG:
+            scored_parents = self._score_parents_avg_log(parents_dict)
+        elif scoring_method == E3ScoringMethod.RRF_PARENT_AVGLOG:
+            scored_parents = self._score_rrf_parent_avglog(query_embedding, parents_dict)
+        else:
+            scored_parents = self._score_parents_avg_log(parents_dict)
 
         # Stage 4: Select and return top-K
         results = self._select_and_return(scored_parents, top_k)
@@ -308,10 +324,10 @@ class BottomUpRetrieval:
         """Group content nodes by their parent.
 
         Args:
-            raw_results: Raw AQL results with content→parent mappings
+            raw_results: Raw AQL results with content->parent mappings
 
         Returns:
-            Dict: parent_id → {key, title, summary, level, node_type, children_scores}
+            Dict: parent_id -> {key, title, summary, level, node_type, embedding, children_scores}
         """
         parents: dict[str, dict] = {}
 
@@ -325,6 +341,7 @@ class BottomUpRetrieval:
                     "summary": row["parent_summary"],
                     "level": row["parent_level"],
                     "node_type": row["parent_node_type"],
+                    "embedding": row.get("parent_embedding"),
                     "children_scores": [],
                 }
 
@@ -336,11 +353,11 @@ class BottomUpRetrieval:
     # Stage 3: Parent Scoring
     # =========================================================================
 
-    def _score_parents(
+    def _score_parents_avg_log(
         self,
         parents_dict: dict[str, dict],
     ) -> list[dict]:
-        """Stage 3: Score parents using AVG * ln(1+count) formula.
+        """Score parents using AVG * ln(1+count) formula.
 
         Scoring rationale:
             - AVG: Parent with high-cosine children is more relevant
@@ -381,6 +398,7 @@ class BottomUpRetrieval:
                     "aggregated_score": aggregated_score,
                     "avg_cosine": avg_score,
                     "children_count": count,
+                    "scoring_method": "avg_log",
                 }
             )
 
@@ -390,6 +408,167 @@ class BottomUpRetrieval:
         scored_parents.sort(key=lambda x: x["aggregated_score"], reverse=True)
 
         # Update metrics
+        self._update_scoring_metrics(scored_parents, children_counts, start_time)
+
+        return scored_parents
+
+    def _score_parent_cosine(
+        self,
+        query_embedding: list[float],
+        parents_dict: dict[str, dict],
+    ) -> list[dict]:
+        """Score parents by direct cosine similarity with query.
+
+        Formula: score = cosine(query_embedding, parent_embedding)
+
+        Args:
+            query_embedding: Query embedding vector
+            parents_dict: Dict from parent discovery (must include embedding)
+
+        Returns:
+            List of scored parents sorted by cosine score descending
+        """
+        start_time = time.perf_counter()
+
+        # Collect parents with embeddings
+        parent_ids = list(parents_dict.keys())
+        embeddings = []
+        valid_indices = []
+
+        for i, pid in enumerate(parent_ids):
+            emb = parents_dict[pid].get("embedding")
+            if emb:
+                embeddings.append(emb)
+                valid_indices.append(i)
+
+        if not embeddings:
+            return []
+
+        # Batch cosine computation
+        scores = cosine_similarity_batch(query_embedding, embeddings)
+
+        # Build results
+        scored_parents: list[dict] = []
+        children_counts: list[int] = []
+
+        for idx, score in zip(valid_indices, scores):
+            pid = parent_ids[idx]
+            data = parents_dict[pid]
+            count = len(data["children_scores"])
+            children_counts.append(count)
+
+            scored_parents.append(
+                {
+                    "parent_id": pid,
+                    "key": data["key"],
+                    "title": data["title"],
+                    "summary": data["summary"],
+                    "level": data["level"],
+                    "node_type": data["node_type"],
+                    "aggregated_score": float(score),
+                    "children_count": count,
+                    "scoring_method": "parent_cosine",
+                }
+            )
+
+        scored_parents.sort(key=lambda x: x["aggregated_score"], reverse=True)
+
+        # Update metrics
+        self._update_scoring_metrics(scored_parents, children_counts, start_time)
+
+        return scored_parents
+
+    def _score_rrf_parent_avglog(
+        self,
+        query_embedding: list[float],
+        parents_dict: dict[str, dict],
+    ) -> list[dict]:
+        """Score parents using RRF of parent_cosine and avg_log.
+
+        Formula: 1/(k + rank_parent_cosine) + 1/(k + rank_avg_log)
+
+        Args:
+            query_embedding: Query embedding vector
+            parents_dict: Dict from parent discovery
+
+        Returns:
+            List of scored parents sorted by RRF score descending
+        """
+        start_time = time.perf_counter()
+
+        parent_ids = list(parents_dict.keys())
+        n = len(parent_ids)
+
+        if n == 0:
+            return []
+
+        # Signal 1: Parent cosine scores
+        embeddings = [parents_dict[pid].get("embedding", []) for pid in parent_ids]
+        valid_emb_mask = [bool(e) for e in embeddings]
+
+        parent_cosine_scores = np.zeros(n, dtype=np.float32)
+        if any(valid_emb_mask):
+            valid_embs = [e for e, v in zip(embeddings, valid_emb_mask) if v]
+            valid_indices = [i for i, v in enumerate(valid_emb_mask) if v]
+            valid_scores = cosine_similarity_batch(query_embedding, valid_embs)
+            for idx, score in zip(valid_indices, valid_scores):
+                parent_cosine_scores[idx] = score
+
+        # Signal 2: AVG * ln(1+count) scores
+        avg_log_scores = np.zeros(n, dtype=np.float32)
+        children_counts: list[int] = []
+
+        for i, pid in enumerate(parent_ids):
+            children_scores = parents_dict[pid]["children_scores"]
+            count = len(children_scores)
+            children_counts.append(count)
+            if count > 0:
+                avg_score = sum(children_scores) / count
+                avg_log_scores[i] = avg_score * math.log(1 + count)
+
+        # RRF fusion
+        rrf_scores = rrf_fusion_2way(parent_cosine_scores, avg_log_scores, k=RRF_K)
+
+        # Build results
+        scored_parents: list[dict] = []
+        for i, pid in enumerate(parent_ids):
+            data = parents_dict[pid]
+            scored_parents.append(
+                {
+                    "parent_id": pid,
+                    "key": data["key"],
+                    "title": data["title"],
+                    "summary": data["summary"],
+                    "level": data["level"],
+                    "node_type": data["node_type"],
+                    "aggregated_score": float(rrf_scores[i]),
+                    "parent_cosine": float(parent_cosine_scores[i]),
+                    "avg_log": float(avg_log_scores[i]),
+                    "children_count": children_counts[i],
+                    "scoring_method": "rrf_parent_avglog",
+                }
+            )
+
+        scored_parents.sort(key=lambda x: x["aggregated_score"], reverse=True)
+
+        # Update metrics
+        self._update_scoring_metrics(scored_parents, children_counts, start_time)
+
+        return scored_parents
+
+    def _update_scoring_metrics(
+        self,
+        scored_parents: list[dict],
+        children_counts: list[int],
+        start_time: float,
+    ) -> None:
+        """Update metrics after scoring.
+
+        Args:
+            scored_parents: List of scored parent dicts
+            children_counts: List of children counts per parent
+            start_time: Perf counter start time
+        """
         if children_counts:
             self.metrics.avg_children_per_parent = sum(children_counts) / len(children_counts)
             self.metrics.max_children_per_parent = max(children_counts)
@@ -409,8 +588,6 @@ class BottomUpRetrieval:
             scored_count=len(scored_parents),
             avg_children=f"{self.metrics.avg_children_per_parent:.1f}",
         )
-
-        return scored_parents
 
     # =========================================================================
     # Stage 4: Select & Return

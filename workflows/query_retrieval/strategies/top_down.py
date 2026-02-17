@@ -19,14 +19,17 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import numpy as np
 from loguru import logger
 
 from workflows.query_retrieval.models import ContentWithContext
 from workflows.query_retrieval.strategies.base import (
     cosine_similarity_batch,
     get_executor,
+    rrf_fusion_2way,
     to_content_with_context,
 )
+from workflows.query_retrieval.strategies.scoring import RRF_K, E1ScoringMethod
 
 if TYPE_CHECKING:
     from arango.database import StandardDatabase
@@ -168,6 +171,7 @@ class TopDownRetrieval:
         top_k: int = DEFAULT_K_FINAL,
         source_id: str | None = None,
         k_structure: int = DEFAULT_K_STRUCTURE,
+        scoring_method: E1ScoringMethod = E1ScoringMethod.COSINE,
     ) -> list[ContentWithContext]:
         """Execute E1 Top-Down Retrieval pipeline.
 
@@ -176,6 +180,7 @@ class TopDownRetrieval:
             top_k: Number of final content nodes to return
             source_id: Optional source ID to scope the search
             k_structure: Number of top structure nodes to match
+            scoring_method: Scoring method to use (default: COSINE for backward compat)
 
         Returns:
             List of ContentWithContext results ranked by relevance
@@ -214,9 +219,17 @@ class TopDownRetrieval:
         if harvested:
             self.metrics.descend_depth_actual = max(h["depth"] for h in harvested)
 
-        # Step 3: Re-rank and return
+        # Store seed scores for RRF scoring (structure_id -> cosine score)
+        seed_scores = {s["_id"]: s["structure_score"] for s in top_structures}
+
+        # Step 3: Re-rank based on scoring method
         t3 = time.perf_counter()
-        results = self._rerank(query_embedding, harvested, top_k)
+        if scoring_method == E1ScoringMethod.COSINE:
+            results = self._rerank_cosine(query_embedding, harvested, top_k)
+        elif scoring_method == E1ScoringMethod.RRF_CONTENT_SEED:
+            results = self._rerank_rrf_content_seed(query_embedding, harvested, seed_scores, top_k)
+        else:
+            results = self._rerank_cosine(query_embedding, harvested, top_k)
         self.metrics.latency_rerank_ms = (time.perf_counter() - t3) * 1000
         self.metrics.content_nodes_returned = len(results)
 
@@ -396,7 +409,7 @@ class TopDownRetrieval:
     # Step 3: Re-rank & Return
     # =========================================================================
 
-    def _rerank(
+    def _rerank_cosine(
         self,
         query_embedding: list[float],
         content_nodes: list[dict],
@@ -449,3 +462,58 @@ class TopDownRetrieval:
             )
 
         return results
+
+    def _rerank_rrf_content_seed(
+        self,
+        query_embedding: list[float],
+        content_nodes: list[dict],
+        seed_scores: dict[str, float],
+        top_k: int,
+    ) -> list[ContentWithContext]:
+        """Re-rank using RRF of content cosine and seed cosine.
+
+        Formula: 1/(k + rank_content_cosine) + 1/(k + rank_seed_cosine)
+
+        Args:
+            query_embedding: Query embedding vector
+            content_nodes: Harvested content nodes with 'source' field
+            seed_scores: Mapping seed_id -> cosine score
+            top_k: Number of results to return
+
+        Returns:
+            Top-K ContentWithContext sorted by RRF score
+        """
+        if not content_nodes:
+            return []
+
+        # Filter nodes with embeddings
+        nodes_with_emb = [n for n in content_nodes if n.get("embedding")]
+
+        if not nodes_with_emb:
+            return []
+
+        # Signal 1: Content cosine scores
+        content_cosines = cosine_similarity_batch(
+            query_embedding, [n["embedding"] for n in nodes_with_emb]
+        )
+
+        # Signal 2: Seed cosine scores (lookup from seed_scores dict)
+        seed_cosines = np.array(
+            [seed_scores.get(n.get("source", ""), 0.0) for n in nodes_with_emb],
+            dtype=np.float32,
+        )
+
+        # RRF fusion
+        rrf_scores = rrf_fusion_2way(content_cosines, seed_cosines, k=RRF_K, use_tie_handling=True)
+
+        # Sort and return top-K
+        scored_tuples = sorted(
+            zip(nodes_with_emb, rrf_scores, content_cosines, seed_cosines),
+            key=lambda x: x[1],
+            reverse=True,
+        )[:top_k]
+
+        return [
+            to_content_with_context(node, float(rrf_score))
+            for node, rrf_score, _, _ in scored_tuples
+        ]

@@ -322,7 +322,7 @@ class TestContentHarvest:
 
 
 class TestRerank:
-    """Tests for _rerank()."""
+    """Tests for _rerank_cosine()."""
 
     def test_correct_ordering(self, strategy):
         """Nodes ordered by cosine score descending."""
@@ -334,7 +334,7 @@ class TestRerank:
             _make_content_node("c3", embedding=[0.7, 0.3, 0.0]),  # Medium sim
         ]
 
-        results = strategy._rerank(query_emb, nodes, top_k=3)
+        results = strategy._rerank_cosine(query_emb, nodes, top_k=3)
 
         assert len(results) == 3
         assert results[0].node_id == "c2"  # Highest score first
@@ -348,7 +348,7 @@ class TestRerank:
             _make_content_node(f"c{i}", embedding=[float(i) / 10, 0.5, 0.5]) for i in range(1, 11)
         ]
 
-        results = strategy._rerank(query_emb, nodes, top_k=3)
+        results = strategy._rerank_cosine(query_emb, nodes, top_k=3)
 
         assert len(results) == 3
 
@@ -360,7 +360,7 @@ class TestRerank:
             _make_content_node("c2", embedding=None),
         ]
 
-        results = strategy._rerank(query_emb, nodes, top_k=5)
+        results = strategy._rerank_cosine(query_emb, nodes, top_k=5)
 
         # c1 should be first (has embedding), c2 second (no embedding, score=0)
         assert results[0].node_id == "c1"
@@ -368,7 +368,7 @@ class TestRerank:
 
     def test_empty_input(self, strategy):
         """Empty content_nodes returns empty result."""
-        results = strategy._rerank([1.0, 0.0], [], top_k=5)
+        results = strategy._rerank_cosine([1.0, 0.0], [], top_k=5)
         assert results == []
 
     def test_converts_to_content_with_context(self, strategy):
@@ -376,7 +376,7 @@ class TestRerank:
         query_emb = [1.0, 0.0, 0.0]
         nodes = [_make_content_node("c1", text="hello", embedding=[1.0, 0.0, 0.0])]
 
-        results = strategy._rerank(query_emb, nodes, top_k=1)
+        results = strategy._rerank_cosine(query_emb, nodes, top_k=1)
 
         assert len(results) == 1
         assert isinstance(results[0], ContentWithContext)
@@ -393,7 +393,7 @@ class TestRerank:
             _make_content_node(f"c{i}", embedding=rng.random(128).tolist()) for i in range(10)
         ]
 
-        results = strategy._rerank(query_emb, nodes, top_k=10)
+        results = strategy._rerank_cosine(query_emb, nodes, top_k=10)
 
         for r in results:
             assert 0.0 <= r.score <= 1.0

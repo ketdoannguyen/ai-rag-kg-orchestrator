@@ -4,7 +4,7 @@ Tests cover all 5 pipeline stages:
 1. Seed Retrieval (_get_seed_nodes)
 2. Relation Filtering (_filter_relations)
 3. Graph Traversal (_traverse)
-4. Multi-Signal Scoring (_score_traversed)
+4. Multi-Signal Scoring (_score_rrf_cosine_seed)
 5. Merge, Dedup, Rank (_merge_dedup_rank)
 Plus full execute() pipeline tests.
 """
@@ -237,7 +237,7 @@ class TestCosineSimilarity:
 
 
 # =============================================================================
-# Test: _score_traversed (Stage 4)
+# Test: _score_rrf_cosine_seed (Stage 4)
 # =============================================================================
 
 
@@ -246,10 +246,9 @@ class TestMultiSignalScoring:
         """RRF scoring: final = 1/(k+rank_cosine) + 1/(k+rank_seed)."""
         traversed = _make_traversed_nodes(1)
         seed_scores = {"content_nodes/seed_0": 0.8}
-        relation_scores = {"CAUSED_BY": 0.7}
 
-        result = horizontal._score_traversed(
-            query_embedding, traversed, seed_scores, relation_scores
+        result = horizontal._score_rrf_cosine_seed(
+            query_embedding, traversed, seed_scores
         )
         assert len(result) == 1
         node = result[0]
@@ -267,11 +266,10 @@ class TestMultiSignalScoring:
         traversed[0]["embedding"] = [0.1] * 3072  # Low cosine
         traversed[1]["embedding"] = query_embedding  # High cosine (identical)
 
-        result = horizontal._score_traversed(
+        result = horizontal._score_rrf_cosine_seed(
             query_embedding,
             traversed,
             {"content_nodes/seed_0": 0.8, "content_nodes/seed_1": 0.8},
-            {"CAUSED_BY": 0.7},
         )
 
         # Sort by final_score descending
@@ -294,8 +292,8 @@ class TestMultiSignalScoring:
                 "from_seed_id": "content_nodes/seed_0",
             }
         ]
-        result = horizontal._score_traversed(
-            query_embedding, traversed, {"content_nodes/seed_0": 0.8}, {"CAUSED_BY": 0.7}
+        result = horizontal._score_rrf_cosine_seed(
+            query_embedding, traversed, {"content_nodes/seed_0": 0.8}
         )
         assert len(result) == 0
 
@@ -304,8 +302,8 @@ class TestMultiSignalScoring:
         traversed = _make_traversed_nodes(1)
         traversed[0]["relation_type"] = "UNKNOWN_RELATION"
 
-        result = horizontal._score_traversed(
-            query_embedding, traversed, {"content_nodes/seed_0": 0.8}, {"CAUSED_BY": 0.7}
+        result = horizontal._score_rrf_cosine_seed(
+            query_embedding, traversed, {"content_nodes/seed_0": 0.8}
         )
         # RRF is computed from cosine and seed, not relation
         # With single node, RRF = 2/(k+1) = 2/61 ≈ 0.0328
@@ -314,18 +312,17 @@ class TestMultiSignalScoring:
 
     def test_empty_traversed_returns_empty(self, horizontal, query_embedding):
         """No traversed nodes returns []."""
-        result = horizontal._score_traversed(query_embedding, [], {}, {})
+        result = horizontal._score_rrf_cosine_seed(query_embedding, [], {})
         assert result == []
 
     def test_output_includes_all_scores(self, horizontal, query_embedding):
-        """Output includes cosine_score, relation_score, seed_score, final_score."""
+        """Output includes cosine_score, seed_score, final_score."""
         traversed = _make_traversed_nodes(1)
-        result = horizontal._score_traversed(
-            query_embedding, traversed, {"content_nodes/seed_0": 0.8}, {"CAUSED_BY": 0.7}
+        result = horizontal._score_rrf_cosine_seed(
+            query_embedding, traversed, {"content_nodes/seed_0": 0.8}
         )
         node = result[0]
         assert "cosine_score" in node
-        assert "relation_score" in node
         assert "seed_score" in node
         assert "final_score" in node
         assert node["source"] == "traversal"
@@ -333,11 +330,10 @@ class TestMultiSignalScoring:
     def test_metrics_latency_recorded(self, horizontal, query_embedding):
         """latency_score_ms is recorded."""
         traversed = _make_traversed_nodes(3)
-        horizontal._score_traversed(
+        horizontal._score_rrf_cosine_seed(
             query_embedding,
             traversed,
             {f"content_nodes/seed_{i}": 0.8 for i in range(5)},
-            {"CAUSED_BY": 0.7, "SUPPORTS": 0.6, "CONTRASTS": 0.5},
         )
         assert horizontal.metrics.latency_score_ms >= 0
 

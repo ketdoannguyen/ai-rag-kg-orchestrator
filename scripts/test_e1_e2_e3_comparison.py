@@ -118,16 +118,23 @@ class StrategyResult:
 # =============================================================================
 
 
-async def run_e1(db, query_embedding: list[float], top_k: int) -> StrategyResult:
+async def run_e1(
+    db, query_embedding: list[float], top_k: int, scoring_method: str = "cosine"
+) -> StrategyResult:
     """Run E1 Top-Down strategy."""
+    from workflows.query_retrieval.strategies.scoring import E1ScoringMethod
     from workflows.query_retrieval.strategies.top_down import TopDownRetrieval
 
     strategy = TopDownRetrieval(db=db)
+
+    # Convert string to enum
+    method_enum = E1ScoringMethod(scoring_method)
 
     t0 = time.perf_counter()
     results = await strategy.execute(
         query_embedding=query_embedding,
         top_k=top_k,
+        scoring_method=method_enum,
     )
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
@@ -146,12 +153,20 @@ async def run_e1(db, query_embedding: list[float], top_k: int) -> StrategyResult
 
 
 async def run_e2(
-    db, query_embedding: list[float], query_type: str, top_k: int
+    db,
+    query_embedding: list[float],
+    query_type: str,
+    top_k: int,
+    scoring_method: str = "rrf_cosine_seed",
 ) -> StrategyResult:
     """Run E2 Horizontal strategy."""
     from workflows.query_retrieval.strategies.horizontal import HorizontalRetrieval
+    from workflows.query_retrieval.strategies.scoring import E2ScoringMethod
 
     strategy = HorizontalRetrieval(db=db, graph_name="knowledge_graph")
+
+    # Convert string to enum
+    method_enum = E2ScoringMethod(scoring_method)
 
     t0 = time.perf_counter()
     results = await strategy.execute(
@@ -159,6 +174,7 @@ async def run_e2(
         query_embedding=query_embedding,
         query_type=query_type,
         top_k=top_k,
+        scoring_method=method_enum,
     )
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
@@ -176,16 +192,23 @@ async def run_e2(
 # =============================================================================
 
 
-async def run_e3(db, query_embedding: list[float], top_k: int) -> StrategyResult:
+async def run_e3(
+    db, query_embedding: list[float], top_k: int, scoring_method: str = "avg_log"
+) -> StrategyResult:
     """Run E3 Bottom-Up strategy."""
     from workflows.query_retrieval.strategies.bottom_up import BottomUpRetrieval
+    from workflows.query_retrieval.strategies.scoring import E3ScoringMethod
 
     strategy = BottomUpRetrieval(db=db, graph_name="knowledge_graph")
+
+    # Convert string to enum
+    method_enum = E3ScoringMethod(scoring_method)
 
     t0 = time.perf_counter()
     results = await strategy.execute(
         query_embedding=query_embedding,
         top_k=top_k,
+        scoring_method=method_enum,
     )
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
@@ -564,6 +587,25 @@ async def main():
     parser.add_argument(
         "--skip-llm", action="store_true", help="Use borrowed embedding (skip LLM call)"
     )
+    # Scoring method arguments
+    parser.add_argument(
+        "--e1-scoring",
+        choices=["cosine", "rrf_content_seed"],
+        default="cosine",
+        help="E1 scoring method (default: cosine)",
+    )
+    parser.add_argument(
+        "--e2-scoring",
+        choices=["cosine", "rrf_cosine_seed", "rrf_cosine_relation", "rrf_cosine_seed_relation"],
+        default="rrf_cosine_seed",
+        help="E2 scoring method (default: rrf_cosine_seed)",
+    )
+    parser.add_argument(
+        "--e3-scoring",
+        choices=["parent_cosine", "avg_log", "rrf_parent_avglog"],
+        default="avg_log",
+        help="E3 scoring method (default: avg_log)",
+    )
     args = parser.parse_args()
 
     query = args.query_flag or args.query or "Nguyên nhân dẫn đến sự sụp đổ của Liên Xô?"
@@ -572,6 +614,9 @@ async def main():
     print("#  E1 vs E2 vs E3 COMPARISON — Full Strategy Benchmark")
     print(f"#  Query: {query}")
     print(f"#  top_k={args.top_k}  query_type={args.query_type}")
+    print(f"#  E1 Scoring: {args.e1_scoring}")
+    print(f"#  E2 Scoring: {args.e2_scoring}")
+    print(f"#  E3 Scoring: {args.e3_scoring}")
     print(f"{'#' * 80}")
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -636,9 +681,12 @@ async def main():
     header("RUNNING ALL STRATEGIES")
 
     strategies_to_run = [
-        ("E1 Top-Down", run_e1(db, query_embedding, args.top_k)),
-        ("E2 Horizontal", run_e2(db, query_embedding, args.query_type, args.top_k)),
-        ("E3 Bottom-Up", run_e3(db, query_embedding, args.top_k)),
+        ("E1 Top-Down", run_e1(db, query_embedding, args.top_k, args.e1_scoring)),
+        (
+            "E2 Horizontal",
+            run_e2(db, query_embedding, args.query_type, args.top_k, args.e2_scoring),
+        ),
+        ("E3 Bottom-Up", run_e3(db, query_embedding, args.top_k, args.e3_scoring)),
     ]
 
     print("\n  Running E1, E2, E3 concurrently...")
@@ -673,9 +721,7 @@ async def main():
     # Print summary
     subheader("Execution Summary")
     table_row("E1 Top-Down", f"{len(e1_result.results)} results in {e1_result.latency_ms:.0f}ms")
-    table_row(
-        "E2 Horizontal", f"{len(e2_result.results)} results in {e2_result.latency_ms:.0f}ms"
-    )
+    table_row("E2 Horizontal", f"{len(e2_result.results)} results in {e2_result.latency_ms:.0f}ms")
     table_row("E3 Bottom-Up", f"{len(e3_result.results)} results in {e3_result.latency_ms:.0f}ms")
     table_row("Total wall-clock time", f"{total_time:.0f}ms (concurrent)")
 
@@ -696,24 +742,30 @@ async def main():
     e3_ids = {r.node_id for r in e3_result.results}
     venn = compute_venn_sections(e1_ids, e2_ids, e3_ids)
 
-    print(f"  Strategy Results:")
-    print(f"    E1 Top-Down:   {len(e1_result.results):>3} nodes in {e1_result.latency_ms:>6.0f}ms")
-    print(f"    E2 Horizontal: {len(e2_result.results):>3} nodes in {e2_result.latency_ms:>6.0f}ms")
-    print(f"    E3 Bottom-Up:  {len(e3_result.results):>3} nodes in {e3_result.latency_ms:>6.0f}ms")
+    print("  Strategy Results:")
+    print(
+        f"    E1 Top-Down:   {len(e1_result.results):>3} nodes in {e1_result.latency_ms:>6.0f}ms"
+    )
+    print(
+        f"    E2 Horizontal: {len(e2_result.results):>3} nodes in {e2_result.latency_ms:>6.0f}ms"
+    )
+    print(
+        f"    E3 Bottom-Up:  {len(e3_result.results):>3} nodes in {e3_result.latency_ms:>6.0f}ms"
+    )
 
-    print(f"\n  Unique Contributions:")
+    print("\n  Unique Contributions:")
     print(f"    E1-only: {len(venn['e1_only']):>3} (structure descent)")
     print(f"    E2-only: {len(venn['e2_only']):>3} (Tier 2 relations)")
     print(f"    E3-only: {len(venn['e3_only']):>3} (parent summaries)")
 
-    print(f"\n  Overlap:")
+    print("\n  Overlap:")
     print(f"    All three: {len(venn['all_three']):>3} (consensus nodes)")
     print(f"    E1∩E2:     {len(venn['e1_e2_only']):>3}")
     print(f"    E1∩E3:     {len(venn['e1_e3_only']):>3}")
     print(f"    E2∩E3:     {len(venn['e2_e3_only']):>3}")
 
     # Key insights
-    print(f"\n  Key Insights:")
+    print("\n  Key Insights:")
 
     if len(venn["e2_only"]) > 0:
         print(f"    ✓ E2 discovered {len(venn['e2_only'])} nodes via relations (E1/E3 missed)")
@@ -729,7 +781,7 @@ async def main():
         structure_count = sum(1 for r in e3_result.results if r.node_type == "structure")
         if structure_count > 0:
             print(
-                f"    ℹ E3 returns structure nodes ({structure_count}/{len(e3_result.results)}) — "
+                f"    [i] E3 returns structure nodes ({structure_count}/{len(e3_result.results)}) - "
                 "summaries, not content details"
             )
 

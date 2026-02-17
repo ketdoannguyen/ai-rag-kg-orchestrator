@@ -362,7 +362,7 @@ def step5_rerank(
     table_row("top_k", top_k)
 
     t0 = time.perf_counter()
-    results = strategy._rerank(query_embedding, harvested, top_k)
+    results = strategy._rerank_cosine(query_embedding, harvested, top_k)
     elapsed = (time.perf_counter() - t0) * 1000
 
     table_row("Returned", len(results))

@@ -31,8 +31,11 @@ from workflows.query_retrieval.models import ContentWithContext
 from workflows.query_retrieval.strategies.base import (
     cosine_similarity_batch,
     get_executor,
+    rrf_fusion_2way,
+    rrf_fusion_3way,
     to_content_with_context,
 )
+from workflows.query_retrieval.strategies.scoring import RRF_K, E2ScoringMethod
 
 if TYPE_CHECKING:
     from arango.database import StandardDatabase
@@ -45,10 +48,6 @@ DEFAULT_N_SEEDS = 5  # Number of seed nodes from vector search
 DEFAULT_K_FINAL = 15  # Final content nodes to return
 HOP_DEPTH = 1  # Fixed 1-hop traversal
 MAX_TRAVERSED_NODES = 200  # Cap traversal results to prevent explosion
-
-# RRF smoothing constant (Cormack et al., SIGIR 2009)
-# k=60 is the literature standard, provides robust rank fusion
-RRF_K = 60
 
 # =============================================================================
 # AQL Queries
@@ -170,6 +169,7 @@ class HorizontalRetrieval:
         query_type: str,
         top_k: int = DEFAULT_K_FINAL,
         n_seeds: int = DEFAULT_N_SEEDS,
+        scoring_method: E2ScoringMethod = E2ScoringMethod.RRF_COSINE_SEED,
     ) -> list[ContentWithContext]:
         """Execute E2 Horizontal Retrieval pipeline.
 
@@ -179,6 +179,7 @@ class HorizontalRetrieval:
             query_type: Query type (causal, factual, etc.)
             top_k: Number of final content nodes to return
             n_seeds: Number of seed nodes from vector search
+            scoring_method: Scoring method to use (default: RRF_COSINE_SEED for backward compat)
 
         Returns:
             List of ContentWithContext results ranked by relevance
@@ -208,10 +209,25 @@ class HorizontalRetrieval:
         # Stage 3: Graph traversal
         traversed_nodes = await self._traverse(seed_nodes, selected_types)
 
-        # Stage 4: Multi-signal scoring
-        scored_traversed = self._score_traversed(
-            query_embedding, traversed_nodes, seed_scores, relation_scores
-        )
+        # Stage 4: Multi-signal scoring based on scoring_method
+        if scoring_method == E2ScoringMethod.COSINE:
+            scored_traversed = self._score_cosine_only(query_embedding, traversed_nodes)
+        elif scoring_method == E2ScoringMethod.RRF_COSINE_SEED:
+            scored_traversed = self._score_rrf_cosine_seed(
+                query_embedding, traversed_nodes, seed_scores
+            )
+        elif scoring_method == E2ScoringMethod.RRF_COSINE_RELATION:
+            scored_traversed = self._score_rrf_cosine_relation(
+                query_embedding, traversed_nodes, relation_scores
+            )
+        elif scoring_method == E2ScoringMethod.RRF_COSINE_SEED_RELATION:
+            scored_traversed = self._score_rrf_3way(
+                query_embedding, traversed_nodes, seed_scores, relation_scores
+            )
+        else:
+            scored_traversed = self._score_rrf_cosine_seed(
+                query_embedding, traversed_nodes, seed_scores
+            )
 
         # Stage 5: Merge, dedup, rank
         results = self._merge_dedup_rank(seed_nodes, scored_traversed, top_k)
@@ -403,26 +419,64 @@ class HorizontalRetrieval:
     # Stage 4: Multi-Signal Scoring with RRF
     # =========================================================================
 
-    def _score_traversed(
+    def _score_cosine_only(
+        self,
+        query_embedding: list[float],
+        traversed_nodes: list[dict],
+    ) -> list[dict]:
+        """Score traversed nodes by pure cosine similarity (no RRF).
+
+        Args:
+            query_embedding: Query embedding vector
+            traversed_nodes: Nodes from graph traversal
+
+        Returns:
+            Nodes with final_score = cosine score
+        """
+        t0 = time.perf_counter()
+
+        if not traversed_nodes:
+            self.metrics.latency_score_ms = 0.0
+            return []
+
+        valid_nodes = [n for n in traversed_nodes if n.get("embedding")]
+        if not valid_nodes:
+            self.metrics.latency_score_ms = (time.perf_counter() - t0) * 1000
+            return []
+
+        cosine_scores = cosine_similarity_batch(
+            query_embedding, [n["embedding"] for n in valid_nodes]
+        )
+
+        scored = []
+        for i, node in enumerate(valid_nodes):
+            scored.append(
+                {
+                    **node,
+                    "cosine_score": float(cosine_scores[i]),
+                    "final_score": float(cosine_scores[i]),
+                    "source": "traversal",
+                }
+            )
+
+        self.metrics.latency_score_ms = (time.perf_counter() - t0) * 1000
+        return scored
+
+    def _score_rrf_cosine_seed(
         self,
         query_embedding: list[float],
         traversed_nodes: list[dict],
         seed_scores: dict[str, float],
-        relation_scores: dict[str, float],
     ) -> list[dict]:
         """Compute RRF fusion of cosine_score and seed_score.
 
-        Uses Reciprocal Rank Fusion (Cormack et al., SIGIR 2009) instead of
-        multiplicative scoring. RRF is scale-invariant and requires no
-        arbitrary weight tuning.
-
+        Uses Reciprocal Rank Fusion (Cormack et al., SIGIR 2009).
         Formula: RRF(node) = 1/(k + rank_cosine) + 1/(k + rank_seed)
 
         Args:
             query_embedding: Query embedding vector
             traversed_nodes: Nodes found via graph traversal
-            seed_scores: Mapping seed_id → cosine score
-            relation_scores: Mapping relation_type → scorer score (kept for metadata)
+            seed_scores: Mapping seed_id -> cosine score
 
         Returns:
             List of traversed node dicts with final_score (RRF) attached
@@ -433,7 +487,6 @@ class HorizontalRetrieval:
             self.metrics.latency_score_ms = 0.0
             return []
 
-        # Separate nodes with/without embeddings
         valid_nodes = [n for n in traversed_nodes if n.get("embedding")]
 
         if not valid_nodes:
@@ -451,14 +504,15 @@ class HorizontalRetrieval:
         )
 
         # Apply RRF fusion
-        rrf_scores = self._rrf_fusion_two_signals(cosine_scores_arr, seed_scores_arr)
+        rrf_scores = rrf_fusion_2way(
+            cosine_scores_arr, seed_scores_arr, k=RRF_K, use_tie_handling=True
+        )
 
         # Build result list
         scored = []
         for i, node in enumerate(valid_nodes):
             cosine_score = float(cosine_scores_arr[i])
             seed_score = float(seed_scores_arr[i])
-            rel_score = relation_scores.get(node.get("relation_type", ""), 0.0)
             final_score = float(rrf_scores[i])
 
             scored.append(
@@ -466,7 +520,6 @@ class HorizontalRetrieval:
                     **node,
                     "cosine_score": cosine_score,
                     "seed_score": seed_score,
-                    "relation_score": rel_score,  # Kept for debugging/metrics
                     "final_score": final_score,
                     "source": "traversal",
                 }
@@ -475,97 +528,134 @@ class HorizontalRetrieval:
         self.metrics.latency_score_ms = (time.perf_counter() - t0) * 1000
         return scored
 
-    def _rrf_fusion_two_signals(
+    def _score_rrf_cosine_relation(
         self,
-        cosine_scores: np.ndarray,
-        seed_scores: np.ndarray,
-        k: int = RRF_K,
-    ) -> np.ndarray:
-        """Apply Reciprocal Rank Fusion to cosine and seed scores.
+        query_embedding: list[float],
+        traversed_nodes: list[dict],
+        relation_scores: dict[str, float],
+    ) -> list[dict]:
+        """Score using RRF of cosine and relation scores.
 
-        RRF combines multiple ranking signals using ranks instead of raw scores:
-            RRF(d) = sum_i(1 / (k + rank_i(d)))
-
-        Properties:
-        - Scale-invariant: works regardless of score ranges
-        - Robust: outlier scores don't dominate
-        - Simple: no weight tuning required (only k=60, literature standard)
-
-        Tie handling: Uses average rank for ties (e.g., nodes from same seed).
+        Formula: 1/(k + rank_cosine) + 1/(k + rank_relation)
 
         Args:
-            cosine_scores: Cosine similarity scores array
-            seed_scores: Seed node scores array
-            k: RRF smoothing constant (default: 60, from Cormack et al. 2009)
+            query_embedding: Query embedding vector
+            traversed_nodes: Nodes from graph traversal
+            relation_scores: Mapping relation_type -> score
 
         Returns:
-            RRF scores array (higher = better combined rank)
+            Nodes with RRF scores
         """
-        n = len(cosine_scores)
+        t0 = time.perf_counter()
 
-        if n == 0:
-            return np.array([], dtype=np.float32)
+        if not traversed_nodes:
+            self.metrics.latency_score_ms = 0.0
+            return []
 
-        if n == 1:
-            # Single item: max possible RRF score for 2 signals
-            return np.array([2.0 / (k + 1)], dtype=np.float32)
+        valid_nodes = [n for n in traversed_nodes if n.get("embedding")]
+        if not valid_nodes:
+            self.metrics.latency_score_ms = (time.perf_counter() - t0) * 1000
+            return []
 
-        # Compute cosine ranks (1-indexed, higher score = lower rank number)
-        cosine_order = np.argsort(-cosine_scores)
-        cosine_ranks = np.zeros(n, dtype=np.float32)
-        for rank, idx in enumerate(cosine_order, start=1):
-            cosine_ranks[idx] = rank
-
-        # Compute seed ranks with tie handling (average rank for ties)
-        seed_ranks = self._compute_ranks_with_ties(seed_scores)
-
-        # RRF formula: 1/(k + rank)
-        rrf_scores = (1.0 / (k + cosine_ranks) + 1.0 / (k + seed_ranks)).astype(
-            np.float32
+        # Signal 1: Cosine scores
+        cosine_scores_arr = cosine_similarity_batch(
+            query_embedding, [n["embedding"] for n in valid_nodes]
         )
 
-        return rrf_scores
+        # Signal 2: Relation scores
+        relation_scores_arr = np.array(
+            [relation_scores.get(n.get("relation_type", ""), 0.0) for n in valid_nodes],
+            dtype=np.float32,
+        )
 
-    def _compute_ranks_with_ties(self, scores: np.ndarray) -> np.ndarray:
-        """Compute ranks with average rank for ties.
+        # RRF fusion
+        rrf_scores = rrf_fusion_2way(
+            cosine_scores_arr, relation_scores_arr, k=RRF_K, use_tie_handling=True
+        )
 
-        When multiple items have the same score, they all get the average
-        of the ranks they would have occupied.
+        scored = []
+        for i, node in enumerate(valid_nodes):
+            scored.append(
+                {
+                    **node,
+                    "cosine_score": float(cosine_scores_arr[i]),
+                    "relation_score": float(relation_scores_arr[i]),
+                    "final_score": float(rrf_scores[i]),
+                    "source": "traversal",
+                }
+            )
 
-        Example:
-            scores = [0.8, 0.6, 0.8, 0.6]
-            ranks  = [1.5, 3.5, 1.5, 3.5]  # 0.8s share ranks 1-2, 0.6s share 3-4
+        self.metrics.latency_score_ms = (time.perf_counter() - t0) * 1000
+        return scored
+
+    def _score_rrf_3way(
+        self,
+        query_embedding: list[float],
+        traversed_nodes: list[dict],
+        seed_scores: dict[str, float],
+        relation_scores: dict[str, float],
+    ) -> list[dict]:
+        """Score using 3-way RRF: cosine + seed + relation.
+
+        Formula: 1/(k + rank_cosine) + 1/(k + rank_seed) + 1/(k + rank_relation)
 
         Args:
-            scores: Array of scores (higher = better)
+            query_embedding: Query embedding vector
+            traversed_nodes: Nodes from graph traversal
+            seed_scores: Mapping seed_id -> cosine score
+            relation_scores: Mapping relation_type -> score
 
         Returns:
-            Array of ranks (1-indexed, lower = better)
+            Nodes with 3-way RRF scores
         """
-        n = len(scores)
-        ranks = np.zeros(n, dtype=np.float32)
+        t0 = time.perf_counter()
 
-        # Sort indices by descending score
-        order = np.argsort(-scores)
-        sorted_scores = scores[order]
+        if not traversed_nodes:
+            self.metrics.latency_score_ms = 0.0
+            return []
 
-        i = 0
-        while i < n:
-            # Find all items with same score
-            j = i
-            while j < n and sorted_scores[j] == sorted_scores[i]:
-                j += 1
+        valid_nodes = [n for n in traversed_nodes if n.get("embedding")]
+        if not valid_nodes:
+            self.metrics.latency_score_ms = (time.perf_counter() - t0) * 1000
+            return []
 
-            # Average rank for this tie group (1-indexed)
-            avg_rank = (i + 1 + j) / 2.0
+        # Signal 1: Cosine
+        cosine_arr = cosine_similarity_batch(
+            query_embedding, [n["embedding"] for n in valid_nodes]
+        )
 
-            # Assign average rank to all items in tie group
-            for idx in range(i, j):
-                ranks[order[idx]] = avg_rank
+        # Signal 2: Seed
+        seed_arr = np.array(
+            [seed_scores.get(n.get("from_seed_id", ""), 0.0) for n in valid_nodes],
+            dtype=np.float32,
+        )
 
-            i = j
+        # Signal 3: Relation
+        relation_arr = np.array(
+            [relation_scores.get(n.get("relation_type", ""), 0.0) for n in valid_nodes],
+            dtype=np.float32,
+        )
 
-        return ranks
+        # 3-way RRF
+        rrf_scores = rrf_fusion_3way(
+            cosine_arr, seed_arr, relation_arr, k=RRF_K, use_tie_handling=True
+        )
+
+        scored = []
+        for i, node in enumerate(valid_nodes):
+            scored.append(
+                {
+                    **node,
+                    "cosine_score": float(cosine_arr[i]),
+                    "seed_score": float(seed_arr[i]),
+                    "relation_score": float(relation_arr[i]),
+                    "final_score": float(rrf_scores[i]),
+                    "source": "traversal",
+                }
+            )
+
+        self.metrics.latency_score_ms = (time.perf_counter() - t0) * 1000
+        return scored
 
     # =========================================================================
     # Stage 5: Merge, Dedup, Rank with Unified RRF
@@ -607,9 +697,7 @@ class HorizontalRetrieval:
             )
 
         # Prepare traversed entries (already have cosine_score and seed_score)
-        traversed_entries = [
-            {**node} for node in scored_traversed
-        ]
+        traversed_entries = [{**node} for node in scored_traversed]
 
         # Merge all nodes
         all_nodes = seed_entries + traversed_entries
@@ -622,9 +710,8 @@ class HorizontalRetrieval:
         best_by_id: dict[str, dict] = {}
         for node in all_nodes:
             node_id = node["_id"]
-            if (
-                node_id not in best_by_id
-                or node.get("cosine_score", 0) > best_by_id[node_id].get("cosine_score", 0)
+            if node_id not in best_by_id or node.get("cosine_score", 0) > best_by_id[node_id].get(
+                "cosine_score", 0
             ):
                 best_by_id[node_id] = node
 
@@ -645,7 +732,7 @@ class HorizontalRetrieval:
             dtype=np.float32,
         )
 
-        rrf_scores = self._rrf_fusion_two_signals(cosine_scores, seed_scores)
+        rrf_scores = rrf_fusion_2way(cosine_scores, seed_scores, k=RRF_K, use_tie_handling=True)
 
         # Attach final RRF scores
         for i, node in enumerate(deduplicated):

@@ -3,7 +3,7 @@
 Tests cover all 4 pipeline stages:
 1. Over-Retrieval (_over_retrieve_content)
 2. Parent Discovery (_discover_parents)
-3. Parent Scoring (_score_parents)
+3. Parent Scoring (_score_parents_avg_log)
 4. Select & Return (_select_and_return)
 Plus full execute() pipeline tests.
 """
@@ -356,7 +356,7 @@ class TestGroupByParent:
 
 
 # =============================================================================
-# Test: _score_parents (Stage 3)
+# Test: _score_parents_avg_log (Stage 3)
 # =============================================================================
 
 
@@ -374,7 +374,7 @@ class TestParentScoring:
             }
         }
 
-        results = bottom_up._score_parents(parents_dict)
+        results = bottom_up._score_parents_avg_log(parents_dict)
 
         # Expected: AVG=0.75, count=5, score = 0.75 * ln(6) ≈ 1.344
         expected = 0.75 * math.log(6)
@@ -409,7 +409,7 @@ class TestParentScoring:
             },
         }
 
-        results = bottom_up._score_parents(parents_dict)
+        results = bottom_up._score_parents_avg_log(parents_dict)
 
         # P1: 0.75 * ln(6) ≈ 1.344
         # P2: 0.89 * ln(3) ≈ 0.978
@@ -431,7 +431,7 @@ class TestParentScoring:
             }
         }
 
-        results = bottom_up._score_parents(parents_dict)
+        results = bottom_up._score_parents_avg_log(parents_dict)
 
         # Expected: 0.92 * ln(2) ≈ 0.638
         expected = 0.92 * math.log(2)
@@ -439,7 +439,7 @@ class TestParentScoring:
 
     def test_empty_dict_returns_empty(self, bottom_up):
         """Empty parents_dict returns []."""
-        results = bottom_up._score_parents({})
+        results = bottom_up._score_parents_avg_log({})
         assert results == []
 
     def test_metrics_updated(self, bottom_up):
@@ -463,7 +463,7 @@ class TestParentScoring:
             },
         }
 
-        bottom_up._score_parents(parents_dict)
+        bottom_up._score_parents_avg_log(parents_dict)
 
         assert bottom_up.metrics.avg_children_per_parent == 2.0  # (3+1)/2
         assert bottom_up.metrics.max_children_per_parent == 3
@@ -483,7 +483,7 @@ class TestParentScoring:
             }
         }
 
-        results = bottom_up._score_parents(parents_dict)
+        results = bottom_up._score_parents_avg_log(parents_dict)
 
         assert "aggregated_score" in results[0]
         assert "avg_cosine" in results[0]
@@ -828,7 +828,7 @@ class TestScoringFormulaVerification:
             }
         }
 
-        results = bottom_up._score_parents(parents_dict)
+        results = bottom_up._score_parents_avg_log(parents_dict)
 
         # AVG = 0.75, count = 5, score = 0.75 * ln(6) ≈ 1.344
         expected = 0.75 * math.log(6)
@@ -849,7 +849,7 @@ class TestScoringFormulaVerification:
             }
         }
 
-        results = bottom_up._score_parents(parents_dict)
+        results = bottom_up._score_parents_avg_log(parents_dict)
 
         # AVG = 0.89, count = 2, score = 0.89 * ln(3) ≈ 0.978
         expected = 0.89 * math.log(3)
@@ -870,7 +870,7 @@ class TestScoringFormulaVerification:
             }
         }
 
-        results = bottom_up._score_parents(parents_dict)
+        results = bottom_up._score_parents_avg_log(parents_dict)
 
         # AVG = 0.92, count = 1, score = 0.92 * ln(2) ≈ 0.638
         expected = 0.92 * math.log(2)
@@ -907,7 +907,7 @@ class TestScoringFormulaVerification:
             },
         }
 
-        results = bottom_up._score_parents(parents_dict)
+        results = bottom_up._score_parents_avg_log(parents_dict)
 
         # Expected ranking: A (1.34) > B (0.98) > C (0.64)
         assert results[0]["key"] == "p_a"

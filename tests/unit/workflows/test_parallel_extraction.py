@@ -1,7 +1,7 @@
 """Tests for parallel batch extraction and family inference.
 
 Tests cover:
-- verify_batch_parallel performance vs sequential
+- verify_batches_parallel performance vs sequential
 - Exception handling in parallel processing
 - Semaphore rate limiting
 - Batch embedding
@@ -71,7 +71,7 @@ class TestVerifyBatchParallel:
         import time
 
         start = time.time()
-        results = await extractor.verify_batch_parallel(sample_pairs)
+        results = await extractor.verify_batches_parallel(sample_pairs)
         elapsed = time.time() - start
 
         # 5 pairs at 0.1s each = 0.5s sequential
@@ -103,7 +103,7 @@ class TestVerifyBatchParallel:
 
         extractor.verify_pair = sometimes_fail
 
-        results = await extractor.verify_batch_parallel(sample_pairs)
+        results = await extractor.verify_batches_parallel(sample_pairs)
 
         assert len(results) == 5
         # One should be fallback
@@ -139,7 +139,7 @@ class TestVerifyBatchParallel:
 
         # Use more pairs than semaphore limit
         pairs = sample_pairs * 3  # 15 pairs
-        await extractor.verify_batch_parallel(pairs)
+        await extractor.verify_batches_parallel(pairs)
 
         assert max_concurrent <= 3
 
@@ -149,7 +149,7 @@ class TestVerifyBatchParallel:
         from workflows.extract_relations.llm_extractor import LLMRelationExtractor
 
         extractor = LLMRelationExtractor(settings=mock_settings)
-        results = await extractor.verify_batch_parallel([])
+        results = await extractor.verify_batches_parallel([])
         assert results == []
 
     @pytest.mark.asyncio
@@ -174,7 +174,7 @@ class TestVerifyBatchParallel:
 
         extractor.verify_pair = mock_verify_pair
 
-        results = await extractor.verify_batch_parallel([sample_pairs[0]])
+        results = await extractor.verify_batches_parallel([sample_pairs[0]])
 
         assert verify_pair_called
         assert len(results) == 1
