@@ -22,6 +22,7 @@ from .enums import (
     UserRole,
 )
 from .knowledge import KnowledgeNode
+from .merged_nodes_log import MergedNodeLog
 from .mining import SuggestedFAQ
 from .ontology import OntologyRelation, RelationStatus, RelationTier
 from .structure_nodes import RootNode, StructureNode
@@ -67,4 +68,6 @@ __all__ = [
     "User",
     # Mining
     "SuggestedFAQ",
+    # Audit/Log
+    "MergedNodeLog",
 ]

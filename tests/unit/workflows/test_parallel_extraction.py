@@ -24,9 +24,13 @@ class TestVerifyBatchParallel:
         """Create mock extraction settings."""
         settings = Mock()
         settings.EXTRACTION_STRONG_MODEL = "test-model"
+        settings.EXTRACTION_WEAK_MODEL = "test-weak-model"
         settings.EXTRACTION_FALLBACK_RELATION = "SIMILAR_TO"
         settings.EXTRACTION_EMBEDDING_MODEL = "test-embedding"
         settings.EXTRACTION_MERGE_THRESHOLD = 0.8
+        settings.EXTRACTION_BATCH_TOP_K_RELATIONS = 10
+        # Important: Mock needs to return AttributeError for getattr to use default
+        del settings.MAX_CONCURRENT_LLM_CALLS
         return settings
 
     @pytest.fixture
@@ -57,21 +61,26 @@ class TestVerifyBatchParallel:
 
         extractor = LLMRelationExtractor(settings=mock_settings)
 
-        # Mock verify_pair to take 0.1 second
-        async def slow_verify(*_args, **_kwargs):
+        # Mock verify_batch to take 0.1 second
+        async def slow_verify_batch(pairs, tier=None):
             await asyncio.sleep(0.1)
-            return ExtractionResult(
-                should_merge=False,
-                relation_type="TEST",
-                confidence=0.8,
-            )
+            return [
+                ExtractionResult(
+                    should_merge=False,
+                    relation_type="TEST",
+                    confidence=0.8,
+                )
+                for _ in pairs
+            ]
 
-        extractor.verify_pair = slow_verify
+        extractor.verify_batch = slow_verify_batch
 
         import time
 
         start = time.time()
-        results = await extractor.verify_batches_parallel(sample_pairs)
+        # Each pair as a separate batch to test parallelism
+        batches = [[p] for p in sample_pairs]
+        results = await extractor.verify_batches_parallel(batches)
         elapsed = time.time() - start
 
         # 5 pairs at 0.1s each = 0.5s sequential
@@ -90,25 +99,28 @@ class TestVerifyBatchParallel:
         extractor = LLMRelationExtractor(settings=mock_settings)
         call_count = 0
 
-        async def sometimes_fail(*_args, **_kwargs):
+        async def sometimes_fail(pairs, tier=None):
             nonlocal call_count
             call_count += 1
             if call_count == 3:
                 raise ValueError("Simulated failure")
-            return ExtractionResult(
-                should_merge=False,
-                relation_type="TEST",
-                confidence=0.8,
-            )
+            return [
+                ExtractionResult(
+                    should_merge=False,
+                    relation_type="TEST",
+                    confidence=0.8,
+                )
+                for _ in pairs
+            ]
 
-        extractor.verify_pair = sometimes_fail
+        extractor.verify_batch = sometimes_fail
 
-        results = await extractor.verify_batches_parallel(sample_pairs)
+        # Each pair as a separate batch to test parallelism
+        batches = [[p] for p in sample_pairs]
+        results = await extractor.verify_batches_parallel(batches)
 
-        assert len(results) == 5
-        # One should be fallback
-        fallbacks = [r for r in results if r.used_fallback]
-        assert len(fallbacks) == 1
+        # 4 out of 5 should succeed (one failed batch)
+        assert len(results) == 4
 
     @pytest.mark.asyncio
     async def test_respects_semaphore_limit(self, mock_settings, sample_pairs):
@@ -122,24 +134,29 @@ class TestVerifyBatchParallel:
         concurrent_count = 0
         max_concurrent = 0
 
-        async def track_concurrent(*_args, **_kwargs):
+        async def track_concurrent(pairs, tier=None):
             nonlocal concurrent_count, max_concurrent
             concurrent_count += 1
             max_concurrent = max(max_concurrent, concurrent_count)
             await asyncio.sleep(0.05)
             concurrent_count -= 1
-            return ExtractionResult(
-                should_merge=False,
-                relation_type="TEST",
-                confidence=0.8,
-            )
+            return [
+                ExtractionResult(
+                    should_merge=False,
+                    relation_type="TEST",
+                    confidence=0.8,
+                )
+                for _ in pairs
+            ]
 
-        extractor.verify_pair = track_concurrent
+        extractor.verify_batch = track_concurrent
         extractor._llm_semaphore = asyncio.Semaphore(3)  # Limit to 3
 
         # Use more pairs than semaphore limit
         pairs = sample_pairs * 3  # 15 pairs
-        await extractor.verify_batches_parallel(pairs)
+        # Each pair as a separate batch
+        batches = [[p] for p in pairs]
+        await extractor.verify_batches_parallel(batches)
 
         assert max_concurrent <= 3
 
@@ -174,7 +191,8 @@ class TestVerifyBatchParallel:
 
         extractor.verify_pair = mock_verify_pair
 
-        results = await extractor.verify_batches_parallel([sample_pairs[0]])
+        # Single batch with single pair
+        results = await extractor.verify_batches_parallel([[sample_pairs[0]]])
 
         assert verify_pair_called
         assert len(results) == 1

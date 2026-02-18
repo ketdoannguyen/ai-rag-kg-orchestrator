@@ -18,13 +18,14 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from arango.database import StandardDatabase
 from pydantic import ValidationError
 
 from ..collections.schema import Collections, EdgeCollections
 from ..models.content_nodes import ContentNode
+from ..models.merged_nodes_log import MergedNodeLog
 from ..utils import validate_embedding
 from .base_extraction_handler import BaseExtractionHandler, ExtractionDecision
 from .ontology_handler import OntologyHandler
@@ -236,6 +237,9 @@ class ContentExtractionHandler(BaseExtractionHandler):
         self,
         source_node: ContentNode,
         target_node: ContentNode,
+        similarity: float = 0.0,
+        merge_reason: Literal["auto_merge", "llm_merge"] = "auto_merge",
+        llm_reasoning: str | None = None,
     ) -> ExtractionResult:
         """Auto-merge two nodes (similarity >= threshold).
 
@@ -247,8 +251,16 @@ class ContentExtractionHandler(BaseExtractionHandler):
         2. Redirect edges pointing to source -> target
         3. Redirect edges from source -> target
         4. Delete source node
+        5. Insert merge log record for benchmark evaluation
 
         Uses ArangoDB Stream Transactions (available since ArangoDB 3.5+).
+
+        Args:
+            source_node: Node to be merged (will be deleted)
+            target_node: Node to merge into (will be kept)
+            similarity: Cosine similarity score at merge time
+            merge_reason: "auto_merge" for threshold-based, "llm_merge" for LLM-verified
+            llm_reasoning: LLM reasoning if merge_reason is "llm_merge"
         """
         source_key = str(source_node.id)
         target_key = str(target_node.id)
@@ -274,7 +286,11 @@ class ContentExtractionHandler(BaseExtractionHandler):
         target_full_id = f"{target_collection}/{target_key}"
 
         # Collections involved in transaction (read/write)
-        write_collections = [source_collection, EdgeCollections.KNOWLEDGE_EDGES]
+        write_collections = [
+            source_collection,
+            EdgeCollections.KNOWLEDGE_EDGES,
+            Collections.MERGED_NODES_LOG,
+        ]
         if target_collection != source_collection:
             write_collections.append(target_collection)
 
@@ -359,6 +375,38 @@ class ContentExtractionHandler(BaseExtractionHandler):
                     ),
                 )
 
+                # Step 5: Insert merge log record for benchmark evaluation
+                merge_log = MergedNodeLog(
+                    source_id=source_full_id,
+                    source_text=source_node.get_content_text(),
+                    source_type=(
+                        source_node.node_type.value
+                        if hasattr(source_node.node_type, "value")
+                        else str(source_node.node_type)
+                    ),
+                    source_parent_id=(
+                        str(source_node.parent_id)
+                        if source_node.parent_id is not None
+                        else None
+                    ),
+                    source_source_id=(
+                        str(source_node.source_id)
+                        if source_node.source_id is not None
+                        else None
+                    ),
+                    target_id=target_full_id,
+                    target_text=target_node.get_content_text(),
+                    similarity=similarity,
+                    merge_reason=merge_reason,
+                    llm_reasoning=llm_reasoning,
+                )
+                await asyncio.to_thread(
+                    partial(
+                        txn.collection(Collections.MERGED_NODES_LOG).insert,
+                        merge_log.to_document(),
+                    ),
+                )
+
                 # Commit transaction - all operations succeed together
                 await asyncio.to_thread(txn.commit_transaction)
 
@@ -366,14 +414,20 @@ class ContentExtractionHandler(BaseExtractionHandler):
                     "Auto-merge completed successfully (transaction committed)",
                     source_key=source_key,
                     target_key=target_key,
+                    merge_reason=merge_reason,
+                    similarity=similarity,
                 )
 
                 return ExtractionResult(
                     decision=ExtractionDecision.MERGE,
                     target_node_id=target_key,
-                    confidence=1.0,
-                    method="embedding_auto",
-                    reasoning="Auto-merged: similarity >= auto_merge_threshold",
+                    confidence=similarity if similarity > 0 else 1.0,
+                    method=f"embedding_{merge_reason}",
+                    reasoning=(
+                        llm_reasoning
+                        if merge_reason == "llm_merge" and llm_reasoning
+                        else f"Merged via {merge_reason}: similarity={similarity:.3f}"
+                    ),
                 )
 
             except Exception as e:

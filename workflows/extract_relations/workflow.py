@@ -648,7 +648,13 @@ class ExtractRelationsWorkflow:
             target_node = node_by_id.get(merge_op.target_id)
 
             if source_node and target_node and not input_data.dry_run:
-                await self.content_handler.auto_merge(source_node, target_node)
+                await self.content_handler.auto_merge(
+                    source_node,
+                    target_node,
+                    similarity=merge_op.similarity,
+                    merge_reason="auto_merge",
+                    llm_reasoning=None,
+                )
 
             merged_ids.add(merge_op.source_id)
             tier_stats.auto_merged += 1
@@ -713,7 +719,13 @@ class ExtractRelationsWorkflow:
 
             # Execute merge
             if not input_data.dry_run:
-                await self.content_handler.auto_merge(source, target)
+                await self.content_handler.auto_merge(
+                    source,
+                    target,
+                    similarity=similarity,
+                    merge_reason="auto_merge",
+                    llm_reasoning=None,
+                )
 
             # Mark leader as merged - skip all remaining pairs for this leader
             collection.merged_leader_ids.add(source_id)
@@ -927,7 +939,7 @@ class ExtractRelationsWorkflow:
                 break
 
             original_idx = valid_pair_indices[result_idx]
-            node_a, node_b, _ = pairs[original_idx]
+            node_a, node_b, pair_similarity = pairs[original_idx]
             node_a_id = str(node_a.id)
             node_b_id = str(node_b.id)
 
@@ -937,7 +949,13 @@ class ExtractRelationsWorkflow:
                     node_a_exists = await self.content_handler.node_exists(node_a)
                     node_b_exists = await self.content_handler.node_exists(node_b)
                     if node_a_exists and node_b_exists:
-                        await self.content_handler.auto_merge(node_a, node_b)
+                        await self.content_handler.auto_merge(
+                            node_a,
+                            node_b,
+                            similarity=pair_similarity,
+                            merge_reason="llm_merge",
+                            llm_reasoning=llm_result.reasoning,
+                        )
                     else:
                         self._log.debug(
                             "Skipping merge - node no longer exists",

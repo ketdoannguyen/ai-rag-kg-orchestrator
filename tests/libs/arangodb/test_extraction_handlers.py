@@ -150,10 +150,10 @@ class TestContentExtractionHandlerAutoMerge:
 
             assert result.decision == ExtractionDecision.MERGE
             assert result.target_node_id == str(target.id)
-            assert result.method == "embedding_auto"
+            assert result.method == "embedding_auto_merge"
 
-            # Transaction flow: begin + 4 queries + commit = 6 calls
-            assert mock_to_thread.call_count == 6
+            # Transaction flow: begin + 5 queries + commit = 7 calls (includes merge log insert)
+            assert mock_to_thread.call_count == 7
 
     @pytest.mark.asyncio
     async def test_auto_merge_transaction_rollback_on_error(

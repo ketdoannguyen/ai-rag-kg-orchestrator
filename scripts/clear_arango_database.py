@@ -30,6 +30,7 @@ EDGE_COLLECTIONS = [
 ]
 
 DOCUMENT_COLLECTIONS = [
+    "merged_nodes_log",
     "feedbacks",
     "chat_messages",
     "chat_sessions",

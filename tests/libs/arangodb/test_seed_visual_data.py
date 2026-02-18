@@ -371,8 +371,8 @@ class TestSeedVisualData:
             to_node = created_nodes[to_key]
 
             edge_doc = {
-                "_from": f"{Collections.KNOWLEDGE_NODES}/{from_node.id}",
-                "_to": f"{Collections.KNOWLEDGE_NODES}/{to_node.id}",
+                "_from": f"{Collections.STRUCTURE_NODES}/{from_node.id}",
+                "_to": f"{Collections.STRUCTURE_NODES}/{to_node.id}",
                 "type": "RELATED_TO",
                 "description": desc,
                 "created_at": datetime.utcnow().isoformat(),

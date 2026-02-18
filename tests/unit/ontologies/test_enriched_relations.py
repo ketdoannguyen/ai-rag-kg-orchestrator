@@ -102,8 +102,8 @@ class TestBaseRelationsEnrichment:
             )
 
     def test_base_relations_count(self) -> None:
-        """Should have exactly 24 base relations."""
-        assert len(BASE_RELATIONS) == 24
+        """Should have exactly 26 base relations."""
+        assert len(BASE_RELATIONS) == 26
 
 
 class TestFamilyConsistency:

@@ -30,6 +30,9 @@ class Collections:
     # Ontology collection (relation types with embeddings)
     ONTOLOGY_RELATIONS = "ontology_relations"
 
+    # Audit/Log collections
+    MERGED_NODES_LOG = "merged_nodes_log"  # Audit log for merge operations
+
     # Other collections
     CHAT_SESSIONS = "chat_sessions"
     CHAT_MESSAGES = "chat_messages"
@@ -333,6 +336,7 @@ KNOWLEDGE_VECTOR_INDEX_DEFINITION: dict[str, Any] = {
 # =============================================================================
 ALL_DOCUMENT_COLLECTIONS = KNOWLEDGE_COLLECTIONS + [
     Collections.ONTOLOGY_RELATIONS,
+    Collections.MERGED_NODES_LOG,
     Collections.CHAT_SESSIONS,
     Collections.CHAT_MESSAGES,
     Collections.FEEDBACKS,
