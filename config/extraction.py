@@ -58,12 +58,12 @@ class ExtractionSettings(BaseSettings):
     )
 
     EXTRACTION_STRONG_MODEL: str = Field(
-        default="openai/google/gemini-3-pro-preview",
+        default="openai/qwen/qwen3.5-397b-a17b",
         description="Strong LLM model for validating new relations. Use LiteLLM format: openai/<provider>/<model> for OpenRouter.",
     )
 
     EXTRACTION_STRONG_MODEL_PROVIDER: str = Field(
-        default="google-ai-studio",
+        default="atlas-cloud/fp8",
         description="Provider for the strong LLM model.",
     )
 
