@@ -139,15 +139,17 @@ class ExtractRelationsWorkflow:
         """Enable debug logging for this workflow."""
         self._debug_logger = get_debug_logger(output_dir)
 
-    def _report_progress(self, message: str, **kwargs) -> None:
+    def _report_progress(self, message: str, tier: str | None = None, **kwargs) -> None:
         """Report progress via callback if set."""
         if self._progress_callback:
-            self._progress_callback(message, **kwargs)
+            self._progress_callback(message, tier=tier, **kwargs)
 
     async def run(self, input_data: ExtractRelationsInput) -> ExtractRelationsOutput:
-        """Execute the relation extraction workflow."""
-        output = ExtractRelationsOutput()
+        """Execute the relation extraction workflow.
 
+        When tier=ALL, Structure (T1) and Content (T2) run in parallel
+        via asyncio.gather since they operate on independent collections.
+        """
         tier = input_data.tier
         self._log.info(
             "Starting relation extraction",
@@ -167,12 +169,20 @@ class ExtractRelationsWorkflow:
                 }
             )
 
-        # Process Tier 1 (Structure) if requested
-        if tier in (ExtractionTier.STRUCTURE, ExtractionTier.ALL):
+        # Process tiers - parallel when ALL, sequential for single tier
+        if tier == ExtractionTier.ALL:
+            structure_output = ExtractRelationsOutput()
+            content_output = ExtractRelationsOutput()
+            await asyncio.gather(
+                self._process_structure_tier(input_data, structure_output),
+                self._process_content_tier(input_data, content_output),
+            )
+            output = self._merge_outputs(structure_output, content_output)
+        elif tier == ExtractionTier.STRUCTURE:
+            output = ExtractRelationsOutput()
             await self._process_structure_tier(input_data, output)
-
-        # Process Tier 2 (Content) if requested
-        if tier in (ExtractionTier.CONTENT, ExtractionTier.ALL):
+        else:
+            output = ExtractRelationsOutput()
             await self._process_content_tier(input_data, output)
 
         output.update_totals()
@@ -196,6 +206,47 @@ class ExtractRelationsWorkflow:
 
         return output
 
+    def _merge_outputs(
+        self,
+        structure: ExtractRelationsOutput,
+        content: ExtractRelationsOutput,
+    ) -> ExtractRelationsOutput:
+        """Merge per-tier outputs after parallel execution.
+
+        Structure-only fields come from structure output,
+        content-only fields come from content output,
+        shared fields are summed or concatenated.
+        """
+        merged = ExtractRelationsOutput()
+
+        # Structure-only fields
+        merged.structure_nodes_processed = structure.structure_nodes_processed
+        merged.structure_nodes_merged = structure.structure_nodes_merged
+        merged.structure_relations_created = structure.structure_relations_created
+
+        # Content-only fields
+        merged.content_nodes_processed = content.content_nodes_processed
+        merged.content_nodes_merged = content.content_nodes_merged
+        merged.content_relations_created = content.content_relations_created
+        merged.nodes_kept_separate = content.nodes_kept_separate
+        merged.new_relations_proposed = content.new_relations_proposed
+        merged.new_relations_merged = content.new_relations_merged
+        merged.new_relations_approved = content.new_relations_approved
+
+        # Combined (sum)
+        merged.llm_calls_used = structure.llm_calls_used + content.llm_calls_used
+
+        # Combined (concat)
+        merged.errors = structure.errors + content.errors
+
+        # Dict merge (tier_stats)
+        merged.tier_stats = {**structure.tier_stats, **content.tier_stats}
+
+        # Debug report path (set by finish_run in run(), not per-tier)
+        merged.debug_report_path = structure.debug_report_path or content.debug_report_path
+
+        return merged
+
     # =========================================================================
     # Tier 1: Structure Extraction (NO MERGE - Relation Only)
     # =========================================================================
@@ -215,7 +266,9 @@ class ExtractRelationsWorkflow:
         - Phase 1: Intra-batch processing (high_similarity_candidates + relation_candidates)
         - Phase 2: Cross-batch processing (compare with reviewed nodes)
         """
-        self._log.info("Processing Tier 1 (Structure) - NO MERGE Mode")
+        tier_label = "T1:Structure"
+        log = self._log.bind(tier=tier_label)
+        log.info("Processing Tier 1 (Structure) - NO MERGE Mode")
 
         # Initialize tier stats
         tier_stats = TierStats(tier_name="tier_1_structure")
@@ -226,11 +279,11 @@ class ExtractRelationsWorkflow:
         )
 
         if not structures:
-            self._log.info("No structure nodes to process")
+            log.info("No structure nodes to process")
             output.tier_stats["tier_1_structure"] = tier_stats
             return
 
-        self._log.info("Found unreviewed structures", count=len(structures))
+        log.info("Found unreviewed structures", count=len(structures))
         tier_stats.nodes_processed = len(structures)
 
         to_mark_reviewed: list[str] = []
@@ -238,7 +291,7 @@ class ExtractRelationsWorkflow:
         # ═══════════════════════════════════════════════════════════════════
         # PHASE 1: INTRA-BATCH PROCESSING (NO MERGE)
         # ═══════════════════════════════════════════════════════════════════
-        self._log.info("Phase 1: Intra-batch structure processing (no merge)")
+        log.info("Phase 1: Intra-batch structure processing (no merge)")
 
         intra_result = find_intra_batch_components(
             nodes=structures,
@@ -261,7 +314,7 @@ class ExtractRelationsWorkflow:
 
             output.structure_relations_created += 1
             tier_stats.relations_total += 1
-            self._log.debug(
+            log.debug(
                 "Created STRUCTURALLY_EQUIVALENT (intra-batch)",
                 source=str(node_a.id),
                 target=str(node_b.id),
@@ -276,9 +329,10 @@ class ExtractRelationsWorkflow:
                 dry_run=input_data.dry_run,
                 tier_stats=tier_stats,
                 output=output,
+                tier=tier_label,
             )
 
-        self._log.info(
+        log.info(
             "Phase 1 complete",
             high_similarity_relations=len(intra_result.high_similarity_candidates),
             llm_candidates=len(intra_result.relation_candidates),
@@ -287,7 +341,7 @@ class ExtractRelationsWorkflow:
         # ═══════════════════════════════════════════════════════════════════
         # PHASE 2: CROSS-BATCH PROCESSING
         # ═══════════════════════════════════════════════════════════════════
-        self._log.info("Phase 2: Cross-batch structure processing")
+        log.info("Phase 2: Cross-batch structure processing")
 
         processed_ids: set[str] = set()
 
@@ -303,6 +357,7 @@ class ExtractRelationsWorkflow:
                     input_data.dry_run,
                     processed_ids,
                     input_data.cross_source,
+                    tier=tier_label,
                 )
 
                 processed_ids.add(node_id)
@@ -325,7 +380,7 @@ class ExtractRelationsWorkflow:
                     to_mark_reviewed.append(node_id)
 
             except Exception as e:
-                self._log.exception(
+                log.exception(
                     "Error processing structure node",
                     node_id=node_id,
                     error=str(e),
@@ -346,12 +401,14 @@ class ExtractRelationsWorkflow:
         dry_run: bool,
         exclude_ids: set[str],
         cross_source: bool,
+        tier: str = "T1:Structure",
     ) -> NodeProcessResult:
         """Process a single structure node - extract relation only, no merge.
 
         High similarity (>= 0.72): Create STRUCTURALLY_EQUIVALENT relation
         Medium similarity (0.40-0.72): Use LLM to determine relation
         """
+        log = self._log.bind(tier=tier)
         result = NodeProcessResult()
 
         # Find similar structures by embedding (cross-batch with reviewed nodes)
@@ -379,7 +436,7 @@ class ExtractRelationsWorkflow:
                 result.relation_created = True
                 result.relation_type = "STRUCTURALLY_EQUIVALENT"
                 result.target_id = match.node_id
-                self._log.debug(
+                log.debug(
                     "Created STRUCTURALLY_EQUIVALENT (cross-batch)",
                     source=str(node.id),
                     target=match.node_id,
@@ -409,7 +466,7 @@ class ExtractRelationsWorkflow:
                     result.relation_created = True
                     result.relation_type = "STRUCTURALLY_EQUIVALENT"
                     result.target_id = match.node_id
-                    self._log.debug(
+                    log.debug(
                         "LLM said merge, created STRUCTURALLY_EQUIVALENT (cross-batch)",
                         source=str(node.id),
                         target=match.node_id,
@@ -429,7 +486,7 @@ class ExtractRelationsWorkflow:
                     result.is_in_top_k = llm_result.is_in_top_k
                     result.is_new_relation = llm_result.is_new_relation
                     result.target_id = match.node_id
-                    self._log.debug(
+                    log.debug(
                         "Created LLM-verified relation (cross-batch)",
                         source=str(node.id),
                         target=match.node_id,
@@ -438,7 +495,7 @@ class ExtractRelationsWorkflow:
                 else:
                     # LLM determined NO relation exists - keep separate
                     result.kept_separate = True
-                    self._log.debug(
+                    log.debug(
                         "LLM determined no relation (cross-batch)",
                         source=str(node.id),
                         target=match.node_id,
@@ -453,13 +510,15 @@ class ExtractRelationsWorkflow:
         dry_run: bool,
         tier_stats: TierStats,
         output: ExtractRelationsOutput,
+        tier: str = "T1:Structure",
     ) -> None:
         """Process structure relation candidates with LLM.
 
         For structure tier, if LLM says should_merge=true, create
         STRUCTURALLY_EQUIVALENT relation instead of merging.
         """
-        self._log.info("Processing structure LLM batch", candidate_count=len(candidates))
+        log = self._log.bind(tier=tier)
+        log.info("Processing structure LLM batch", candidate_count=len(candidates))
 
         # Convert to NodePair format with embeddings for Centroid Filtering
         node_pairs = []
@@ -485,13 +544,14 @@ class ExtractRelationsWorkflow:
         batches = [node_pairs[i : i + batch_size] for i in range(0, len(node_pairs), batch_size)]
         total_batches = len(batches)
 
-        self._log.info(
+        log.info(
             "Processing structure LLM batches in parallel",
             total_batches=total_batches,
             max_concurrent=self.settings.MAX_CONCURRENT_LLM_CALLS,
         )
         self._report_progress(
             f"Processing {total_batches} structure LLM batches in parallel",
+            tier=tier,
             total_batches=total_batches,
             max_concurrent=self.settings.MAX_CONCURRENT_LLM_CALLS,
         )
@@ -522,7 +582,7 @@ class ExtractRelationsWorkflow:
                     )
                 output.structure_relations_created += 1
                 tier_stats.relations_total += 1
-                self._log.debug(
+                log.debug(
                     "LLM said merge, created STRUCTURALLY_EQUIVALENT instead",
                     source=str(node_a.id),
                     target=str(node_b.id),
@@ -585,7 +645,9 @@ class ExtractRelationsWorkflow:
         - Phase 2: Check remaining nodes against reviewed nodes (cross-batch)
         - Phase 3: Create intra-batch relations for medium-similarity pairs
         """
-        self._log.info("Processing Tier 2 (Content) - Two-Phase Mode")
+        tier_label = "T2:Content"
+        log = self._log.bind(tier=tier_label)
+        log.info("Processing Tier 2 (Content) - Two-Phase Mode")
 
         # Initialize tier stats
         tier_stats = TierStats(tier_name="tier_2_content")
@@ -604,11 +666,11 @@ class ExtractRelationsWorkflow:
             )
 
         if not nodes:
-            self._log.info("No content nodes to process")
+            log.info("No content nodes to process")
             output.tier_stats["tier_2_content"] = tier_stats
             return
 
-        self._log.info("Found unreviewed content nodes", count=len(nodes))
+        log.info("Found unreviewed content nodes", count=len(nodes))
         tier_stats.nodes_processed = len(nodes)
 
         # Debug logging: log tier start
@@ -624,8 +686,10 @@ class ExtractRelationsWorkflow:
         # PHASE 1: INTRA-BATCH DEDUPLICATION
         # Compute similarity matrix within batch, merge connected components
         # ═══════════════════════════════════════════════════════════════════
-        self._log.info("Phase 1: Intra-batch deduplication")
-        self._report_progress("Phase 1: Intra-batch deduplication", nodes=len(nodes))
+        log.info("Phase 1: Intra-batch deduplication")
+        self._report_progress(
+            "Phase 1: Intra-batch deduplication", tier=tier_label, nodes=len(nodes)
+        )
 
         intra_result = find_intra_batch_components(
             nodes=nodes,
@@ -659,14 +723,14 @@ class ExtractRelationsWorkflow:
             merged_ids.add(merge_op.source_id)
             tier_stats.auto_merged += 1
             output.content_nodes_merged += 1
-            self._log.debug(
+            log.debug(
                 "Intra-batch merge",
                 source=merge_op.source_id,
                 target=merge_op.target_id,
                 similarity=merge_op.similarity,
             )
 
-        self._log.info(
+        log.info(
             "Phase 1 complete",
             leaders=len(intra_result.leaders),
             merged=len(intra_result.merge_operations),
@@ -674,6 +738,7 @@ class ExtractRelationsWorkflow:
         )
         self._report_progress(
             "Phase 1 complete",
+            tier=tier_label,
             leaders=len(intra_result.leaders),
             merged=len(intra_result.merge_operations),
         )
@@ -683,8 +748,12 @@ class ExtractRelationsWorkflow:
         # Collect ALL similar pairs for ALL leaders, then process in batch
         # Key fix: Process ALL similar nodes >= 0.40, not just best match
         # ═══════════════════════════════════════════════════════════════════
-        self._log.info("Phase 2: Cross-batch processing (multi-node)")
-        self._report_progress("Phase 2: Cross-batch processing", leaders=len(intra_result.leaders))
+        log.info("Phase 2: Cross-batch processing (multi-node)")
+        self._report_progress(
+            "Phase 2: Cross-batch processing",
+            tier=tier_label,
+            leaders=len(intra_result.leaders),
+        )
 
         processed_ids: set[str] = set(merged_ids)
         to_mark_reviewed: list[str] = []
@@ -695,6 +764,7 @@ class ExtractRelationsWorkflow:
             leaders=intra_result.leaders,
             processed_ids=processed_ids,
             cross_source=input_data.cross_source,
+            tier=tier_label,
         )
 
         # Track leaders that have been processed (merged or relation created)
@@ -737,14 +807,14 @@ class ExtractRelationsWorkflow:
             output.content_nodes_merged += 1
             tier_stats.auto_merged += 1
 
-            self._log.debug(
+            log.debug(
                 "Cross-batch auto-merge (multi-node)",
                 source=source_id,
                 target=target_id,
                 similarity=similarity,
             )
 
-        self._log.info(
+        log.info(
             "Phase 2 auto-merges complete",
             merged_count=len(collection.merged_leader_ids),
         )
@@ -756,7 +826,7 @@ class ExtractRelationsWorkflow:
             if str(source.id) not in collection.merged_leader_ids
         ]
 
-        self._log.info(
+        log.info(
             "Filtered LLM pairs after merges",
             original=len(collection.llm_pairs),
             valid=len(valid_llm_pairs),
@@ -778,6 +848,7 @@ class ExtractRelationsWorkflow:
                 to_mark_reviewed,
                 output,
                 tier_stats,
+                tier=tier_label,
             )
 
         # Mark leaders that were kept separate
@@ -796,7 +867,7 @@ class ExtractRelationsWorkflow:
         # Create relations for medium-similarity pairs within batch
         # ═══════════════════════════════════════════════════════════════════
         if intra_result.relation_candidates:
-            self._log.info(
+            log.info(
                 "Phase 3: Intra-batch relations",
                 candidates=len(intra_result.relation_candidates),
             )
@@ -826,6 +897,7 @@ class ExtractRelationsWorkflow:
                     to_mark_reviewed,
                     output,
                     tier_stats,
+                    tier=tier_label,
                 )
 
         # Batch mark as reviewed
@@ -843,9 +915,11 @@ class ExtractRelationsWorkflow:
         to_mark_reviewed: list[str],
         output: ExtractRelationsOutput,
         tier_stats: TierStats,
+        tier: str = "T2:Content",
     ) -> None:
         """Process pairs with batch LLM extraction."""
-        self._log.info("Processing LLM batch", pair_count=len(pairs))
+        log = self._log.bind(tier=tier)
+        log.info("Processing LLM batch", pair_count=len(pairs))
 
         # Convert to NodePair format for batch extraction with embeddings for Centroid Filtering
         # Skip pairs where either node has empty text (prevents useless LLM calls)
@@ -860,7 +934,7 @@ class ExtractRelationsWorkflow:
             # Skip pairs with empty content - no point in calling LLM
             if not text_a or not text_b:
                 skipped_count += 1
-                self._log.debug(
+                log.debug(
                     "Skipping pair with empty content",
                     node_a_id=str(node_a.id),
                     node_b_id=str(node_b.id),
@@ -885,14 +959,14 @@ class ExtractRelationsWorkflow:
             valid_pair_indices.append(idx)
 
         if skipped_count > 0:
-            self._log.warning(
+            log.warning(
                 "Skipped pairs with empty content",
                 skipped=skipped_count,
                 valid=len(node_pairs),
             )
 
         if not node_pairs:
-            self._log.info("No valid pairs to process after filtering empty content")
+            log.info("No valid pairs to process after filtering empty content")
             return
 
         # Split into batches for parallel processing
@@ -900,7 +974,7 @@ class ExtractRelationsWorkflow:
         batches = [node_pairs[i : i + batch_size] for i in range(0, len(node_pairs), batch_size)]
         total_batches = len(batches)
 
-        self._log.info(
+        log.info(
             "Processing LLM batches in parallel",
             total_batches=total_batches,
             max_concurrent=self.settings.MAX_CONCURRENT_LLM_CALLS,
@@ -908,6 +982,7 @@ class ExtractRelationsWorkflow:
         )
         self._report_progress(
             f"Processing {total_batches} LLM batches in parallel",
+            tier=tier,
             total_batches=total_batches,
             max_concurrent=self.settings.MAX_CONCURRENT_LLM_CALLS,
         )
@@ -931,7 +1006,7 @@ class ExtractRelationsWorkflow:
             ]
             self._debug_logger.log_llm_batch("tier_2_content", len(results), batch_debug_results)
 
-        self._log.info("LLM parallel batch processing complete", total_results=len(results))
+        log.info("LLM parallel batch processing complete", total_results=len(results))
 
         # Apply results - use valid_pair_indices to map back to original pairs
         for result_idx, llm_result in enumerate(results):
@@ -957,7 +1032,7 @@ class ExtractRelationsWorkflow:
                             llm_reasoning=llm_result.reasoning,
                         )
                     else:
-                        self._log.debug(
+                        log.debug(
                             "Skipping merge - node no longer exists",
                             source=node_a_id,
                             target=node_b_id,
@@ -990,7 +1065,7 @@ class ExtractRelationsWorkflow:
                         ),
                     )
 
-                self._log.debug(
+                log.debug(
                     "LLM verified merge",
                     source=node_a_id,
                     target=node_b_id,
@@ -1004,7 +1079,7 @@ class ExtractRelationsWorkflow:
                     node_a_exists = await self.content_handler.node_exists(node_a)
                     node_b_exists = await self.content_handler.node_exists(node_b)
                     if not (node_a_exists and node_b_exists):
-                        self._log.debug(
+                        log.debug(
                             "Skipping relation - node no longer exists",
                             source=node_a_id,
                             target=node_b_id,
@@ -1060,7 +1135,7 @@ class ExtractRelationsWorkflow:
                         ),
                     )
 
-                self._log.debug(
+                log.debug(
                     "LLM verified relation",
                     source=node_a_id,
                     target=node_b_id,
@@ -1076,7 +1151,7 @@ class ExtractRelationsWorkflow:
                 tier_stats.kept_separate += 1
                 to_mark_reviewed.append(node_a_id)
 
-                self._log.debug(
+                log.debug(
                     "LLM determined no relation - kept separate",
                     source=node_a_id,
                     target=node_b_id,
@@ -1086,6 +1161,7 @@ class ExtractRelationsWorkflow:
         # Report LLM batch results summary
         self._report_progress(
             "LLM batch complete",
+            tier=tier,
             result={
                 "merged": tier_stats.llm_merged,
                 "relations": tier_stats.relations_total,
@@ -1115,6 +1191,7 @@ class ExtractRelationsWorkflow:
         leaders: list[ContentNode],
         processed_ids: set[str],
         cross_source: bool,
+        tier: str = "T2:Content",
     ) -> CrossBatchCollection:
         """Collect ALL similar node pairs for all leaders in parallel.
 
@@ -1130,10 +1207,12 @@ class ExtractRelationsWorkflow:
             leaders: Leader nodes from intra-batch deduplication
             processed_ids: Set of already processed node IDs
             cross_source: Whether to search across different sources
+            tier: Tier label for log prefix
 
         Returns:
             CrossBatchCollection with categorized pairs
         """
+        log = self._log.bind(tier=tier)
         collection = CrossBatchCollection()
         semaphore = asyncio.Semaphore(self.settings.EXTRACTION_MAX_CONCURRENT_COLLECTIONS)
 
@@ -1192,7 +1271,7 @@ class ExtractRelationsWorkflow:
         # Aggregate results
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                self._log.exception(
+                log.exception(
                     "Error collecting pairs for leader",
                     leader_id=str(leaders[i].id),
                     error=str(result),
@@ -1223,7 +1302,7 @@ class ExtractRelationsWorkflow:
                     collection.llm_pairs.append((leader, target_node, similarity))
                 # KEEP_SEPARATE pairs are not added (below threshold)
 
-        self._log.info(
+        log.info(
             "Cross-batch pair collection complete",
             leaders_processed=collection.leaders_processed,
             auto_merge_pairs=len(collection.auto_merge_pairs),
@@ -1234,6 +1313,7 @@ class ExtractRelationsWorkflow:
         # Report collection result for progress tracking
         self._report_progress(
             "Cross-batch collection",
+            tier=tier,
             auto_merge=len(collection.auto_merge_pairs),
             llm_pairs=len(collection.llm_pairs),
         )

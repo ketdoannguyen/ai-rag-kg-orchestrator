@@ -51,7 +51,7 @@ from workflows.extract_relations import (
 # =============================================================================
 
 
-def print_progress(message: str, **kwargs) -> None:
+def print_progress(message: str, tier: str | None = None, **kwargs) -> None:
     """Print progress message immediately to stdout.
 
     This function uses print with flush=True to ensure immediate display,
@@ -63,31 +63,36 @@ def print_progress(message: str, **kwargs) -> None:
     3. Logger may filter based on log levels
     4. print(flush=True) writes directly to stdout with immediate flush
     """
+    prefix = f"[{tier}] " if tier else ""
+
     # Format different types of progress messages
     if "batch" in kwargs and "total_batches" in kwargs:
         # LLM batch progress - show batch number and pairs count
         batch = kwargs.get("batch", "?")
         total = kwargs.get("total_batches", "?")
         pairs = kwargs.get("pairs", "?")
-        print(f"  [LLM] Batch {batch}/{total} ({pairs} pairs)", flush=True)
+        print(f"  {prefix}[LLM] Batch {batch}/{total} ({pairs} pairs)", flush=True)
     elif "leaders" in kwargs and "merged" in kwargs:
         # Phase completion - show key metrics
         leaders = kwargs.get("leaders", 0)
         merged = kwargs.get("merged", 0)
-        print(f"  [DONE] {message}: leaders={leaders}, merged={merged}", flush=True)
+        print(f"  {prefix}[DONE] {message}: leaders={leaders}, merged={merged}", flush=True)
     elif "nodes" in kwargs:
         # Phase start with node count
         nodes = kwargs.get("nodes", 0)
-        print(f"  [START] {message} ({nodes} nodes)", flush=True)
+        print(f"  {prefix}[START] {message} ({nodes} nodes)", flush=True)
     elif "leaders" in kwargs:
         # Cross-batch processing start
         leaders = kwargs.get("leaders", 0)
-        print(f"  [START] {message} ({leaders} leaders)", flush=True)
+        print(f"  {prefix}[START] {message} ({leaders} leaders)", flush=True)
     elif "auto_merge" in kwargs or "llm_pairs" in kwargs:
         # Collection result
         auto_merge = kwargs.get("auto_merge", 0)
         llm_pairs = kwargs.get("llm_pairs", 0)
-        print(f"  [COLLECT] {message}: auto_merge={auto_merge}, llm_pairs={llm_pairs}", flush=True)
+        print(
+            f"  {prefix}[COLLECT] {message}: auto_merge={auto_merge}, llm_pairs={llm_pairs}",
+            flush=True,
+        )
     elif "result" in kwargs:
         # LLM result summary
         result = kwargs.get("result", {})
@@ -95,15 +100,16 @@ def print_progress(message: str, **kwargs) -> None:
         relations = result.get("relations", 0)
         kept = result.get("kept_separate", 0)
         print(
-            f"  [RESULT] {message}: merged={merged}, relations={relations}, kept_separate={kept}",
+            f"  {prefix}[RESULT] {message}: merged={merged}, "
+            f"relations={relations}, kept_separate={kept}",
             flush=True,
         )
     # Generic progress
     elif kwargs:
         details = ", ".join(f"{k}={v}" for k, v in kwargs.items())
-        print(f"  [PROGRESS] {message} ({details})", flush=True)
+        print(f"  {prefix}[PROGRESS] {message} ({details})", flush=True)
     else:
-        print(f"  [PROGRESS] {message}", flush=True)
+        print(f"  {prefix}[PROGRESS] {message}", flush=True)
 
 
 # =============================================================================
