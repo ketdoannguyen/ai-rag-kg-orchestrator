@@ -40,7 +40,6 @@ from .models import (
     ExtractionTier,
     ExtractRelationsInput,
     ExtractRelationsOutput,
-    NodeProcessResult,
     TierStats,
 )
 
@@ -339,54 +338,61 @@ class ExtractRelationsWorkflow:
         )
 
         # ═══════════════════════════════════════════════════════════════════
-        # PHASE 2: CROSS-BATCH PROCESSING
+        # PHASE 2: CROSS-BATCH PROCESSING (BATCHED)
         # ═══════════════════════════════════════════════════════════════════
-        log.info("Phase 2: Cross-batch structure processing")
+        log.info("Phase 2: Cross-batch structure processing (batched)")
 
         processed_ids: set[str] = set()
 
-        for node in structures:
-            node_id = str(node.id)
+        # Step 1: Collect ALL pairs for ALL nodes in parallel
+        high_sim_pairs, llm_pairs, kept_count = await self._collect_structure_cross_batch_pairs(
+            structures,
+            processed_ids,
+            input_data.cross_source,
+            tier=tier_label,
+        )
 
-            if node_id in processed_ids:
-                continue
-
-            try:
-                result = await self._process_structure_node_no_merge(
-                    node,
-                    input_data.dry_run,
-                    processed_ids,
-                    input_data.cross_source,
-                    tier=tier_label,
+        # Step 2: Execute high-similarity relations FIRST (no LLM)
+        for source, target, similarity in high_sim_pairs:
+            if not input_data.dry_run:
+                await self.structure_handler.create_structurally_equivalent_relation(
+                    source=source,
+                    target=target,
+                    similarity=similarity,
                 )
+            output.structure_relations_created += 1
+            tier_stats.relations_total += 1
+            to_mark_reviewed.append(str(source.id))
+            log.debug(
+                "Created STRUCTURALLY_EQUIVALENT (cross-batch)",
+                source=str(source.id),
+                target=str(target.id),
+                similarity=similarity,
+            )
 
-                processed_ids.add(node_id)
-                output.structure_nodes_processed += 1
+        # Step 3: Batch LLM processing for medium-similarity pairs
+        if llm_pairs:
+            await self._process_structure_cross_batch_llm_batch(
+                llm_pairs,
+                input_data.dry_run,
+                to_mark_reviewed,
+                output,
+                tier_stats,
+                tier=tier_label,
+            )
 
-                if result.relation_created:
-                    output.structure_relations_created += 1
-                    tier_stats.relations_total += 1
-                    if result.is_in_top_k:
-                        tier_stats.relations_in_top_k += 1
-                    if result.used_fallback:
-                        tier_stats.relations_fallback += 1
-                    if result.is_new_relation:
-                        tier_stats.relations_new += 1
+        # Update kept_separate stats
+        tier_stats.kept_separate += kept_count
+        output.nodes_kept_separate += kept_count
 
-                if result.kept_separate:
-                    tier_stats.kept_separate += 1
+        output.structure_nodes_processed += len(structures)
 
-                if not input_data.dry_run:
-                    to_mark_reviewed.append(node_id)
-
-            except Exception as e:
-                log.exception(
-                    "Error processing structure node",
-                    node_id=node_id,
-                    error=str(e),
-                )
-                output.errors.append({"node_id": node_id, "error": str(e), "tier": "structure"})
-                tier_stats.errors += 1
+        log.info(
+            "Phase 2 complete",
+            high_sim_relations=len(high_sim_pairs),
+            llm_pairs=len(llm_pairs),
+            kept_separate=kept_count,
+        )
 
         # Batch mark as reviewed
         if to_mark_reviewed:
@@ -394,114 +400,6 @@ class ExtractRelationsWorkflow:
 
         # Store tier stats in output
         output.tier_stats["tier_1_structure"] = tier_stats
-
-    async def _process_structure_node_no_merge(
-        self,
-        node: StructureNode,
-        dry_run: bool,
-        exclude_ids: set[str],
-        cross_source: bool,
-        tier: str = "T1:Structure",
-    ) -> NodeProcessResult:
-        """Process a single structure node - extract relation only, no merge.
-
-        High similarity (>= 0.72): Create STRUCTURALLY_EQUIVALENT relation
-        Medium similarity (0.40-0.72): Use LLM to determine relation
-        """
-        log = self._log.bind(tier=tier)
-        result = NodeProcessResult()
-
-        # Find similar structures by embedding (cross-batch with reviewed nodes)
-        # No limit - return all candidates above threshold
-        similar = await self.structure_handler.find_similar_structures(
-            node,
-            exclude_ids=exclude_ids,
-            cross_source=cross_source,
-        )
-
-        if not similar:
-            result.kept_separate = True
-            return result
-
-        # Process ALL similar nodes (not just best match)
-        for match in similar:
-            if match.similarity_score >= self.settings.EXTRACTION_AUTO_MERGE_THRESHOLD:
-                # High similarity -> STRUCTURALLY_EQUIVALENT (no LLM)
-                if not dry_run:
-                    await self.structure_handler.create_structurally_equivalent_relation(
-                        source=node,
-                        target=match.node,
-                        similarity=match.similarity_score,
-                    )
-                result.relation_created = True
-                result.relation_type = "STRUCTURALLY_EQUIVALENT"
-                result.target_id = match.node_id
-                log.debug(
-                    "Created STRUCTURALLY_EQUIVALENT (cross-batch)",
-                    source=str(node.id),
-                    target=match.node_id,
-                    similarity=match.similarity_score,
-                )
-            elif match.similarity_score >= self.settings.EXTRACTION_LLM_THRESHOLD:
-                # Medium similarity -> Use LLM to determine relation type
-                llm_result = await self.llm_extractor.verify_pair(
-                    node_a_type="structure",
-                    node_a_text=self._get_structure_text(node),
-                    node_b_type="structure",
-                    node_b_text=self._get_structure_text(match.node),
-                    similarity_score=match.similarity_score,
-                    node_a_embedding=node.embedding,
-                    node_b_embedding=match.node.embedding,
-                    tier=RelationTier.TIER_1_STRUCTURE,
-                )
-
-                if llm_result.should_merge:
-                    # Structure tier: NEVER merge, create STRUCTURALLY_EQUIVALENT instead
-                    if not dry_run:
-                        await self.structure_handler.create_structurally_equivalent_relation(
-                            source=node,
-                            target=match.node,
-                            similarity=match.similarity_score,
-                        )
-                    result.relation_created = True
-                    result.relation_type = "STRUCTURALLY_EQUIVALENT"
-                    result.target_id = match.node_id
-                    log.debug(
-                        "LLM said merge, created STRUCTURALLY_EQUIVALENT (cross-batch)",
-                        source=str(node.id),
-                        target=match.node_id,
-                    )
-                elif llm_result.relation_type is not None:
-                    # Create the relation LLM determined
-                    if not dry_run:
-                        await self.structure_handler.create_structure_relation(
-                            source=node,
-                            target=match.node,
-                            relation_type=llm_result.relation_type,
-                            confidence=llm_result.confidence,
-                            method="llm_verified",
-                        )
-                    result.relation_created = True
-                    result.relation_type = llm_result.relation_type
-                    result.is_in_top_k = llm_result.is_in_top_k
-                    result.is_new_relation = llm_result.is_new_relation
-                    result.target_id = match.node_id
-                    log.debug(
-                        "Created LLM-verified relation (cross-batch)",
-                        source=str(node.id),
-                        target=match.node_id,
-                        relation_type=llm_result.relation_type,
-                    )
-                else:
-                    # LLM determined NO relation exists - keep separate
-                    result.kept_separate = True
-                    log.debug(
-                        "LLM determined no relation (cross-batch)",
-                        source=str(node.id),
-                        target=match.node_id,
-                    )
-
-        return result
 
     async def _process_structure_llm_batch(
         self,
@@ -628,6 +526,242 @@ class ExtractRelationsWorkflow:
             parts.append(summary)
 
         return " - ".join(parts) if parts else ""
+
+    async def _collect_structure_cross_batch_pairs(
+        self,
+        structures: list[StructureNode],
+        processed_ids: set[str],
+        cross_source: bool,
+        tier: str = "T1:Structure",
+    ) -> tuple[
+        list[tuple[StructureNode, StructureNode, float]],
+        list[tuple[StructureNode, StructureNode, float]],
+        int,
+    ]:
+        """Collect ALL cross-batch pairs for structure nodes in parallel.
+
+        Similar to _collect_cross_batch_pairs() but for StructureNode.
+        Uses Semaphore + asyncio.gather for concurrent similarity searches.
+
+        Returns:
+            Tuple of (high_sim_pairs, llm_pairs, kept_separate_count):
+            - high_sim_pairs: similarity >= auto_merge_threshold (direct relation)
+            - llm_pairs: llm_threshold <= similarity < auto_merge_threshold
+            - kept_separate_count: nodes with no similar matches
+        """
+        log = self._log.bind(tier=tier)
+        semaphore = asyncio.Semaphore(self.settings.EXTRACTION_MAX_CONCURRENT_COLLECTIONS)
+
+        high_sim_pairs: list[tuple[StructureNode, StructureNode, float]] = []
+        llm_pairs: list[tuple[StructureNode, StructureNode, float]] = []
+        kept_separate_count = 0
+
+        async def collect_for_node(
+            node: StructureNode,
+        ) -> tuple[str, list[tuple[StructureNode, float]]]:
+            """Collect similar structures for a single node."""
+            node_id = str(node.id)
+
+            async with semaphore:
+                similar = await self.structure_handler.find_similar_structures(
+                    node,
+                    exclude_ids=processed_ids,
+                    cross_source=cross_source,
+                )
+
+                if not similar:
+                    return (node_id, [])
+
+                # Apply similarity decay cutoff (same as content tier)
+                best_sim = similar[0].similarity_score
+                decay_cutoff = best_sim * self.settings.EXTRACTION_SIMILARITY_DECAY_FACTOR
+                min_threshold = self.settings.EXTRACTION_LLM_THRESHOLD
+
+                filtered: list[tuple[StructureNode, float]] = []
+                for s in similar:
+                    if s.similarity_score < max(decay_cutoff, min_threshold):
+                        break
+                    filtered.append((s.node, s.similarity_score))
+
+                    if len(filtered) >= self.settings.EXTRACTION_MAX_RELATIONS_PER_LEADER:
+                        break
+
+                return (node_id, filtered)
+
+        # Parallel collection for all nodes
+        tasks = [collect_for_node(node) for node in structures]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Aggregate results
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                log.exception(
+                    "Error collecting pairs for structure node",
+                    node_id=str(structures[i].id),
+                    error=str(result),
+                )
+                continue
+
+            node_id, similar_pairs = result
+
+            if not similar_pairs:
+                kept_separate_count += 1
+                continue
+
+            node = structures[i]
+            for target_node, similarity in similar_pairs:
+                decision = self.structure_handler.decide_action(similarity)
+
+                if decision == ExtractionDecision.MERGE:
+                    high_sim_pairs.append((node, target_node, similarity))
+                elif decision == ExtractionDecision.CREATE_RELATION:
+                    llm_pairs.append((node, target_node, similarity))
+
+        log.info(
+            "Structure cross-batch pair collection complete",
+            nodes_searched=len(structures),
+            high_sim_pairs=len(high_sim_pairs),
+            llm_pairs=len(llm_pairs),
+            kept_separate=kept_separate_count,
+        )
+        self._report_progress(
+            "Structure cross-batch collection",
+            tier=tier,
+            high_sim=len(high_sim_pairs),
+            llm_pairs=len(llm_pairs),
+        )
+
+        return high_sim_pairs, llm_pairs, kept_separate_count
+
+    async def _process_structure_cross_batch_llm_batch(
+        self,
+        pairs: list[tuple[StructureNode, StructureNode, float]],
+        dry_run: bool,
+        to_mark_reviewed: list[str],
+        output: ExtractRelationsOutput,
+        tier_stats: TierStats,
+        tier: str = "T1:Structure",
+    ) -> None:
+        """Process cross-batch structure pairs with batch LLM extraction.
+
+        Converts pairs to NodePair format, splits into batches, and calls
+        verify_batches_parallel(). For structure tier, should_merge creates
+        STRUCTURALLY_EQUIVALENT relation instead of merging.
+        """
+        log = self._log.bind(tier=tier)
+        log.info("Processing structure cross-batch LLM batch", pair_count=len(pairs))
+
+        # Convert to NodePair format with embeddings for Centroid Filtering
+        node_pairs = []
+        valid_pair_indices: list[int] = []
+        skipped_count = 0
+
+        for idx, (node_a, node_b, similarity) in enumerate(pairs):
+            text_a = self._get_structure_text(node_a)
+            text_b = self._get_structure_text(node_b)
+
+            if not text_a or not text_b:
+                skipped_count += 1
+                continue
+
+            node_pairs.append(
+                NodePair(
+                    node_a_id=str(node_a.id),
+                    node_a_type="structure",
+                    node_a_text=text_a,
+                    node_b_id=str(node_b.id),
+                    node_b_type="structure",
+                    node_b_text=text_b,
+                    similarity_score=similarity,
+                    node_a_embedding=node_a.embedding,
+                    node_b_embedding=node_b.embedding,
+                )
+            )
+            valid_pair_indices.append(idx)
+
+        if skipped_count > 0:
+            log.warning(
+                "Skipped structure pairs with empty text",
+                skipped=skipped_count,
+                valid=len(node_pairs),
+            )
+
+        if not node_pairs:
+            log.info("No valid structure cross-batch pairs after filtering")
+            return
+
+        # Split into batches for parallel processing
+        batch_size = self.settings.EXTRACTION_LLM_BATCH_SIZE
+        batches = [node_pairs[i : i + batch_size] for i in range(0, len(node_pairs), batch_size)]
+        total_batches = len(batches)
+
+        log.info(
+            "Processing structure cross-batch LLM batches in parallel",
+            total_batches=total_batches,
+            max_concurrent=self.settings.MAX_CONCURRENT_LLM_CALLS,
+        )
+        self._report_progress(
+            f"Processing {total_batches} structure cross-batch LLM batches",
+            tier=tier,
+            total_batches=total_batches,
+            max_concurrent=self.settings.MAX_CONCURRENT_LLM_CALLS,
+        )
+
+        # Use verify_batches_parallel for concurrent LLM calls
+        results = await self.llm_extractor.verify_batches_parallel(
+            batches, tier=RelationTier.TIER_1_STRUCTURE
+        )
+        output.llm_calls_used += total_batches
+        tier_stats.pairs_sent_to_llm += len(node_pairs)
+
+        # Apply results
+        for result_idx, llm_result in enumerate(results):
+            if result_idx >= len(valid_pair_indices):
+                break
+
+            original_idx = valid_pair_indices[result_idx]
+            node_a, node_b, similarity = pairs[original_idx]
+
+            if llm_result.should_merge:
+                # Structure tier: NEVER merge, create STRUCTURALLY_EQUIVALENT instead
+                if not dry_run:
+                    await self.structure_handler.create_structurally_equivalent_relation(
+                        source=node_a,
+                        target=node_b,
+                        similarity=similarity,
+                    )
+                output.structure_relations_created += 1
+                tier_stats.relations_total += 1
+                to_mark_reviewed.append(str(node_a.id))
+                log.debug(
+                    "LLM said merge, created STRUCTURALLY_EQUIVALENT (cross-batch)",
+                    source=str(node_a.id),
+                    target=str(node_b.id),
+                )
+            elif llm_result.relation_type is not None:
+                # Create the relation LLM determined
+                if not dry_run:
+                    await self.structure_handler.create_structure_relation(
+                        source=node_a,
+                        target=node_b,
+                        relation_type=llm_result.relation_type,
+                        confidence=llm_result.confidence,
+                        method="llm_verified",
+                    )
+                output.structure_relations_created += 1
+                tier_stats.relations_total += 1
+                if llm_result.is_in_top_k:
+                    tier_stats.relations_in_top_k += 1
+                if llm_result.is_new_relation:
+                    tier_stats.relations_new += 1
+                to_mark_reviewed.append(str(node_a.id))
+                log.debug(
+                    "Created LLM-verified relation (cross-batch)",
+                    source=str(node_a.id),
+                    target=str(node_b.id),
+                    relation_type=llm_result.relation_type,
+                )
+            # else: relation_type=null means no relation, keep separate
 
     # =========================================================================
     # Tier 2: Content Extraction (Two-Phase)

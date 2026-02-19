@@ -2,11 +2,12 @@
 
 This test file validates:
 1. _process_structure_llm_batch passes embeddings to NodePair
-2. _process_structure_node_no_merge uses LLM for medium similarity
-3. _process_llm_batch (Content tier) passes embeddings to NodePair
-4. STRUCTURALLY_EQUIVALENT is created when LLM says should_merge
-5. LLM-determined relation type is used (not SIMILAR_TO)
-6. Nodes are kept separate when LLM returns relation_type=null
+2. _collect_structure_cross_batch_pairs categorizes pairs correctly
+3. _process_structure_cross_batch_llm_batch handles LLM results
+4. _process_llm_batch (Content tier) passes embeddings to NodePair
+5. STRUCTURALLY_EQUIVALENT is created when LLM says should_merge
+6. LLM-determined relation type is used (not SIMILAR_TO)
+7. Nodes are kept separate when LLM returns relation_type=null
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from arango_client.models.ontology import RelationTier
+from arango_client.handlers import ExtractionDecision
 
 from workflows.extract_relations.intra_batch_dedup import RelationCandidate
 from workflows.extract_relations.llm_extractor import ExtractionResult, NodePair
@@ -38,6 +39,10 @@ def mock_settings() -> MagicMock:
     settings.EXTRACTION_LLM_THRESHOLD = 0.40
     settings.EXTRACTION_LLM_BATCH_SIZE = 5
     settings.EXTRACTION_FALLBACK_RELATION = "SIMILAR_TO"
+    settings.EXTRACTION_MAX_CONCURRENT_COLLECTIONS = 5
+    settings.EXTRACTION_SIMILARITY_DECAY_FACTOR = 0.85
+    settings.EXTRACTION_MAX_RELATIONS_PER_LEADER = 10
+    settings.MAX_CONCURRENT_LLM_CALLS = 3
     return settings
 
 
@@ -265,15 +270,15 @@ class TestProcessStructureLLMBatchEmbeddings:
 
 
 # =========================================================================
-# Test: _process_structure_node_no_merge uses LLM for medium similarity
+# Test: _collect_structure_cross_batch_pairs categorizes pairs correctly
 # =========================================================================
 
 
-class TestProcessStructureNodeNoMergeLLM:
-    """Tests for LLM usage in _process_structure_node_no_merge."""
+class TestCollectStructureCrossBatchPairs:
+    """Tests for _collect_structure_cross_batch_pairs pair categorization."""
 
     @pytest.mark.asyncio
-    async def test_llm_called_for_medium_similarity(
+    async def test_medium_similarity_goes_to_llm_pairs(
         self,
         mock_settings: MagicMock,
         mock_ontology: MagicMock,
@@ -281,8 +286,7 @@ class TestProcessStructureNodeNoMergeLLM:
         sample_embedding: list[float],
         sample_embedding_2: list[float],
     ) -> None:
-        """Test that LLM is called for medium similarity (0.40-0.72) in cross-batch."""
-        # Arrange
+        """Test that medium similarity (0.40-0.72) pairs go to llm_pairs."""
         workflow = ExtractRelationsWorkflow(
             db=mock_db,
             settings=mock_settings,
@@ -301,45 +305,117 @@ class TestProcessStructureNodeNoMergeLLM:
             embedding=sample_embedding_2,
         )
 
-        # Mock structure handler - return similar node with medium similarity
-        mock_similar_structure = MagicMock()
-        mock_similar_structure.node_id = str(similar_node.id)
-        mock_similar_structure.node = similar_node
-        mock_similar_structure.similarity_score = 0.55  # Medium similarity
+        mock_similar = MagicMock()
+        mock_similar.node_id = str(similar_node.id)
+        mock_similar.node = similar_node
+        mock_similar.similarity_score = 0.55  # Medium
 
         workflow.structure_handler = MagicMock()
-        workflow.structure_handler.find_similar_structures = AsyncMock(
-            return_value=[mock_similar_structure]
+        workflow.structure_handler.find_similar_structures = AsyncMock(return_value=[mock_similar])
+        workflow.structure_handler.decide_action = MagicMock(
+            return_value=ExtractionDecision.CREATE_RELATION
         )
-        workflow.structure_handler.create_structure_relation = AsyncMock()
 
-        # Mock LLM extractor - verify it gets called
-        mock_llm_result = ExtractionResult(
-            should_merge=False,
-            relation_type="REFERS_TO",
-            confidence=0.8,
-        )
-        workflow.llm_extractor = MagicMock()
-        workflow.llm_extractor.verify_pair = AsyncMock(return_value=mock_llm_result)
-
-        # Act
-        result = await workflow._process_structure_node_no_merge(
-            node=node,
-            dry_run=False,
-            exclude_ids=set(),
+        high_sim, llm, kept = await workflow._collect_structure_cross_batch_pairs(
+            structures=[node],
+            processed_ids=set(),
             cross_source=True,
         )
 
-        # Assert - LLM was called with correct parameters
-        workflow.llm_extractor.verify_pair.assert_called_once()
-        call_kwargs = workflow.llm_extractor.verify_pair.call_args[1]
+        assert len(high_sim) == 0
+        assert len(llm) == 1
+        assert llm[0][0] is node
+        assert llm[0][1] is similar_node
+        assert llm[0][2] == 0.55
 
-        # Verify tier was passed
-        assert call_kwargs["tier"] == RelationTier.TIER_1_STRUCTURE
+    @pytest.mark.asyncio
+    async def test_high_similarity_goes_to_high_sim_pairs(
+        self,
+        mock_settings: MagicMock,
+        mock_ontology: MagicMock,
+        mock_db: MagicMock,
+        sample_embedding: list[float],
+    ) -> None:
+        """Test that high similarity (>=0.72) pairs go to high_sim_pairs."""
+        workflow = ExtractRelationsWorkflow(
+            db=mock_db,
+            settings=mock_settings,
+            ontology=mock_ontology,
+        )
 
-        # Verify embeddings were passed
-        assert call_kwargs["node_a_embedding"] == sample_embedding
-        assert call_kwargs["node_b_embedding"] == sample_embedding_2
+        node = create_mock_structure_node(
+            node_id="11111111-1111-1111-1111-111111111111",
+            title="Chapter 1",
+            embedding=sample_embedding,
+        )
+
+        similar_node = create_mock_structure_node(
+            node_id="22222222-2222-2222-2222-222222222222",
+            title="Chapter 1 Copy",
+            embedding=sample_embedding,
+        )
+
+        mock_similar = MagicMock()
+        mock_similar.node_id = str(similar_node.id)
+        mock_similar.node = similar_node
+        mock_similar.similarity_score = 0.85  # High
+
+        workflow.structure_handler = MagicMock()
+        workflow.structure_handler.find_similar_structures = AsyncMock(return_value=[mock_similar])
+        workflow.structure_handler.decide_action = MagicMock(return_value=ExtractionDecision.MERGE)
+
+        high_sim, llm, kept = await workflow._collect_structure_cross_batch_pairs(
+            structures=[node],
+            processed_ids=set(),
+            cross_source=True,
+        )
+
+        assert len(high_sim) == 1
+        assert len(llm) == 0
+        assert high_sim[0][2] == 0.85
+
+    @pytest.mark.asyncio
+    async def test_no_similar_nodes_kept_separate(
+        self,
+        mock_settings: MagicMock,
+        mock_ontology: MagicMock,
+        mock_db: MagicMock,
+        sample_embedding: list[float],
+    ) -> None:
+        """Test that nodes with no similar results are counted as kept_separate."""
+        workflow = ExtractRelationsWorkflow(
+            db=mock_db,
+            settings=mock_settings,
+            ontology=mock_ontology,
+        )
+
+        node = create_mock_structure_node(
+            node_id="11111111-1111-1111-1111-111111111111",
+            title="Unique Chapter",
+            embedding=sample_embedding,
+        )
+
+        workflow.structure_handler = MagicMock()
+        workflow.structure_handler.find_similar_structures = AsyncMock(return_value=[])
+
+        high_sim, llm, kept = await workflow._collect_structure_cross_batch_pairs(
+            structures=[node],
+            processed_ids=set(),
+            cross_source=True,
+        )
+
+        assert len(high_sim) == 0
+        assert len(llm) == 0
+        assert kept == 1
+
+
+# =========================================================================
+# Test: _process_structure_cross_batch_llm_batch handles LLM results
+# =========================================================================
+
+
+class TestProcessStructureCrossBatchLLMBatch:
+    """Tests for _process_structure_cross_batch_llm_batch."""
 
     @pytest.mark.asyncio
     async def test_structurally_equivalent_created_when_llm_says_merge(
@@ -351,7 +427,6 @@ class TestProcessStructureNodeNoMergeLLM:
         sample_embedding_2: list[float],
     ) -> None:
         """Test that STRUCTURALLY_EQUIVALENT is created when LLM returns should_merge=True."""
-        # Arrange
         workflow = ExtractRelationsWorkflow(
             db=mock_db,
             settings=mock_settings,
@@ -370,43 +445,36 @@ class TestProcessStructureNodeNoMergeLLM:
             embedding=sample_embedding_2,
         )
 
-        # Mock similar structure with medium similarity
-        mock_similar_structure = MagicMock()
-        mock_similar_structure.node_id = str(similar_node.id)
-        mock_similar_structure.node = similar_node
-        mock_similar_structure.similarity_score = 0.55
-
         workflow.structure_handler = MagicMock()
-        workflow.structure_handler.find_similar_structures = AsyncMock(
-            return_value=[mock_similar_structure]
-        )
         workflow.structure_handler.create_structurally_equivalent_relation = AsyncMock()
 
-        # Mock LLM extractor - returns should_merge=True
         mock_llm_result = ExtractionResult(
-            should_merge=True,  # LLM says merge
+            should_merge=True,
             relation_type=None,
             confidence=0.9,
         )
         workflow.llm_extractor = MagicMock()
-        workflow.llm_extractor.verify_pair = AsyncMock(return_value=mock_llm_result)
+        workflow.llm_extractor.verify_batches_parallel = AsyncMock(return_value=[mock_llm_result])
 
-        # Act
-        result = await workflow._process_structure_node_no_merge(
-            node=node,
+        output = ExtractRelationsOutput()
+        tier_stats = TierStats(tier_name="tier_1_structure")
+        to_mark_reviewed: list[str] = []
+
+        await workflow._process_structure_cross_batch_llm_batch(
+            pairs=[(node, similar_node, 0.55)],
             dry_run=False,
-            exclude_ids=set(),
-            cross_source=True,
+            to_mark_reviewed=to_mark_reviewed,
+            output=output,
+            tier_stats=tier_stats,
         )
 
-        # Assert - STRUCTURALLY_EQUIVALENT was created instead of merge
         workflow.structure_handler.create_structurally_equivalent_relation.assert_called_once_with(
             source=node,
             target=similar_node,
             similarity=0.55,
         )
-        assert result.relation_created is True
-        assert result.relation_type == "STRUCTURALLY_EQUIVALENT"
+        assert output.structure_relations_created == 1
+        assert str(node.id) in to_mark_reviewed
 
     @pytest.mark.asyncio
     async def test_llm_determined_relation_type_used(
@@ -418,7 +486,6 @@ class TestProcessStructureNodeNoMergeLLM:
         sample_embedding_2: list[float],
     ) -> None:
         """Test that LLM-determined relation type is used (not hardcoded SIMILAR_TO)."""
-        # Arrange
         workflow = ExtractRelationsWorkflow(
             db=mock_db,
             settings=mock_settings,
@@ -437,36 +504,30 @@ class TestProcessStructureNodeNoMergeLLM:
             embedding=sample_embedding_2,
         )
 
-        mock_similar_structure = MagicMock()
-        mock_similar_structure.node_id = str(similar_node.id)
-        mock_similar_structure.node = similar_node
-        mock_similar_structure.similarity_score = 0.55
-
         workflow.structure_handler = MagicMock()
-        workflow.structure_handler.find_similar_structures = AsyncMock(
-            return_value=[mock_similar_structure]
-        )
         workflow.structure_handler.create_structure_relation = AsyncMock()
 
-        # Mock LLM extractor - returns specific relation type
         mock_llm_result = ExtractionResult(
             should_merge=False,
-            relation_type="PREREQUISITE_OF",  # Specific relation, not SIMILAR_TO
+            relation_type="PREREQUISITE_OF",
             confidence=0.85,
             is_in_top_k=True,
         )
         workflow.llm_extractor = MagicMock()
-        workflow.llm_extractor.verify_pair = AsyncMock(return_value=mock_llm_result)
+        workflow.llm_extractor.verify_batches_parallel = AsyncMock(return_value=[mock_llm_result])
 
-        # Act
-        result = await workflow._process_structure_node_no_merge(
-            node=node,
+        output = ExtractRelationsOutput()
+        tier_stats = TierStats(tier_name="tier_1_structure")
+        to_mark_reviewed: list[str] = []
+
+        await workflow._process_structure_cross_batch_llm_batch(
+            pairs=[(node, similar_node, 0.55)],
             dry_run=False,
-            exclude_ids=set(),
-            cross_source=True,
+            to_mark_reviewed=to_mark_reviewed,
+            output=output,
+            tier_stats=tier_stats,
         )
 
-        # Assert - LLM-determined relation was used
         workflow.structure_handler.create_structure_relation.assert_called_once_with(
             source=node,
             target=similar_node,
@@ -474,9 +535,8 @@ class TestProcessStructureNodeNoMergeLLM:
             confidence=0.85,
             method="llm_verified",
         )
-        assert result.relation_created is True
-        assert result.relation_type == "PREREQUISITE_OF"
-        assert result.is_in_top_k is True
+        assert output.structure_relations_created == 1
+        assert tier_stats.relations_in_top_k == 1
 
     @pytest.mark.asyncio
     async def test_nodes_kept_separate_when_llm_returns_null_relation(
@@ -488,7 +548,6 @@ class TestProcessStructureNodeNoMergeLLM:
         sample_embedding_2: list[float],
     ) -> None:
         """Test that nodes are kept separate when LLM returns relation_type=null."""
-        # Arrange
         workflow = ExtractRelationsWorkflow(
             db=mock_db,
             settings=mock_settings,
@@ -507,39 +566,33 @@ class TestProcessStructureNodeNoMergeLLM:
             embedding=sample_embedding_2,
         )
 
-        mock_similar_structure = MagicMock()
-        mock_similar_structure.node_id = str(similar_node.id)
-        mock_similar_structure.node = similar_node
-        mock_similar_structure.similarity_score = 0.45
-
         workflow.structure_handler = MagicMock()
-        workflow.structure_handler.find_similar_structures = AsyncMock(
-            return_value=[mock_similar_structure]
-        )
         workflow.structure_handler.create_structure_relation = AsyncMock()
         workflow.structure_handler.create_structurally_equivalent_relation = AsyncMock()
 
-        # Mock LLM extractor - returns relation_type=None (no relation)
         mock_llm_result = ExtractionResult(
             should_merge=False,
-            relation_type=None,  # LLM says no relation
+            relation_type=None,
             confidence=0.7,
         )
         workflow.llm_extractor = MagicMock()
-        workflow.llm_extractor.verify_pair = AsyncMock(return_value=mock_llm_result)
+        workflow.llm_extractor.verify_batches_parallel = AsyncMock(return_value=[mock_llm_result])
 
-        # Act
-        result = await workflow._process_structure_node_no_merge(
-            node=node,
+        output = ExtractRelationsOutput()
+        tier_stats = TierStats(tier_name="tier_1_structure")
+        to_mark_reviewed: list[str] = []
+
+        await workflow._process_structure_cross_batch_llm_batch(
+            pairs=[(node, similar_node, 0.45)],
             dry_run=False,
-            exclude_ids=set(),
-            cross_source=True,
+            to_mark_reviewed=to_mark_reviewed,
+            output=output,
+            tier_stats=tier_stats,
         )
 
-        # Assert - no relation was created, nodes kept separate
         workflow.structure_handler.create_structure_relation.assert_not_called()
         workflow.structure_handler.create_structurally_equivalent_relation.assert_not_called()
-        assert result.kept_separate is True
+        assert output.structure_relations_created == 0
 
 
 # =========================================================================
@@ -907,8 +960,7 @@ class TestHighSimilarityNoLLM:
         mock_db: MagicMock,
         sample_embedding: list[float],
     ) -> None:
-        """Test that high similarity (>=0.72) creates STRUCTURALLY_EQUIVALENT without LLM call."""
-        # Arrange
+        """Test that high similarity (>=0.72) goes to high_sim_pairs (no LLM needed)."""
         workflow = ExtractRelationsWorkflow(
             db=mock_db,
             settings=mock_settings,
@@ -927,42 +979,27 @@ class TestHighSimilarityNoLLM:
             embedding=sample_embedding,
         )
 
-        # High similarity >= auto_merge_threshold
-        mock_similar_structure = MagicMock()
-        mock_similar_structure.node_id = str(similar_node.id)
-        mock_similar_structure.node = similar_node
-        mock_similar_structure.similarity_score = 0.85  # >= 0.72
+        mock_similar = MagicMock()
+        mock_similar.node_id = str(similar_node.id)
+        mock_similar.node = similar_node
+        mock_similar.similarity_score = 0.85  # >= 0.72
 
         workflow.structure_handler = MagicMock()
-        workflow.structure_handler.find_similar_structures = AsyncMock(
-            return_value=[mock_similar_structure]
-        )
-        workflow.structure_handler.create_structurally_equivalent_relation = AsyncMock()
+        workflow.structure_handler.find_similar_structures = AsyncMock(return_value=[mock_similar])
+        workflow.structure_handler.decide_action = MagicMock(return_value=ExtractionDecision.MERGE)
 
-        # Mock LLM extractor - should NOT be called
-        workflow.llm_extractor = MagicMock()
-        workflow.llm_extractor.verify_pair = AsyncMock()
-
-        # Act
-        result = await workflow._process_structure_node_no_merge(
-            node=node,
-            dry_run=False,
-            exclude_ids=set(),
+        high_sim, llm, kept = await workflow._collect_structure_cross_batch_pairs(
+            structures=[node],
+            processed_ids=set(),
             cross_source=True,
         )
 
-        # Assert
-        # LLM should NOT be called for high similarity
-        workflow.llm_extractor.verify_pair.assert_not_called()
-
-        # STRUCTURALLY_EQUIVALENT should be created directly
-        workflow.structure_handler.create_structurally_equivalent_relation.assert_called_once_with(
-            source=node,
-            target=similar_node,
-            similarity=0.85,
-        )
-        assert result.relation_created is True
-        assert result.relation_type == "STRUCTURALLY_EQUIVALENT"
+        # High similarity should go to high_sim_pairs, NOT llm_pairs
+        assert len(high_sim) == 1
+        assert len(llm) == 0
+        assert high_sim[0][0] is node
+        assert high_sim[0][1] is similar_node
+        assert high_sim[0][2] == 0.85
 
 
 # =========================================================================
