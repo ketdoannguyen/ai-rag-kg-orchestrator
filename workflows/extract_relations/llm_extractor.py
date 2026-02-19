@@ -85,10 +85,22 @@ class LLMRelationExtractor:
     DEFAULT_TOP_K_RELATIONS = 10  # Number of relations to filter using Centroid
     MAX_PARSE_RETRIES = 3  # Retry LLM call when JSON parse fails
 
-    # Relations to exclude from top-k filtering
-    # These are fallback relations that should only be used when LLM fails
-    # Excluding them forces LLM to think deeper about the actual relationship
-    EXCLUDE_FROM_TOP_K: frozenset[str] = frozenset({"SIMILAR_TO"})
+    # Relations to NEVER send to LLM for extraction
+    # Structural: created by ingestion pipeline, not LLM extraction
+    # Fallback: only used programmatically when LLM fails
+    EXCLUDE_FROM_LLM: frozenset[str] = frozenset(
+        {
+            # Structural hierarchy - created by ingestion, not extraction
+            "HAS_SECTION",
+            "BELONGS_TO_SECTION",
+            "HAS_CONTENT",
+            "NEXT_SIBLING",
+            "PREVIOUS_SIBLING",
+            # Fallback - only used programmatically when LLM fails
+            "SIMILAR_TO",
+            "STRUCTURALLY_EQUIVALENT",
+        }
+    )
 
     # Concurrency control for parallel LLM calls
     # Increased from 5 to allow more concurrent batches when using verify_batches_parallel
@@ -281,7 +293,7 @@ class LLMRelationExtractor:
             target_embedding=target_embedding,
             top_k=top_k,
             tier=tier,
-            exclude_relations=self.EXCLUDE_FROM_TOP_K,
+            exclude_relations=self.EXCLUDE_FROM_LLM,
         )
 
         if not scored_relations:
@@ -344,7 +356,7 @@ class LLMRelationExtractor:
             pair_embeddings=pair_embeddings,
             top_k=top_k,
             tier=tier,
-            exclude_relations=self.EXCLUDE_FROM_TOP_K,
+            exclude_relations=self.EXCLUDE_FROM_LLM,
         )
 
         if not scored_relations:
@@ -399,7 +411,7 @@ class LLMRelationExtractor:
             target_embedding=target_embedding,
             top_k=top_k,
             tier=tier,
-            exclude_relations=self.EXCLUDE_FROM_TOP_K,
+            exclude_relations=self.EXCLUDE_FROM_LLM,
         )
 
         return {rel_id for rel_id, _ in scored_relations} if scored_relations else set()
@@ -441,7 +453,7 @@ class LLMRelationExtractor:
             pair_embeddings=pair_embeddings,
             top_k=top_k,
             tier=tier,
-            exclude_relations=self.EXCLUDE_FROM_TOP_K,
+            exclude_relations=self.EXCLUDE_FROM_LLM,
         )
 
         return {rel_id for rel_id, _ in scored_relations} if scored_relations else set()
@@ -895,6 +907,11 @@ class LLMRelationExtractor:
             if relation_type == "null":
                 relation_type = None
 
+            # Reject blocked relations (structural/fallback) from LLM output
+            if relation_type is not None and relation_type in self.EXCLUDE_FROM_LLM:
+                invalid_relations.append((idx + 1, relation_type))
+                continue  # Skip this pair, will trigger retry via invalid_relations check
+
             # Validate: if is_new_relation=false but relation_type not in allowed set
             # This catches LLM hallucination where it claims to use existing relation
             # but actually returns a non-existent relation type
@@ -1050,6 +1067,13 @@ class LLMRelationExtractor:
         # Handle string "null" as actual null
         if relation_type == "null":
             relation_type = None
+
+        # Reject blocked relations (structural/fallback) from LLM output
+        if relation_type is not None and relation_type in self.EXCLUDE_FROM_LLM:
+            raise ValueError(
+                f"LLM returned blocked relation '{relation_type}'. "
+                "Structural and fallback relations cannot be extracted by LLM."
+            )
 
         # Validate: if is_new_relation=false but relation_type not in allowed set
         if (
