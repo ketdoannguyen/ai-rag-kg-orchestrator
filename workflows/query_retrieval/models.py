@@ -151,6 +151,7 @@ class QueryRetrievalOutput:
     top_down_metrics: dict | None = None
     horizontal_metrics: dict | None = None
     bottom_up_metrics: dict | None = None
+    baseline_metrics: dict | None = None
 
     # Stats
     total_results: int = 0

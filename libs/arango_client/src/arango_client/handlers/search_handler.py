@@ -15,6 +15,8 @@ from typing import Any
 from arango.database import StandardDatabase
 
 from ..aql import (
+    BM25_SEARCH_CONTENT,
+    BM25_SEARCH_CONTENT_WITH_SOURCE,
     HYBRID_SEARCH,
     VECTOR_SEARCH_CONTENT,
     VECTOR_SEARCH_CONTENT_WITH_SOURCE,
@@ -99,6 +101,54 @@ class SearchHandler:
             bind_vars["source_id"] = str(source_id)
         else:
             query = VECTOR_SEARCH_CONTENT
+
+        cursor = self.db.aql.execute(query, bind_vars=bind_vars)
+
+        results = []
+        for item in cursor:
+            node = doc_to_knowledge_node(item["doc"])
+            results.append(SearchResult(node, item["score"]))
+
+        return results
+
+    def bm25_search_content(
+        self,
+        query_text: str,
+        limit: int = 10,
+        source_id: uuid.UUID | str | None = None,
+        node_types: list[NodeType | str] | None = None,
+    ) -> list[SearchResult]:
+        """Search for content using BM25 full-text scoring.
+
+        Uses TOKENS() ALL IN for token-level matching with BM25 scoring
+        from ArangoSearch. Works well for multi-word queries.
+
+        Args:
+            query_text: Search query text
+            limit: Maximum number of results
+            source_id: Optional filter by data source
+            node_types: Optional filter by node types
+
+        Returns:
+            List of SearchResult with nodes and BM25 scores
+        """
+        if node_types is None:
+            node_types = [NodeType.PARAGRAPH, NodeType.IMAGE, NodeType.TABLE]
+
+        type_values = [t.value if isinstance(t, NodeType) else t for t in node_types]
+
+        bind_vars: dict[str, Any] = {
+            "@view": self.view_name,
+            "search_term": query_text,
+            "limit": limit,
+            "node_types": type_values,
+        }
+
+        if source_id:
+            query = BM25_SEARCH_CONTENT_WITH_SOURCE
+            bind_vars["source_id"] = str(source_id)
+        else:
+            query = BM25_SEARCH_CONTENT
 
         cursor = self.db.aql.execute(query, bind_vars=bind_vars)
 

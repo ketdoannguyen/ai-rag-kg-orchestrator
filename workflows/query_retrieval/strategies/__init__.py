@@ -15,6 +15,11 @@ from workflows.query_retrieval.strategies.base import (
     rrf_fusion_3way,
     to_content_with_context,
 )
+from workflows.query_retrieval.strategies.baselines import (
+    BaselineMetrics,
+    BM25Retrieval,
+    HybridRetrieval,
+)
 from workflows.query_retrieval.strategies.bottom_up import BottomUpRetrieval
 from workflows.query_retrieval.strategies.horizontal import HorizontalRetrieval
 from workflows.query_retrieval.strategies.scoring import (
@@ -30,6 +35,9 @@ __all__ = [
     "TopDownRetrieval",
     "HorizontalRetrieval",
     "BottomUpRetrieval",
+    "BM25Retrieval",
+    "HybridRetrieval",
+    "BaselineMetrics",
     # Scoring enums
     "E1ScoringMethod",
     "E2ScoringMethod",

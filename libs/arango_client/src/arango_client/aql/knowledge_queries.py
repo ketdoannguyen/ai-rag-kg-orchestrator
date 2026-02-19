@@ -367,3 +367,39 @@ FOR doc IN @@view
   LIMIT @limit
   RETURN {doc: doc, score: score}
 """
+
+# BM25 content search using TOKENS + ALL IN for token-level matching
+# Works better than PHRASE for multi-word queries (e.g. Vietnamese text)
+BM25_SEARCH_CONTENT = """
+FOR doc IN @@view
+  SEARCH ANALYZER(
+    TOKENS(@search_term, "text_en") ALL IN doc.text OR
+    TOKENS(@search_term, "text_en") ALL IN doc.attributes.text OR
+    TOKENS(@search_term, "text_en") ALL IN doc.attributes.title OR
+    TOKENS(@search_term, "text_en") ALL IN doc.summary,
+    "text_en"
+  )
+  FILTER doc.node_type IN @node_types
+  LET score = BM25(doc)
+  SORT score DESC
+  LIMIT @limit
+  RETURN {doc: doc, score: score}
+"""
+
+# BM25 content search with source_id filter
+BM25_SEARCH_CONTENT_WITH_SOURCE = """
+FOR doc IN @@view
+  SEARCH ANALYZER(
+    TOKENS(@search_term, "text_en") ALL IN doc.text OR
+    TOKENS(@search_term, "text_en") ALL IN doc.attributes.text OR
+    TOKENS(@search_term, "text_en") ALL IN doc.attributes.title OR
+    TOKENS(@search_term, "text_en") ALL IN doc.summary,
+    "text_en"
+  )
+  FILTER doc.node_type IN @node_types
+  FILTER doc.source_id == @source_id
+  LET score = BM25(doc)
+  SORT score DESC
+  LIMIT @limit
+  RETURN {doc: doc, score: score}
+"""

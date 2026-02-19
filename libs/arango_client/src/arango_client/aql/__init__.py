@@ -10,6 +10,9 @@ Usage:
 """
 
 from .knowledge_queries import (
+    # BM25 Search
+    BM25_SEARCH_CONTENT,
+    BM25_SEARCH_CONTENT_WITH_SOURCE,
     CRUD_COUNT_WITH_FILTER,
     # CRUD Queries
     CRUD_GET_ALL,
@@ -73,6 +76,9 @@ __all__ = [
     "FULLTEXT_SEARCH",
     "FULLTEXT_SEARCH_OPTIMIZED",
     "FULLTEXT_SEARCH_BOOSTED",
+    # BM25 Search
+    "BM25_SEARCH_CONTENT",
+    "BM25_SEARCH_CONTENT_WITH_SOURCE",
     # Mining
     "MINING_GET_BY_FREQUENCY",
     "MINING_INCREMENT_FREQUENCY",

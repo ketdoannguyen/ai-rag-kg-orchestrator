@@ -276,6 +276,33 @@ class QueryRetrievalWorkflow:
             result.content_results = content_results
             result.bottom_up_metrics = bottom_up.metrics.to_dict()
 
+        elif strategy == RetrievalStrategy.BM25:
+            # B2: BM25 full-text search baseline
+            from workflows.query_retrieval.strategies.baselines import BM25Retrieval
+
+            bm25 = BM25Retrieval(db=self.db)
+            content_results = await bm25.execute(
+                query_text=result.query,
+                top_k=top_k,
+                source_id=source_id,
+            )
+            result.content_results = content_results
+            result.baseline_metrics = bm25.metrics.to_dict()
+
+        elif strategy == RetrievalStrategy.HYBRID:
+            # B3: Hybrid Vector + BM25 with RRF fusion
+            from workflows.query_retrieval.strategies.baselines import HybridRetrieval
+
+            hybrid = HybridRetrieval(db=self.db)
+            content_results = await hybrid.execute(
+                query_text=result.query,
+                query_embedding=query_embedding,
+                top_k=top_k,
+                source_id=source_id,
+            )
+            result.content_results = content_results
+            result.baseline_metrics = hybrid.metrics.to_dict()
+
         else:
             # Fallback: use TOP_DOWN for all unimplemented strategies
             self._log.warning(
