@@ -247,9 +247,7 @@ class TestMultiSignalScoring:
         traversed = _make_traversed_nodes(1)
         seed_scores = {"content_nodes/seed_0": 0.8}
 
-        result = horizontal._score_rrf_cosine_seed(
-            query_embedding, traversed, seed_scores
-        )
+        result = horizontal._score_rrf_cosine_seed(query_embedding, traversed, seed_scores)
         assert len(result) == 1
         node = result[0]
 

@@ -385,14 +385,10 @@ class ContentExtractionHandler(BaseExtractionHandler):
                         else str(source_node.node_type)
                     ),
                     source_parent_id=(
-                        str(source_node.parent_id)
-                        if source_node.parent_id is not None
-                        else None
+                        str(source_node.parent_id) if source_node.parent_id is not None else None
                     ),
                     source_source_id=(
-                        str(source_node.source_id)
-                        if source_node.source_id is not None
-                        else None
+                        str(source_node.source_id) if source_node.source_id is not None else None
                     ),
                     target_id=target_full_id,
                     target_text=target_node.get_content_text(),

@@ -531,12 +531,11 @@ class TestValidateNewRelation:
         assert result.final_relation_type == "RELATED_TO"
 
     @pytest.mark.asyncio
-    async def test_flow_similarity_merge(
-        self, validator, mock_llm_client, mock_ontology_handler
-    ):
+    async def test_flow_similarity_merge(self, validator, mock_llm_client, mock_ontology_handler):
         """
         Flow: No exact match → LLM Accept → Embed → Similar found (>= 0.85) → MERGE
         """
+
         # Setup: No exact match for proposed_relation
         # But LLM's suggested id also needs check
         def get_by_id_side_effect(rel_id):
