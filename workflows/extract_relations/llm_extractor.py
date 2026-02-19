@@ -307,6 +307,68 @@ class LLMRelationExtractor:
 
         return "\n".join(lines)
 
+    def _build_filtered_ontology_section_batch(
+        self,
+        pairs: list[NodePair],
+        top_k: int | None = None,
+        tier: RelationTier | str | None = None,
+    ) -> str:
+        """Build ontology section with Max-Pooling-filtered relations across all pairs.
+
+        Uses Max-Pooling across all pairs' embeddings to select the top-k
+        most relevant relations. This ensures every pair in the batch has
+        representation in the filtered ontology section.
+
+        Args:
+            pairs: List of NodePair objects
+            top_k: Number of relations to include (default: DEFAULT_TOP_K_RELATIONS)
+            tier: Optional tier to filter relations
+
+        Returns:
+            Formatted prompt section with filtered relations
+        """
+        top_k = top_k or self.DEFAULT_TOP_K_RELATIONS
+
+        # Collect valid pair embeddings
+        pair_embeddings = [
+            (p.node_a_embedding, p.node_b_embedding)
+            for p in pairs
+            if p.node_a_embedding and p.node_b_embedding
+        ]
+
+        # Fallback to static ontology if no valid embeddings or handler
+        if not pair_embeddings or not self.ontology_handler:
+            return self._build_ontology_section()
+
+        scored_relations = self.ontology_handler.filter_relations_by_max_pooling(
+            pair_embeddings=pair_embeddings,
+            top_k=top_k,
+            tier=tier,
+            exclude_relations=self.EXCLUDE_FROM_TOP_K,
+        )
+
+        if not scored_relations:
+            return self._build_ontology_section()
+
+        # Build prompt section with filtered relations
+        lines = ["## Available Relationship Types (filtered by relevance)\n"]
+        lines.append("Only use relationships from this list:\n")
+
+        for rel_id, score in scored_relations:
+            rel = self.ontology_handler.get_by_id(rel_id)
+            if rel:
+                rel_text = rel.summary if rel.summary else rel.description
+                line = f"- **{rel.name}** (score: {score:.2f}): {rel_text}"
+                if rel.is_symmetric:
+                    line += " (symmetric)"
+                if rel.is_transitive:
+                    line += " (transitive)"
+                lines.append(line)
+
+        lines.append("\n- Or propose a new relation type if none fit well")
+
+        return "\n".join(lines)
+
     def _get_top_k_relation_ids(
         self,
         source_embedding: list[float] | None,
@@ -335,6 +397,48 @@ class LLMRelationExtractor:
         scored_relations = self.ontology_handler.filter_relations_by_centroid(
             source_embedding=source_embedding,
             target_embedding=target_embedding,
+            top_k=top_k,
+            tier=tier,
+            exclude_relations=self.EXCLUDE_FROM_TOP_K,
+        )
+
+        return {rel_id for rel_id, _ in scored_relations} if scored_relations else set()
+
+    def _get_top_k_relation_ids_batch(
+        self,
+        pairs: list[NodePair],
+        top_k: int | None = None,
+        tier: RelationTier | str | None = None,
+    ) -> set[str]:
+        """Get the set of top-k relation IDs using Max-Pooling across all pairs.
+
+        Note: SIMILAR_TO is excluded from the set to match the filtered prompt.
+
+        Args:
+            pairs: List of NodePair objects
+            top_k: Number of relations (default: DEFAULT_TOP_K_RELATIONS)
+            tier: Optional tier filter
+
+        Returns:
+            Set of relation IDs in the top-k filtered list
+        """
+        top_k = top_k or self.DEFAULT_TOP_K_RELATIONS
+
+        if not self.ontology_handler:
+            return set()
+
+        # Collect valid pair embeddings
+        pair_embeddings = [
+            (p.node_a_embedding, p.node_b_embedding)
+            for p in pairs
+            if p.node_a_embedding and p.node_b_embedding
+        ]
+
+        if not pair_embeddings:
+            return set()
+
+        scored_relations = self.ontology_handler.filter_relations_by_max_pooling(
+            pair_embeddings=pair_embeddings,
             top_k=top_k,
             tier=tier,
             exclude_relations=self.EXCLUDE_FROM_TOP_K,
@@ -509,10 +613,8 @@ class LLMRelationExtractor:
             )
             return [result]
 
-        first_pair = pairs[0]
-        top_k_relations = self._get_top_k_relation_ids(
-            first_pair.node_a_embedding,
-            first_pair.node_b_embedding,
+        top_k_relations = self._get_top_k_relation_ids_batch(
+            pairs,
             top_k=self.settings.EXTRACTION_BATCH_TOP_K_RELATIONS,
             tier=tier,
         )
@@ -718,20 +820,14 @@ class LLMRelationExtractor:
     ) -> str:
         """Build prompt for batch verification.
 
-        Uses first pair's embeddings for Centroid-based relation filtering.
+        Uses Max-Pooling across all pairs for relation filtering.
         Filters by tier if specified.
         """
-        # Use first pair's embeddings for filtering (representative sample)
-        first_pair = pairs[0]
-        if first_pair.node_a_embedding and first_pair.node_b_embedding:
-            ontology_section = self._build_filtered_ontology_section(
-                source_embedding=first_pair.node_a_embedding,
-                target_embedding=first_pair.node_b_embedding,
-                top_k=self.settings.EXTRACTION_BATCH_TOP_K_RELATIONS,
-                tier=tier,
-            )
-        else:
-            ontology_section = self._build_ontology_section()
+        ontology_section = self._build_filtered_ontology_section_batch(
+            pairs,
+            top_k=self.settings.EXTRACTION_BATCH_TOP_K_RELATIONS,
+            tier=tier,
+        )
 
         pairs_section = []
         for i, pair in enumerate(pairs):

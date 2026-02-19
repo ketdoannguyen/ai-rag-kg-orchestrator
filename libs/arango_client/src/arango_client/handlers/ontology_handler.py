@@ -379,6 +379,63 @@ class OntologyHandler(BaseHandler[OntologyRelation]):
         scores.sort(key=lambda x: x[1], reverse=True)
         return scores[:top_k]
 
+    def filter_relations_by_max_pooling(
+        self,
+        pair_embeddings: list[tuple[list[float], list[float]]],
+        top_k: int = 20,
+        tier: RelationTier | str | None = None,
+        exclude_relations: set[str] | None = None,
+    ) -> list[tuple[str, float]]:
+        """Filter relations using Max-Pooling across multiple pairs.
+
+        For each relation, computes cosine similarity with every pair's centroid
+        and takes the maximum score. This ensures no pair's important relation
+        is "drowned out" by averaging.
+
+        Args:
+            pair_embeddings: List of (source_embedding, target_embedding) tuples
+            top_k: Number of top relations to return
+            tier: Optional tier filter
+            exclude_relations: Set of relation IDs to exclude
+
+        Returns:
+            List of (relation_id, max_score) tuples sorted by score descending
+        """
+        if not pair_embeddings:
+            return []
+
+        exclude_relations = exclude_relations or set()
+
+        # Compute and normalize centroids for all pairs
+        centroids = []
+        for source_emb, target_emb in pair_embeddings:
+            source_arr = np.array(source_emb)
+            target_arr = np.array(target_emb)
+            centroid = (source_arr + target_arr) / 2
+            centroids.append(normalize_vector(centroid))
+
+        # Get relations with embeddings (optionally filtered by tier)
+        if tier:
+            relations = self.get_by_tier_with_embeddings(tier)
+        else:
+            relations = self.get_all_with_embeddings()
+
+        # For each relation: max score across all pair centroids
+        scores: list[tuple[str, float]] = []
+        for rel in relations:
+            if rel.id in exclude_relations:
+                continue
+            if not rel.embedding:
+                continue
+
+            rel_norm = normalize_vector(rel.embedding)
+            max_score = max(float(np.dot(c, rel_norm)) for c in centroids)
+            scores.append((rel.id, max_score))
+
+        # Sort by score descending and return top_k
+        scores.sort(key=lambda x: x[1], reverse=True)
+        return scores[:top_k]
+
     def get_relation_ids_by_centroid(
         self,
         source_embedding: list[float],
