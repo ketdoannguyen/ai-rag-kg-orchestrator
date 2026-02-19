@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class MergedNodeLog(BaseModel):
@@ -62,6 +62,24 @@ class MergedNodeLog(BaseModel):
         le=1.0,
         description="Cosine similarity score at merge time",
     )
+
+    @field_validator("similarity", mode="before")
+    @classmethod
+    def clamp_similarity(cls, v: float) -> float:
+        """Clamp float32 cosine similarity epsilon to [0, 1].
+
+        ArangoDB vector search uses float32 internally, which can produce
+        values like 1.0000001192092896 due to IEEE 754 precision limits.
+        Tolerance of 1e-6 (~10x float32 machine epsilon) catches
+        accumulation of rounding errors while still detecting real bugs.
+        """
+        _EPSILON = 1e-6
+        if v > 1.0 and v <= 1.0 + _EPSILON:
+            return 1.0
+        if v < 0.0 and v >= -_EPSILON:
+            return 0.0
+        return v
+
     merge_reason: Literal["auto_merge", "llm_merge"] = Field(
         ...,
         description="auto_merge (similarity >= threshold) or llm_merge (LLM decided)",

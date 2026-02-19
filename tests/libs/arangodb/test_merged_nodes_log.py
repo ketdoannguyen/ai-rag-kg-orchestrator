@@ -95,6 +95,19 @@ class TestMergedNodeLog:
         )
         assert log_one.similarity == 1.0
 
+    def test_similarity_float32_epsilon(self):
+        """Test float32 cosine similarity epsilon is clamped (ArangoDB precision)."""
+        log = MergedNodeLog(
+            source_id="content_nodes/abc123",
+            source_text="Text",
+            source_type="paragraph",
+            target_id="content_nodes/def456",
+            target_text="Text",
+            similarity=1.0000001192092896,  # typical float32 epsilon
+            merge_reason="auto_merge",
+        )
+        assert log.similarity == 1.0
+
     def test_merge_reason_validation(self):
         """Test merge_reason must be valid literal."""
         with pytest.raises(ValueError):
