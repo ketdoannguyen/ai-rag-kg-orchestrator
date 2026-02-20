@@ -9,7 +9,7 @@ VERIFICATION_PROMPT = """Analyze two Vietnamese content nodes: merge, relate, or
 ## Rules
 - MERGE: Only if 90%+ identical FACTS (not just same topic). Same topic ≠ merge.
 - RELATION: Different info about related topics. Use valid relation or propose new.
-- SEPARATE: No meaningful connection. Return relation_type: null.
+- SEPARATE: No meaningful connection. Set relation_type to null (NOT the string "SEPARATE").
 - NEVER use SIMILAR_TO. When in doubt, don't merge.
 - NEVER use structural relations: HAS_SECTION, BELONGS_TO_SECTION, HAS_CONTENT, NEXT_SIBLING, PREVIOUS_SIBLING
 - NEVER use fallback relations: SIMILAR_TO, STRUCTURALLY_EQUIVALENT
@@ -37,7 +37,7 @@ VERIFICATION_BATCH_PROMPT = """Analyze Vietnamese content node pairs: merge, rel
 ## Rules
 - MERGE: Only if 90%+ identical FACTS (not just same topic). Same topic ≠ merge.
 - RELATION: Different info about related topics. Use valid relation or propose new.
-- SEPARATE: No meaningful connection. Return relation_type: null.
+- SEPARATE: No meaningful connection. Set relation_type to null (NOT the string "SEPARATE").
 - NEVER use SIMILAR_TO. When in doubt, don't merge.
 - NEVER use structural relations: HAS_SECTION, BELONGS_TO_SECTION, HAS_CONTENT, NEXT_SIBLING, PREVIOUS_SIBLING
 - NEVER use fallback relations: SIMILAR_TO, STRUCTURALLY_EQUIVALENT

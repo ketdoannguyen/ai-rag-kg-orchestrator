@@ -903,8 +903,9 @@ class LLMRelationExtractor:
             relation_type = item.get("relation_type")
             is_new = item.get("is_new_relation", False)
 
-            # Handle string "null" as actual null
-            if relation_type == "null":
+            # Handle string "null" or "SEPARATE"/"NONE" as actual null
+            # LLM often returns "SEPARATE" when it means "no relation"
+            if relation_type in ("null", "SEPARATE", "NONE", "NO_RELATION"):
                 relation_type = None
 
             # Reject blocked relations (structural/fallback) from LLM output
@@ -1064,8 +1065,9 @@ class LLMRelationExtractor:
         relation_type = data.get("relation_type")
         is_new = data.get("is_new_relation", False)
 
-        # Handle string "null" as actual null
-        if relation_type == "null":
+        # Handle string "null" or "SEPARATE"/"NONE" as actual null
+        # LLM often returns "SEPARATE" when it means "no relation"
+        if relation_type in ("null", "SEPARATE", "NONE", "NO_RELATION"):
             relation_type = None
 
         # Reject blocked relations (structural/fallback) from LLM output
