@@ -7,7 +7,8 @@ should be merged or if a relation should be extracted between them.
 VERIFICATION_PROMPT = """Analyze two Vietnamese content nodes: merge, relate, or keep separate.
 
 ## Rules
-- MERGE: Only if 90%+ identical FACTS (not just same topic). Same topic ≠ merge.
+- MERGE: Only if 95%+ identical FACTS AND same level of detail. Same topic ≠ merge.
+- DO NOT merge: overview↔detail, summary↔explanation, general↔specific. Use RELATION instead.
 - RELATION: Different info about related topics. Use valid relation or propose new.
 - SEPARATE: No meaningful connection. Set relation_type to null (NOT the string "SEPARATE").
 - NEVER use SIMILAR_TO. When in doubt, don't merge.
@@ -35,7 +36,8 @@ VERIFICATION_PROMPT = """Analyze two Vietnamese content nodes: merge, relate, or
 VERIFICATION_BATCH_PROMPT = """Analyze Vietnamese content node pairs: merge, relate, or keep separate.
 
 ## Rules
-- MERGE: Only if 90%+ identical FACTS (not just same topic). Same topic ≠ merge.
+- MERGE: Only if 95%+ identical FACTS AND same level of detail. Same topic ≠ merge.
+- DO NOT merge: overview↔detail, summary↔explanation, general↔specific. Use RELATION instead.
 - RELATION: Different info about related topics. Use valid relation or propose new.
 - SEPARATE: No meaningful connection. Set relation_type to null (NOT the string "SEPARATE").
 - NEVER use SIMILAR_TO. When in doubt, don't merge.

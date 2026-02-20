@@ -316,10 +316,12 @@ def find_intra_batch_components(
         member_node_indices = [valid_indices[i] for i in member_emb_indices]
         member_data = [(idx, nodes[idx]) for idx in member_node_indices]
 
-        # Determine leader: prefer node with earlier created_at, or lower ID
+        # Determine leader: prefer node with LONGEST text, then earlier created_at
         member_data.sort(
             key=lambda x: (
-                # First by created_at if available
+                # First by text length descending (negate for ascending sort)
+                -len(getattr(x[1], "text", "") or ""),
+                # Then by created_at if available
                 getattr(x[1], "created_at", None) or "",
                 # Then by ID string
                 str(getattr(x[1], "id", "") or ""),

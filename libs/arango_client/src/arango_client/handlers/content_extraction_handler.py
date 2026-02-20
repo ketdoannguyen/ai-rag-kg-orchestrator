@@ -265,6 +265,20 @@ class ContentExtractionHandler(BaseExtractionHandler):
         source_key = str(source_node.id)
         target_key = str(target_node.id)
 
+        # Swap direction: always keep the LONGER node (delete shorter one)
+        source_text_len = len(getattr(source_node, "text", "") or "")
+        target_text_len = len(getattr(target_node, "text", "") or "")
+        if source_text_len > target_text_len:
+            source_node, target_node = target_node, source_node
+            source_key, target_key = target_key, source_key
+            self._log.debug(
+                "Swap merge direction to keep longer node",
+                kept=target_key,
+                deleted=source_key,
+                kept_len=source_text_len,
+                deleted_len=target_text_len,
+            )
+
         # Validation: prevent self-merge
         if source_key == target_key:
             self._log.warning(
