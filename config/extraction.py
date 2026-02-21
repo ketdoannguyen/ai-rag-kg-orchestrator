@@ -67,13 +67,6 @@ class ExtractionSettings(BaseSettings):
         description="Provider for the strong LLM model.",
     )
 
-    EXTRACTION_MAX_RETRIES: int = Field(
-        default=5,
-        description="Max retries when LLM rejects proposed new relation.",
-        ge=1,
-        le=10,
-    )
-
     EXTRACTION_FALLBACK_RELATION: str = Field(
         default="SIMILAR_TO",
         description="Fallback relation when all retries exhausted.",
@@ -130,39 +123,6 @@ class ExtractionSettings(BaseSettings):
         le=500,
     )
 
-    EXTRACTION_PARALLEL_WORKERS: int = Field(
-        default=20,
-        description="Number of parallel workers for async processing.",
-        ge=1,
-        le=50,
-    )
-
-    EXTRACTION_MAX_LLM_CALLS_PER_RUN: int = Field(
-        default=999999,
-        description="Maximum LLM calls per extraction run. Set to high value for accuracy-first mode.",
-        ge=1,
-        le=999999,
-    )
-
-    # =========================================================================
-    # Multi-Node Processing Settings
-    # =========================================================================
-    EXTRACTION_MAX_RELATIONS_PER_LEADER: int = Field(
-        default=10,
-        description="Maximum relations to create per leader node. "
-        "Limits explosion for highly connected nodes.",
-        ge=1,
-        le=50,
-    )
-
-    EXTRACTION_SIMILARITY_DECAY_FACTOR: float = Field(
-        default=0.85,
-        description="Stop processing similar nodes when similarity drops below "
-        "best_match * this factor. 0.85 means stop at 85% of best.",
-        ge=0.5,
-        le=1.0,
-    )
-
     EXTRACTION_MAX_CONCURRENT_COLLECTIONS: int = Field(
         default=10,
         description="Max concurrent similarity searches in cross-batch processing.",
@@ -173,26 +133,9 @@ class ExtractionSettings(BaseSettings):
     # =========================================================================
     # Feature Flags
     # =========================================================================
-    EXTRACTION_USE_TWO_PHASE: bool = Field(
-        default=True,
-        description="Use Two-Phase extraction to catch intra-batch duplicates. "
-        "Phase 1: Similarity matrix + Union-Find for batch dedup. "
-        "Phase 2: Cross-batch check against reviewed nodes.",
-    )
-
-    EXTRACTION_ALLOW_NEW_RELATIONS: bool = Field(
-        default=True,
-        description="Allow LLM to propose new relation types outside ontology.",
-    )
-
     EXTRACTION_CROSS_SOURCE: bool = Field(
         default=True,
         description="Enable cross-source relation extraction.",
-    )
-
-    EXTRACTION_DRY_RUN: bool = Field(
-        default=False,
-        description="If True, log decisions without making changes.",
     )
 
     # =========================================================================
@@ -219,17 +162,6 @@ class ExtractionSettings(BaseSettings):
         "Used to find any related relation for family inheritance.",
         ge=0.1,
         le=0.6,
-    )
-
-    # =========================================================================
-    # Batch Processing Settings
-    # =========================================================================
-    EXTRACTION_BATCH_TOP_K_RELATIONS: int = Field(
-        default=15,
-        description="Number of top-k relations for batch LLM processing. "
-        "Slightly higher than single-pair to account for batch diversity.",
-        ge=5,
-        le=30,
     )
 
     # =========================================================================

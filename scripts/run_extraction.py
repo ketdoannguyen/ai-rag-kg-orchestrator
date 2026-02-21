@@ -507,7 +507,7 @@ Examples:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=100,
+        default=200,
         help="Number of nodes per batch (default: 100)",
     )
     parser.add_argument(

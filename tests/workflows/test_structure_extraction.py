@@ -40,8 +40,6 @@ def mock_settings() -> MagicMock:
     settings.EXTRACTION_LLM_BATCH_SIZE = 5
     settings.EXTRACTION_FALLBACK_RELATION = "SIMILAR_TO"
     settings.EXTRACTION_MAX_CONCURRENT_COLLECTIONS = 5
-    settings.EXTRACTION_SIMILARITY_DECAY_FACTOR = 0.85
-    settings.EXTRACTION_MAX_RELATIONS_PER_LEADER = 10
     settings.MAX_CONCURRENT_LLM_CALLS = 3
     return settings
 

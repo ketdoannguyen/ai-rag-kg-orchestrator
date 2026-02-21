@@ -60,7 +60,7 @@ class TextbookParser:
         self.root = StructureNode(
             node_type="structure",
             level=1,
-            attributes=StructureAttributes(title="Lịch sử 12"),
+            attributes=StructureAttributes(title="Lịch sử 10"),
             metadata=StructureMetadata(start_page=0),
         )
 

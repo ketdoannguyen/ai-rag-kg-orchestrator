@@ -82,7 +82,6 @@ class LLMRelationExtractor:
     """
 
     MAX_TEXT_LENGTH = 500
-    DEFAULT_TOP_K_RELATIONS = 10  # Number of relations to filter using Centroid
     MAX_PARSE_RETRIES = 3  # Retry LLM call when JSON parse fails
 
     # Relations to NEVER send to LLM for extraction
@@ -274,13 +273,13 @@ class LLMRelationExtractor:
         Args:
             source_embedding: Embedding of source node
             target_embedding: Embedding of target node
-            top_k: Number of relations to include (default: DEFAULT_TOP_K_RELATIONS)
+            top_k: Number of relations to include (default: EXTRACTION_TOP_K_RELATIONS setting)
             tier: Optional tier to filter relations (tier_1_structure, tier_2_content)
 
         Returns:
             Formatted prompt section with filtered relations
         """
-        top_k = top_k or self.DEFAULT_TOP_K_RELATIONS
+        top_k = top_k or self.settings.EXTRACTION_TOP_K_RELATIONS
 
         # Fallback to static ontology if no embeddings or handler
         if not source_embedding or not target_embedding or not self.ontology_handler:
@@ -333,13 +332,13 @@ class LLMRelationExtractor:
 
         Args:
             pairs: List of NodePair objects
-            top_k: Number of relations to include (default: DEFAULT_TOP_K_RELATIONS)
+            top_k: Number of relations to include (default: EXTRACTION_TOP_K_RELATIONS setting)
             tier: Optional tier to filter relations
 
         Returns:
             Formatted prompt section with filtered relations
         """
-        top_k = top_k or self.DEFAULT_TOP_K_RELATIONS
+        top_k = top_k or self.settings.EXTRACTION_TOP_K_RELATIONS
 
         # Collect valid pair embeddings
         pair_embeddings = [
@@ -395,13 +394,13 @@ class LLMRelationExtractor:
         Args:
             source_embedding: Embedding of source node
             target_embedding: Embedding of target node
-            top_k: Number of relations (default: DEFAULT_TOP_K_RELATIONS)
+            top_k: Number of relations (default: EXTRACTION_TOP_K_RELATIONS setting)
             tier: Optional tier filter
 
         Returns:
             Set of relation IDs in the top-k filtered list
         """
-        top_k = top_k or self.DEFAULT_TOP_K_RELATIONS
+        top_k = top_k or self.settings.EXTRACTION_TOP_K_RELATIONS
 
         if not source_embedding or not target_embedding or not self.ontology_handler:
             return set()
@@ -428,13 +427,13 @@ class LLMRelationExtractor:
 
         Args:
             pairs: List of NodePair objects
-            top_k: Number of relations (default: DEFAULT_TOP_K_RELATIONS)
+            top_k: Number of relations (default: EXTRACTION_TOP_K_RELATIONS setting)
             tier: Optional tier filter
 
         Returns:
             Set of relation IDs in the top-k filtered list
         """
-        top_k = top_k or self.DEFAULT_TOP_K_RELATIONS
+        top_k = top_k or self.settings.EXTRACTION_TOP_K_RELATIONS
 
         if not self.ontology_handler:
             return set()
@@ -627,7 +626,7 @@ class LLMRelationExtractor:
 
         top_k_relations = self._get_top_k_relation_ids_batch(
             pairs,
-            top_k=self.settings.EXTRACTION_BATCH_TOP_K_RELATIONS,
+            top_k=self.settings.EXTRACTION_TOP_K_RELATIONS,
             tier=tier,
         )
 
@@ -837,7 +836,7 @@ class LLMRelationExtractor:
         """
         ontology_section = self._build_filtered_ontology_section_batch(
             pairs,
-            top_k=self.settings.EXTRACTION_BATCH_TOP_K_RELATIONS,
+            top_k=self.settings.EXTRACTION_TOP_K_RELATIONS,
             tier=tier,
         )
 

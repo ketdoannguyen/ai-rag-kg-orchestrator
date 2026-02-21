@@ -572,19 +572,11 @@ class ExtractRelationsWorkflow:
                 if not similar:
                     return (node_id, [])
 
-                # Apply similarity decay cutoff (same as content tier)
-                best_sim = similar[0].similarity_score
-                decay_cutoff = best_sim * self.settings.EXTRACTION_SIMILARITY_DECAY_FACTOR
-                min_threshold = self.settings.EXTRACTION_LLM_THRESHOLD
-
                 filtered: list[tuple[StructureNode, float]] = []
                 for s in similar:
-                    if s.similarity_score < max(decay_cutoff, min_threshold):
+                    if s.similarity_score < self.settings.EXTRACTION_LLM_THRESHOLD:
                         break
                     filtered.append((s.node, s.similarity_score))
-
-                    if len(filtered) >= self.settings.EXTRACTION_MAX_RELATIONS_PER_LEADER:
-                        break
 
                 return (node_id, filtered)
 
@@ -1380,21 +1372,11 @@ class ExtractRelationsWorkflow:
                 if not similar_nodes:
                     return (leader_id, [], True)
 
-                # Apply similarity decay cutoff
-                # Stop processing when similarity drops below best * decay_factor
-                best_sim = similar_nodes[0].similarity_score
-                decay_cutoff = best_sim * self.settings.EXTRACTION_SIMILARITY_DECAY_FACTOR
-                min_threshold = self.settings.EXTRACTION_LLM_THRESHOLD
-
                 filtered_nodes = []
                 for s in similar_nodes:
-                    if s.similarity_score < max(decay_cutoff, min_threshold):
+                    if s.similarity_score < self.settings.EXTRACTION_LLM_THRESHOLD:
                         break  # Sorted by similarity, so we can stop here
                     filtered_nodes.append((s.node, s.similarity_score))
-
-                    # Apply max relations per leader limit
-                    if len(filtered_nodes) >= self.settings.EXTRACTION_MAX_RELATIONS_PER_LEADER:
-                        break
 
                 return (leader_id, filtered_nodes, True)
 
