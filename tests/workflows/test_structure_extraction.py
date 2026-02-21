@@ -445,6 +445,7 @@ class TestProcessStructureCrossBatchLLMBatch:
 
         workflow.structure_handler = MagicMock()
         workflow.structure_handler.create_structurally_equivalent_relation = AsyncMock()
+        workflow.structure_handler.mark_as_reviewed = AsyncMock()
 
         mock_llm_result = ExtractionResult(
             should_merge=True,
@@ -456,12 +457,12 @@ class TestProcessStructureCrossBatchLLMBatch:
 
         output = ExtractRelationsOutput()
         tier_stats = TierStats(tier_name="tier_1_structure")
-        to_mark_reviewed: list[str] = []
+        reviewed_ids: set[str] = set()
 
         await workflow._process_structure_cross_batch_llm_batch(
             pairs=[(node, similar_node, 0.55)],
             dry_run=False,
-            to_mark_reviewed=to_mark_reviewed,
+            reviewed_ids=reviewed_ids,
             output=output,
             tier_stats=tier_stats,
         )
@@ -472,7 +473,7 @@ class TestProcessStructureCrossBatchLLMBatch:
             similarity=0.55,
         )
         assert output.structure_relations_created == 1
-        assert str(node.id) in to_mark_reviewed
+        assert str(node.id) in reviewed_ids
 
     @pytest.mark.asyncio
     async def test_llm_determined_relation_type_used(
@@ -504,6 +505,7 @@ class TestProcessStructureCrossBatchLLMBatch:
 
         workflow.structure_handler = MagicMock()
         workflow.structure_handler.create_structure_relation = AsyncMock()
+        workflow.structure_handler.mark_as_reviewed = AsyncMock()
 
         mock_llm_result = ExtractionResult(
             should_merge=False,
@@ -516,12 +518,12 @@ class TestProcessStructureCrossBatchLLMBatch:
 
         output = ExtractRelationsOutput()
         tier_stats = TierStats(tier_name="tier_1_structure")
-        to_mark_reviewed: list[str] = []
+        reviewed_ids: set[str] = set()
 
         await workflow._process_structure_cross_batch_llm_batch(
             pairs=[(node, similar_node, 0.55)],
             dry_run=False,
-            to_mark_reviewed=to_mark_reviewed,
+            reviewed_ids=reviewed_ids,
             output=output,
             tier_stats=tier_stats,
         )
@@ -578,12 +580,12 @@ class TestProcessStructureCrossBatchLLMBatch:
 
         output = ExtractRelationsOutput()
         tier_stats = TierStats(tier_name="tier_1_structure")
-        to_mark_reviewed: list[str] = []
+        reviewed_ids: set[str] = set()
 
         await workflow._process_structure_cross_batch_llm_batch(
             pairs=[(node, similar_node, 0.45)],
             dry_run=False,
-            to_mark_reviewed=to_mark_reviewed,
+            reviewed_ids=reviewed_ids,
             output=output,
             tier_stats=tier_stats,
         )
@@ -633,7 +635,7 @@ class TestProcessLLMBatchContentTierEmbeddings:
         pairs = [(node_a, node_b, 0.55)]
 
         processed_ids: set[str] = set()
-        to_mark_reviewed: list[str] = []
+        reviewed_ids: set[str] = set()
         output = ExtractRelationsOutput()
         tier_stats = TierStats(tier_name="tier_2_content")
 
@@ -650,13 +652,14 @@ class TestProcessLLMBatchContentTierEmbeddings:
         workflow.content_handler = MagicMock()
         workflow.content_handler.node_exists = AsyncMock(return_value=True)
         workflow.content_handler.create_relation_edge = AsyncMock()
+        workflow.content_handler.mark_as_reviewed = AsyncMock()
 
         # Act
         await workflow._process_llm_batch(
             pairs=pairs,
             dry_run=False,
             processed_ids=processed_ids,
-            to_mark_reviewed=to_mark_reviewed,
+            reviewed_ids=reviewed_ids,
             output=output,
             tier_stats=tier_stats,
         )
@@ -702,7 +705,7 @@ class TestProcessLLMBatchContentTierEmbeddings:
         pairs = [(node_a, node_b, 0.55)]
 
         processed_ids: set[str] = set()
-        to_mark_reviewed: list[str] = []
+        reviewed_ids: set[str] = set()
         output = ExtractRelationsOutput()
         tier_stats = TierStats(tier_name="tier_2_content")
 
@@ -719,13 +722,14 @@ class TestProcessLLMBatchContentTierEmbeddings:
         workflow.content_handler = MagicMock()
         workflow.content_handler.node_exists = AsyncMock(return_value=True)
         workflow.content_handler.create_relation_edge = AsyncMock()
+        workflow.content_handler.mark_as_reviewed = AsyncMock()
 
         # Act
         await workflow._process_llm_batch(
             pairs=pairs,
             dry_run=False,
             processed_ids=processed_ids,
-            to_mark_reviewed=to_mark_reviewed,
+            reviewed_ids=reviewed_ids,
             output=output,
             tier_stats=tier_stats,
         )

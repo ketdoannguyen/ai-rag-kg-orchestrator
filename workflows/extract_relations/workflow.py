@@ -285,7 +285,7 @@ class ExtractRelationsWorkflow:
         log.info("Found unreviewed structures", count=len(structures))
         tier_stats.nodes_processed = len(structures)
 
-        to_mark_reviewed: list[str] = []
+        reviewed_ids: set[str] = set()
 
         # ═══════════════════════════════════════════════════════════════════
         # PHASE 1: INTRA-BATCH PROCESSING (NO MERGE)
@@ -354,18 +354,19 @@ class ExtractRelationsWorkflow:
 
         # Step 2: Execute high-similarity relations FIRST (no LLM)
         for source, target, similarity in high_sim_pairs:
+            source_id = str(source.id)
             if not input_data.dry_run:
                 await self.structure_handler.create_structurally_equivalent_relation(
                     source=source,
                     target=target,
                     similarity=similarity,
                 )
+            reviewed_ids.add(source_id)
             output.structure_relations_created += 1
             tier_stats.relations_total += 1
-            to_mark_reviewed.append(str(source.id))
             log.debug(
                 "Created STRUCTURALLY_EQUIVALENT (cross-batch)",
-                source=str(source.id),
+                source=source_id,
                 target=str(target.id),
                 similarity=similarity,
             )
@@ -375,7 +376,7 @@ class ExtractRelationsWorkflow:
             await self._process_structure_cross_batch_llm_batch(
                 llm_pairs,
                 input_data.dry_run,
-                to_mark_reviewed,
+                reviewed_ids,
                 output,
                 tier_stats,
                 tier=tier_label,
@@ -394,9 +395,12 @@ class ExtractRelationsWorkflow:
             kept_separate=kept_count,
         )
 
-        # Batch mark as reviewed
-        if to_mark_reviewed:
-            await self.structure_handler.mark_as_reviewed(to_mark_reviewed)
+        # Mark ALL batch nodes as reviewed after all processing complete
+        # This is done once at the end, not per-pair, to ensure a node is only
+        # marked reviewed after ALL its pairs have been processed
+        all_structure_ids = [str(s.id) for s in structures]
+        if all_structure_ids and not input_data.dry_run:
+            await self.structure_handler.mark_as_reviewed(all_structure_ids)
 
         # Store tier stats in output
         output.tier_stats["tier_1_structure"] = tier_stats
@@ -629,7 +633,7 @@ class ExtractRelationsWorkflow:
         self,
         pairs: list[tuple[StructureNode, StructureNode, float]],
         dry_run: bool,
-        to_mark_reviewed: list[str],
+        reviewed_ids: set[str],
         output: ExtractRelationsOutput,
         tier_stats: TierStats,
         tier: str = "T1:Structure",
@@ -713,6 +717,7 @@ class ExtractRelationsWorkflow:
 
             original_idx = valid_pair_indices[result_idx]
             node_a, node_b, similarity = pairs[original_idx]
+            node_a_id = str(node_a.id)
 
             if llm_result.should_merge:
                 # Structure tier: NEVER merge, create STRUCTURALLY_EQUIVALENT instead
@@ -724,10 +729,10 @@ class ExtractRelationsWorkflow:
                     )
                 output.structure_relations_created += 1
                 tier_stats.relations_total += 1
-                to_mark_reviewed.append(str(node_a.id))
+                reviewed_ids.add(node_a_id)
                 log.debug(
                     "LLM said merge, created STRUCTURALLY_EQUIVALENT (cross-batch)",
-                    source=str(node_a.id),
+                    source=node_a_id,
                     target=str(node_b.id),
                 )
             elif llm_result.relation_type is not None:
@@ -746,10 +751,10 @@ class ExtractRelationsWorkflow:
                     tier_stats.relations_in_top_k += 1
                 if llm_result.is_new_relation:
                     tier_stats.relations_new += 1
-                to_mark_reviewed.append(str(node_a.id))
+                reviewed_ids.add(node_a_id)
                 log.debug(
                     "Created LLM-verified relation (cross-batch)",
-                    source=str(node_a.id),
+                    source=node_a_id,
                     target=str(node_b.id),
                     relation_type=llm_result.relation_type,
                 )
@@ -882,7 +887,7 @@ class ExtractRelationsWorkflow:
         )
 
         processed_ids: set[str] = set(merged_ids)
-        to_mark_reviewed: list[str] = []
+        reviewed_ids: set[str] = set()
 
         # Step 1: Collect ALL pairs for ALL leaders in parallel
         # This replaces the old sequential loop that only took similar_nodes[0]
@@ -971,7 +976,7 @@ class ExtractRelationsWorkflow:
                 llm_pairs_to_process,
                 input_data.dry_run,
                 processed_ids,
-                to_mark_reviewed,
+                reviewed_ids,
                 output,
                 tier_stats,
                 tier=tier_label,
@@ -985,7 +990,6 @@ class ExtractRelationsWorkflow:
                 output.nodes_kept_separate += 1
                 tier_stats.kept_separate += 1
                 output.content_nodes_processed += 1
-                to_mark_reviewed.append(leader_id)
                 processed_ids.add(leader_id)
 
         # ═══════════════════════════════════════════════════════════════════
@@ -1020,15 +1024,18 @@ class ExtractRelationsWorkflow:
                     intra_llm_pairs,
                     input_data.dry_run,
                     processed_ids,
-                    to_mark_reviewed,
+                    reviewed_ids,
                     output,
                     tier_stats,
                     tier=tier_label,
                 )
 
-        # Batch mark as reviewed
-        if to_mark_reviewed:
-            await self.content_handler.mark_as_reviewed(to_mark_reviewed)
+        # Mark ALL batch nodes as reviewed after all processing complete
+        # This is done once at the end, not per-pair, to ensure a node is only
+        # marked reviewed after ALL its pairs have been processed
+        all_node_ids = [str(n.id) for n in nodes]
+        if all_node_ids and not input_data.dry_run:
+            await self.content_handler.mark_as_reviewed(all_node_ids)
 
         # Store tier stats in output
         output.tier_stats["tier_2_content"] = tier_stats
@@ -1038,7 +1045,7 @@ class ExtractRelationsWorkflow:
         pairs: list[tuple[ContentNode, ContentNode, float]],
         dry_run: bool,
         processed_ids: set[str],
-        to_mark_reviewed: list[str],
+        reviewed_ids: set[str],
         output: ExtractRelationsOutput,
         tier_stats: TierStats,
         tier: str = "T2:Content",
@@ -1172,6 +1179,10 @@ class ExtractRelationsWorkflow:
                 output.content_nodes_merged += 1
                 tier_stats.llm_merged += 1
 
+                # auto_merge transaction already marks target as reviewed
+                # Collect source for batch mark-reviewed after all results applied
+                reviewed_ids.add(node_a_id)
+
                 # Debug logging: log merge decision
                 if self._debug_logger:
                     self._debug_logger.log_decision(
@@ -1239,7 +1250,8 @@ class ExtractRelationsWorkflow:
                     if llm_result.merged_with_existing:
                         output.new_relations_merged += 1
 
-                to_mark_reviewed.append(node_a_id)
+                # Collect for batch mark-reviewed after all results applied
+                reviewed_ids.add(node_a_id)
 
                 # Debug logging: log relation decision
                 if self._debug_logger:
@@ -1275,7 +1287,7 @@ class ExtractRelationsWorkflow:
                 output.content_nodes_processed += 1
                 output.nodes_kept_separate += 1
                 tier_stats.kept_separate += 1
-                to_mark_reviewed.append(node_a_id)
+                reviewed_ids.add(node_a_id)
 
                 log.debug(
                     "LLM determined no relation - kept separate",
