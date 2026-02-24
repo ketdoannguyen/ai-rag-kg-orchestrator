@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     LLM_EMBEDDING_API_BASE: str | None = None
     LLM_EMBEDDING_OPTIONS: dict[str, Any] = Field(default_factory=dict)
 
+    # =========================================================================
+    # Benchmark LLM Configuration (dedicated endpoint for query generation)
+    # =========================================================================
+    BENCHMARK_LLM_API_KEY: str | None = None
+    BENCHMARK_LLM_API_BASE: str | None = None
+    BENCHMARK_LLM_MODEL: str = "claude-sonnet-4.6"
+
     # Langfuse Cloud Observability
     LANGFUSE_PUBLIC_KEY: str | None = None
     LANGFUSE_SECRET_KEY: str | None = None

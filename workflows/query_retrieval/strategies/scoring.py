@@ -92,3 +92,5 @@ class E3ScoringMethod(str, Enum):
     PARENT_COSINE = "parent_cosine"
     AVG_LOG = "avg_log"
     RRF_PARENT_AVGLOG = "rrf_parent_avglog"
+    FILTERED_AVG_LOG = "filtered_avg_log"
+    RRF_PARENT_FILTERED = "rrf_parent_filtered"

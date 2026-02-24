@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import statistics
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -203,6 +204,10 @@ class BottomUpRetrieval:
             scored_parents = self._score_parents_avg_log(parents_dict)
         elif scoring_method == E3ScoringMethod.RRF_PARENT_AVGLOG:
             scored_parents = self._score_rrf_parent_avglog(query_embedding, parents_dict)
+        elif scoring_method == E3ScoringMethod.FILTERED_AVG_LOG:
+            scored_parents = self._score_filtered_avg_log(parents_dict)
+        elif scoring_method == E3ScoringMethod.RRF_PARENT_FILTERED:
+            scored_parents = self._score_rrf_parent_filtered(query_embedding, parents_dict)
         else:
             scored_parents = self._score_parents_avg_log(parents_dict)
 
@@ -556,6 +561,72 @@ class BottomUpRetrieval:
 
         return scored_parents
 
+    def _score_filtered_avg_log(
+        self,
+        parents_dict: dict[str, dict],
+    ) -> list[dict]:
+        """Score parents using AVG*ln then filter by median threshold.
+
+        Steps:
+            1. Compute full AVG*ln scores via _score_parents_avg_log
+            2. Compute tau = median(aggregated_score)
+            3. Keep only parents with aggregated_score >= tau
+
+        Guard: if <=1 parent, return as-is (median meaningless).
+
+        Args:
+            parents_dict: Dict from parent discovery
+
+        Returns:
+            Filtered list of scored parents sorted by score descending
+        """
+        scored = self._score_parents_avg_log(parents_dict)
+
+        if len(scored) <= 1:
+            return scored
+
+        tau = statistics.median([p["aggregated_score"] for p in scored])
+        filtered = [p for p in scored if p["aggregated_score"] >= tau]
+
+        for p in filtered:
+            p["scoring_method"] = "filtered_avg_log"
+
+        return filtered
+
+    def _score_rrf_parent_filtered(
+        self,
+        query_embedding: list[float],
+        parents_dict: dict[str, dict],
+    ) -> list[dict]:
+        """Score parents using RRF then filter by median threshold.
+
+        Steps:
+            1. Compute full RRF scores via _score_rrf_parent_avglog
+            2. Compute tau = median(aggregated_score)
+            3. Keep only parents with aggregated_score >= tau
+
+        Guard: if <=1 parent, return as-is (median meaningless).
+
+        Args:
+            query_embedding: Query embedding vector
+            parents_dict: Dict from parent discovery
+
+        Returns:
+            Filtered list of scored parents sorted by score descending
+        """
+        scored = self._score_rrf_parent_avglog(query_embedding, parents_dict)
+
+        if len(scored) <= 1:
+            return scored
+
+        tau = statistics.median([p["aggregated_score"] for p in scored])
+        filtered = [p for p in scored if p["aggregated_score"] >= tau]
+
+        for p in filtered:
+            p["scoring_method"] = "rrf_parent_filtered"
+
+        return filtered
+
     def _update_scoring_metrics(
         self,
         scored_parents: list[dict],
@@ -641,5 +712,73 @@ class BottomUpRetrieval:
         self.metrics.parents_returned = len(results)
         self.metrics.parents_with_summary = with_summary
         self.metrics.parents_with_title_fallback = with_title_fallback
+
+        return results
+
+    # =========================================================================
+    # Expansion: Section → Content Nodes
+    # =========================================================================
+
+    AQL_EXPAND_CONTENT = """
+    FOR v, e IN 1..1 OUTBOUND DOCUMENT(@parent_id) knowledge_edges
+        FILTER e.type == "HAS_CONTENT"
+        SORT v.position ASC, v._key ASC
+        RETURN {
+            content_id: v._id,
+            content_key: v._key,
+            text: v.text,
+            node_type: v.node_type,
+            position: v.position
+        }
+    """
+
+    async def expand_to_content_nodes(
+        self,
+        ranked_sections: list[dict],
+        top_k_per_parent: int = 50,
+    ) -> list[dict]:
+        """Expand ranked parent sections into their content nodes.
+
+        Inverts E3's ascent: goes from section → children content nodes.
+        Preserves section rank order (higher-ranked section's children first).
+        Deduplicates by content_id across sections.
+
+        Args:
+            ranked_sections: Scored parents from E3 scoring (must have parent_id)
+            top_k_per_parent: Max children per parent (default 50)
+
+        Returns:
+            List of content node dicts, ordered by parent rank then position.
+        """
+        if not ranked_sections:
+            return []
+
+        seen_ids: set[str] = set()
+        results: list[dict] = []
+        loop = asyncio.get_event_loop()
+
+        for section in ranked_sections:
+            parent_id = section["parent_id"]
+
+            cursor = await loop.run_in_executor(
+                self._executor,
+                lambda pid=parent_id: self.db.aql.execute(
+                    self.AQL_EXPAND_CONTENT,
+                    bind_vars={"parent_id": pid},
+                ),
+            )
+            children = list(cursor)[:top_k_per_parent]
+
+            for child in children:
+                cid = child["content_id"]
+                if cid not in seen_ids:
+                    seen_ids.add(cid)
+                    results.append(child)
+
+        self._log.debug(
+            "Expanded %d sections into %d content nodes",
+            len(ranked_sections),
+            len(results),
+        )
 
         return results
