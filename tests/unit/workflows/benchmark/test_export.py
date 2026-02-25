@@ -468,7 +468,8 @@ class TestBuildIdAliasMap:
         map2 = build_id_alias_map(sg)
         assert map1 == map2
 
-    def test_relation_ids_covered_when_not_in_nodes(self):
+    def test_relation_ids_outside_nodes_not_in_alias_map(self):
+        """Nodes referenced only in relations but not in subgraph.nodes must NOT get an alias."""
         nodes = [make_subgraph_node("content_nodes/n1", "text")]
         from workflows.benchmark.models import SubgraphRelation
 
@@ -486,7 +487,53 @@ class TestBuildIdAliasMap:
             relations=relations,
         )
         alias_map = build_id_alias_map(sg)
-        assert "content_nodes/extra" in alias_map
+        assert "content_nodes/extra" not in alias_map
+
+    def test_relation_outside_subgraph_not_rendered(self):
+        """A relation where one endpoint is outside subgraph.nodes must not appear in output."""
+        nodes = [make_subgraph_node("content_nodes/n1", "text", parent_section_key="anchor_key_1")]
+        from workflows.benchmark.models import SubgraphRelation
+
+        relations = [
+            SubgraphRelation(
+                from_id="content_nodes/n1",
+                to_id="content_nodes/external_node",
+                relation_type="LEADS_TO",
+            )
+        ]
+        sg = make_subgraph(
+            nodes=nodes,
+            core_node_ids=["content_nodes/n1"],
+            enriched_node_ids=[],
+            relations=relations,
+        )
+        result, alias_map = format_subgraph_for_llm(sg)
+        assert "LEADS_TO" not in result
+        assert "external_node" not in result
+
+    def test_only_intra_subgraph_relations_rendered(self):
+        """Relations between two in-subgraph nodes are rendered; external ones are filtered."""
+        nodes = [
+            make_subgraph_node("content_nodes/n1", "text1", parent_section_key="anchor_key_1"),
+            make_subgraph_node("content_nodes/n2", "text2", parent_section_key="anchor_key_1"),
+        ]
+        from workflows.benchmark.models import SubgraphRelation
+
+        relations = [
+            SubgraphRelation(from_id="content_nodes/n1", to_id="content_nodes/n2", relation_type="LEADS_TO"),
+            SubgraphRelation(from_id="content_nodes/n1", to_id="content_nodes/outside", relation_type="CAUSES"),
+        ]
+        sg = make_subgraph(
+            nodes=nodes,
+            core_node_ids=["content_nodes/n1", "content_nodes/n2"],
+            enriched_node_ids=[],
+            relations=relations,
+            content_count=2,
+        )
+        result, alias_map = format_subgraph_for_llm(sg)
+        assert "LEADS_TO" in result
+        assert "CAUSES" not in result
+        assert "outside" not in result
 
     def test_no_duplicate_aliases(self):
         sg = make_subgraph()

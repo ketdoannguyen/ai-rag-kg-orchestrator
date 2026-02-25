@@ -16,8 +16,9 @@ from workflows.benchmark.models import Subgraph, SubgraphNode, SubgraphStructure
 def build_id_alias_map(subgraph: Subgraph) -> dict[str, str]:
     """Build a deterministic mapping from full node_id → short alias (n1, n2, ...).
 
-    Iterates subgraph.nodes first (preserving order), then any extra IDs found
-    only in relations. Returns ``{full_id: "n1", ...}``.
+    Only nodes present in ``subgraph.nodes`` receive an alias.  Relation
+    endpoints that point outside the subgraph are intentionally excluded.
+    Returns ``{full_id: "n1", ...}``.
     """
     alias_map: dict[str, str] = {}
     counter = 1
@@ -26,12 +27,6 @@ def build_id_alias_map(subgraph: Subgraph) -> dict[str, str]:
         if node.node_id not in alias_map:
             alias_map[node.node_id] = f"n{counter}"
             counter += 1
-
-    for rel in subgraph.relations:
-        for nid in (rel.from_id, rel.to_id):
-            if nid not in alias_map:
-                alias_map[nid] = f"n{counter}"
-                counter += 1
 
     return alias_map
 
@@ -193,9 +188,11 @@ def _format_full(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
             counter += 1
 
     # ----- Relations -----
+    node_ids = {n.node_id for n in subgraph.nodes}
+    intra_relations = [r for r in subgraph.relations if r.from_id in node_ids and r.to_id in node_ids]
     lines.append("")
-    lines.append(f"### Relations ({len(subgraph.relations)}):")
-    for rel in subgraph.relations:
+    lines.append(f"### Relations ({len(intra_relations)}):")
+    for rel in intra_relations:
         from_alias = alias_map.get(rel.from_id, rel.from_id)
         to_alias = alias_map.get(rel.to_id, rel.to_id)
         lines.append(f"- [{from_alias}] --{rel.relation_type}--> [{to_alias}]")
@@ -288,10 +285,12 @@ def _format_relation(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
         lines.append(_format_node_line(counter, node, alias_map))
         counter += 1
 
-    # Full relation list — this is the key signal for HZ
+    # Full relation list — only intra-subgraph edges, this is the key signal for HZ
+    node_ids = {n.node_id for n in subgraph.nodes}
+    intra_relations = [r for r in subgraph.relations if r.from_id in node_ids and r.to_id in node_ids]
     lines.append("")
-    lines.append(f"### Relations ({len(subgraph.relations)}):")
-    for rel in subgraph.relations:
+    lines.append(f"### Relations ({len(intra_relations)}):")
+    for rel in intra_relations:
         from_alias = alias_map.get(rel.from_id, rel.from_id)
         to_alias = alias_map.get(rel.to_id, rel.to_id)
         lines.append(f"- [{from_alias}] --{rel.relation_type}--> [{to_alias}]")
