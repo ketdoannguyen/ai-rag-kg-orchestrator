@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from litellm import acompletion, aembedding
+from litellm.exceptions import BadRequestError as LiteLLMBadRequestError
 from loguru import logger
 from tenacity import (
     retry,
@@ -23,7 +24,7 @@ from .registry import ModelRegistry
 from .utils import MessageConverter
 
 # Non-retryable exceptions - configuration errors that won't be fixed by retry
-NON_RETRYABLE_EXCEPTIONS = (ConfigurationError, ModelNotFoundError)
+NON_RETRYABLE_EXCEPTIONS = (ConfigurationError, ModelNotFoundError, LiteLLMBadRequestError)
 
 
 class AIGatewayClient:
@@ -115,8 +116,9 @@ class AIGatewayClient:
         params = self._prepare_params(
             request.provider_options, chat_config, self._resolve_tools(request)
         )
+        resolved_model = chat_config.model
         response = await acompletion(
-            model=request.model or chat_config.model,
+            model=resolved_model,
             messages=messages,
             **params,
         )
@@ -125,7 +127,7 @@ class AIGatewayClient:
         # Debug logging for troubleshooting empty responses
         logger.debug(
             "Raw LLM response",
-            model=request.model or chat_config.model,
+            model=resolved_model,
             response_keys=list(response_dict.keys()) if response_dict else [],
             choices_count=len(response_dict.get("choices", [])),
         )
@@ -175,7 +177,7 @@ class AIGatewayClient:
         params["stream"] = True
 
         async for chunk in acompletion(
-            model=request.model or chat_config.model,
+            model=chat_config.model,
             messages=messages,
             **params,
         ):
@@ -204,7 +206,7 @@ class AIGatewayClient:
         params = self._prepare_params(request.provider_options, embedding_config)
 
         # Determine the model name to use
-        model_name = request.model or embedding_config.model
+        model_name = embedding_config.model
 
         # Handle openrouter/ prefix - strip it and let api_base do the routing
         if model_name.startswith("openrouter/"):
