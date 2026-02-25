@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 from workflows.benchmark.export import (
+    build_id_alias_map,
     export_all_subgraphs,
     export_subgraph_json,
     format_subgraph_for_llm,
@@ -112,54 +113,64 @@ def make_subgraph(
 class TestFormatSubgraphForLlm:
     def test_output_is_string(self):
         sg = make_subgraph()
-        result = format_subgraph_for_llm(sg)
+        result, alias_map = format_subgraph_for_llm(sg)
         assert isinstance(result, str)
+
+    def test_returns_tuple_with_alias_map(self):
+        sg = make_subgraph()
+        result = format_subgraph_for_llm(sg)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        text, alias_map = result
+        assert isinstance(text, str)
+        assert isinstance(alias_map, dict)
 
     def test_header_contains_title(self):
         sg = make_subgraph(anchor_title="My Special Title")
-        result = format_subgraph_for_llm(sg)
+        result, _ = format_subgraph_for_llm(sg)
         assert "My Special Title" in result
 
     def test_header_contains_subgraph_id_prefix(self):
         sg = make_subgraph(subgraph_id="sg-abcdef12")
-        result = format_subgraph_for_llm(sg)
+        result, _ = format_subgraph_for_llm(sg)
         assert "SG-sg-abcd" in result
 
     def test_l5_section_header_present(self):
         sg = make_subgraph()
-        result = format_subgraph_for_llm(sg)
+        result, _ = format_subgraph_for_llm(sg)
         assert "### L5:" in result
 
     def test_relations_section_header_present(self):
         sg = make_subgraph()
-        result = format_subgraph_for_llm(sg)
+        result, _ = format_subgraph_for_llm(sg)
         assert "### Relations" in result
 
     def test_relations_count_in_header(self):
         sg = make_subgraph()
-        result = format_subgraph_for_llm(sg)
+        result, _ = format_subgraph_for_llm(sg)
         assert f"### Relations ({len(sg.relations)}):" in result
 
     def test_breadcrumb_section_present(self):
         sg = make_subgraph(breadcrumb="Root > Topic > Sub")
-        result = format_subgraph_for_llm(sg)
+        result, _ = format_subgraph_for_llm(sg)
         assert "### Breadcrumb:" in result
         assert "Root > Topic > Sub" in result
 
-    def test_node_key_extracted_from_id(self):
+    def test_node_alias_used_not_uuid(self):
         sg = make_subgraph(
             nodes=[
                 make_subgraph_node(
-                    "content_nodes/mykey123",
+                    "content_nodes/eb131378-62ae-4394-a92d-405198cc355b",
                     "text",
                     parent_section_key="anchor_key_1",
                 )
             ],
-            core_node_ids=["content_nodes/mykey123"],
+            core_node_ids=["content_nodes/eb131378-62ae-4394-a92d-405198cc355b"],
             enriched_node_ids=[],
         )
-        result = format_subgraph_for_llm(sg)
-        assert "mykey123" in result
+        result, alias_map = format_subgraph_for_llm(sg)
+        assert "eb131378-62ae-4394-a92d-405198cc355b" not in result
+        assert "[n1]" in result
 
     def test_text_truncated_at_200_chars(self):
         long_text = "A" * 300
@@ -174,7 +185,7 @@ class TestFormatSubgraphForLlm:
             core_node_ids=["content_nodes/n1"],
             enriched_node_ids=[],
         )
-        result = format_subgraph_for_llm(sg)
+        result, _ = format_subgraph_for_llm(sg)
         assert "..." in result
 
     def test_short_text_not_truncated(self):
@@ -190,10 +201,10 @@ class TestFormatSubgraphForLlm:
             core_node_ids=["content_nodes/n1"],
             enriched_node_ids=[],
         )
-        result = format_subgraph_for_llm(sg)
+        result, _ = format_subgraph_for_llm(sg)
         assert short_text in result
 
-    def test_relation_formatted_as_arrow(self):
+    def test_relation_formatted_with_aliases(self):
         nodes = [
             make_subgraph_node("content_nodes/n1", "text1", parent_section_key="anchor_key_1"),
             make_subgraph_node("content_nodes/n2", "text2", parent_section_key="other_sec"),
@@ -209,10 +220,12 @@ class TestFormatSubgraphForLlm:
             enriched_node_ids=["content_nodes/n2"],
             relations=[relation],
         )
-        result = format_subgraph_for_llm(sg)
+        result, alias_map = format_subgraph_for_llm(sg)
         assert "--LEADS_TO-->" in result
-        assert "n1" in result
-        assert "n2" in result
+        # Aliases must appear; no raw UUIDs/keys in relations
+        from_alias = alias_map["content_nodes/n1"]
+        to_alias = alias_map["content_nodes/n2"]
+        assert f"[{from_alias}] --LEADS_TO--> [{to_alias}]" in result
 
     def test_per_node_breadcrumbs_included_when_different(self):
         nodes = [
@@ -235,7 +248,7 @@ class TestFormatSubgraphForLlm:
             enriched_node_ids=["content_nodes/n2"],
             breadcrumb="Root",
         )
-        result = format_subgraph_for_llm(sg)
+        result, _ = format_subgraph_for_llm(sg)
         assert "Root > A" in result
         assert "Root > B" in result
 
@@ -255,17 +268,17 @@ class TestFormatSubgraphForLlm:
             enriched_node_ids=[],
             breadcrumb=main_breadcrumb,
         )
-        result = format_subgraph_for_llm(sg)
+        result, _ = format_subgraph_for_llm(sg)
         assert result.count(main_breadcrumb) == 1
 
     def test_numbered_node_list(self):
         sg = make_subgraph()
-        result = format_subgraph_for_llm(sg)
+        result, _ = format_subgraph_for_llm(sg)
         assert "1." in result
 
     def test_anchor_summary_in_header(self):
         sg = make_subgraph(anchor_summary="This is the anchor summary")
-        result = format_subgraph_for_llm(sg)
+        result, _ = format_subgraph_for_llm(sg)
         assert "Summary: This is the anchor summary" in result
 
     def test_scenario_a_flat_content(self):
@@ -291,11 +304,12 @@ class TestFormatSubgraphForLlm:
             enriched_node_ids=[],
             structure_nodes=structure,
         )
-        result = format_subgraph_for_llm(sg)
+        result, alias_map = format_subgraph_for_llm(sg)
         assert '### L5: "Main Section"' in result
         assert "Summary: Main summary" in result
-        assert "[c1]" in result
-        assert "[c2]" in result
+        # Aliases should appear, not raw keys
+        assert f"[{alias_map['content_nodes/c1']}]" in result
+        assert f"[{alias_map['content_nodes/c2']}]" in result
         # No L6 headers
         assert "#### L6:" not in result
 
@@ -342,13 +356,13 @@ class TestFormatSubgraphForLlm:
             structure_nodes=structure,
             content_count=3,
         )
-        result = format_subgraph_for_llm(sg)
+        result, alias_map = format_subgraph_for_llm(sg)
         assert "Direct content:" in result
         assert '#### L6: "Sub A" — Summary: Sub A summary' in result
         assert '#### L6: "Sub B"' in result
-        assert "[d1]" in result
-        assert "[c1]" in result
-        assert "[c2]" in result
+        assert f"[{alias_map['content_nodes/d1']}]" in result
+        assert f"[{alias_map['content_nodes/c1']}]" in result
+        assert f"[{alias_map['content_nodes/c2']}]" in result
 
     def test_enriched_grouped_as_related_l5(self):
         """Enriched nodes should be grouped under Related L5 headers."""
@@ -383,14 +397,14 @@ class TestFormatSubgraphForLlm:
             enriched_node_ids=["content_nodes/e1"],
             structure_nodes=structure,
         )
-        result = format_subgraph_for_llm(sg)
+        result, alias_map = format_subgraph_for_llm(sg)
         assert '### Related L5: "Related Section"' in result
-        assert "[e1]" in result
+        assert f"[{alias_map['content_nodes/e1']}]" in result
 
     def test_fallback_when_no_structure_nodes(self):
         """When structure_nodes is empty, should still produce valid output."""
         sg = make_subgraph(structure_nodes=[])
-        result = format_subgraph_for_llm(sg)
+        result, _ = format_subgraph_for_llm(sg)
         assert '## Subgraph: "Test Title"' in result
         assert "### L5:" in result
         assert "### Relations" in result
@@ -421,8 +435,82 @@ class TestFormatSubgraphForLlm:
                 ),
             ],
         )
-        result = format_subgraph_for_llm(sg)
+        result, _ = format_subgraph_for_llm(sg)
         assert "### Related: [unknown_sec]" in result
+
+
+# ---------------------------------------------------------------------------
+# build_id_alias_map
+# ---------------------------------------------------------------------------
+
+
+class TestBuildIdAliasMap:
+    def test_all_nodes_covered(self):
+        sg = make_subgraph()
+        alias_map = build_id_alias_map(sg)
+        for node in sg.nodes:
+            assert node.node_id in alias_map
+
+    def test_aliases_are_sequential(self):
+        nodes = [make_subgraph_node(f"content_nodes/node{i}", f"text {i}") for i in range(5)]
+        sg = make_subgraph(
+            nodes=nodes,
+            core_node_ids=[nodes[0].node_id],
+            enriched_node_ids=[n.node_id for n in nodes[1:]],
+        )
+        alias_map = build_id_alias_map(sg)
+        aliases = list(alias_map.values())
+        assert aliases == [f"n{i}" for i in range(1, 6)]
+
+    def test_deterministic_across_calls(self):
+        sg = make_subgraph()
+        map1 = build_id_alias_map(sg)
+        map2 = build_id_alias_map(sg)
+        assert map1 == map2
+
+    def test_relation_ids_covered_when_not_in_nodes(self):
+        nodes = [make_subgraph_node("content_nodes/n1", "text")]
+        from workflows.benchmark.models import SubgraphRelation
+
+        relations = [
+            SubgraphRelation(
+                from_id="content_nodes/n1",
+                to_id="content_nodes/extra",
+                relation_type="LEADS_TO",
+            )
+        ]
+        sg = make_subgraph(
+            nodes=nodes,
+            core_node_ids=["content_nodes/n1"],
+            enriched_node_ids=[],
+            relations=relations,
+        )
+        alias_map = build_id_alias_map(sg)
+        assert "content_nodes/extra" in alias_map
+
+    def test_no_duplicate_aliases(self):
+        sg = make_subgraph()
+        alias_map = build_id_alias_map(sg)
+        aliases = list(alias_map.values())
+        assert len(aliases) == len(set(aliases))
+
+    def test_format_uses_aliases_not_raw_ids(self):
+        nodes = [
+            make_subgraph_node(
+                "content_nodes/eb131378-62ae-4394-a92d-405198cc355b",
+                "text",
+                parent_section_key="anchor_key_1",
+            )
+        ]
+        sg = make_subgraph(
+            nodes=nodes,
+            core_node_ids=["content_nodes/eb131378-62ae-4394-a92d-405198cc355b"],
+            enriched_node_ids=[],
+        )
+        text, alias_map = format_subgraph_for_llm(sg)
+        assert "eb131378-62ae-4394-a92d-405198cc355b" not in text
+        assert alias_map["content_nodes/eb131378-62ae-4394-a92d-405198cc355b"] == "n1"
+        assert "[n1]" in text
 
 
 # ---------------------------------------------------------------------------

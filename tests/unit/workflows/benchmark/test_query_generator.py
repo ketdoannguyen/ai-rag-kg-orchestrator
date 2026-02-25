@@ -13,7 +13,7 @@ import json
 import pytest
 
 from workflows.benchmark.models import Subgraph, SubgraphNode
-from workflows.benchmark.query_generator import _extract_json, parse_llm_response
+from workflows.benchmark.query_generator import _extract_json, _parse_fact_node, parse_llm_response
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,6 +55,7 @@ def make_valid_query_payload(
     fact_nodes: list[dict] | None = None,
     relations_used: list[str] | None = None,
     confidence: dict | None = None,
+    direction: str = "TD",
 ) -> dict:
     if fact_nodes is None:
         fact_nodes = [
@@ -75,6 +76,7 @@ def make_valid_query_payload(
         },
         "confidence_concerns": "none",
         "reasoning": "Because of facts.",
+        "direction": direction,
     }
 
 
@@ -313,3 +315,125 @@ class TestParseLlmResponse:
         assert "index" in entry
         assert "reason" in entry
         assert "query_text" in entry
+
+    def test_invalid_direction_rejected(self):
+        subgraph = make_subgraph()
+        query = make_valid_query_payload(direction="XY")
+        raw_text = make_llm_response_text([query])
+        valid, rejected = parse_llm_response(raw_text, subgraph)
+        assert len(valid) == 0
+        assert len(rejected) == 1
+        assert "direction" in rejected[0]["reason"].lower()
+
+    def test_ambiguous_direction_rejected(self):
+        # AMBIGUOUS is valid for rule-based classifier but not a valid LLM output
+        subgraph = make_subgraph()
+        query = make_valid_query_payload(direction="AMBIGUOUS")
+        raw_text = make_llm_response_text([query])
+        valid, rejected = parse_llm_response(raw_text, subgraph)
+        assert len(valid) == 0
+        assert len(rejected) == 1
+
+    def test_missing_direction_rejected(self):
+        subgraph = make_subgraph()
+        query = make_valid_query_payload()
+        del query["direction"]
+        raw_text = make_llm_response_text([query])
+        valid, rejected = parse_llm_response(raw_text, subgraph)
+        assert len(valid) == 0
+        assert len(rejected) == 1
+        assert "direction" in rejected[0]["reason"].lower()
+
+    def test_all_valid_directions_accepted(self):
+        subgraph = make_subgraph()
+        for direction in ("NT", "TD", "HZ", "BU", "CS"):
+            query = make_valid_query_payload(direction=direction)
+            raw_text = make_llm_response_text([query])
+            valid, rejected = parse_llm_response(raw_text, subgraph)
+            assert len(valid) == 1, f"direction {direction!r} should be valid"
+            assert valid[0].direction == direction
+
+
+# ---------------------------------------------------------------------------
+# _parse_fact_node alias resolution
+# ---------------------------------------------------------------------------
+
+
+class TestParseFactNodeAliasResolution:
+    def test_alias_resolved_to_full_id(self):
+        valid_ids = {"content_nodes/abc123", "content_nodes/def456"}
+        reverse_alias = {"n1": "content_nodes/abc123", "n2": "content_nodes/def456"}
+        raw = {"node_id": "n1", "grade": 2, "parent_section": "s1"}
+        fn = _parse_fact_node(raw, valid_ids, reverse_alias)
+        assert fn.node_id == "content_nodes/abc123"
+
+    def test_alias_not_in_reverse_map_falls_through_to_auto_prefix(self):
+        # "abc" not in reverse_alias, but "content_nodes/abc" IS valid
+        valid_ids = {"content_nodes/abc"}
+        reverse_alias = {"n1": "content_nodes/n1"}
+        raw = {"node_id": "abc", "grade": 2, "parent_section": "s1"}
+        fn = _parse_fact_node(raw, valid_ids, reverse_alias)
+        assert fn.node_id == "content_nodes/abc"
+
+    def test_no_alias_map_uses_auto_prefix(self):
+        valid_ids = {"content_nodes/mykey"}
+        raw = {"node_id": "mykey", "grade": 2, "parent_section": "s1"}
+        fn = _parse_fact_node(raw, valid_ids, None)
+        assert fn.node_id == "content_nodes/mykey"
+
+    def test_full_id_passes_through_unchanged(self):
+        valid_ids = {"content_nodes/abc123"}
+        reverse_alias = {"n1": "content_nodes/abc123"}
+        raw = {"node_id": "content_nodes/abc123", "grade": 2, "parent_section": "s1"}
+        fn = _parse_fact_node(raw, valid_ids, reverse_alias)
+        assert fn.node_id == "content_nodes/abc123"
+
+
+# ---------------------------------------------------------------------------
+# parse_llm_response with alias_map
+# ---------------------------------------------------------------------------
+
+
+class TestParseLlmResponseWithAliases:
+    def test_alias_in_response_resolved_to_valid_node(self):
+        subgraph = make_subgraph()
+        # Alias map: content_nodes/n1 → "n1", content_nodes/n2 → "n2"
+        alias_map = {
+            "content_nodes/n1": "alias_a",
+            "content_nodes/n2": "alias_b",
+        }
+        query = make_valid_query_payload(
+            fact_nodes=[
+                {"node_id": "alias_a", "grade": 2, "parent_section": "s1"},
+                {"node_id": "alias_b", "grade": 1, "parent_section": "s1"},
+            ]
+        )
+        raw_text = make_llm_response_text([query])
+        valid, rejected = parse_llm_response(raw_text, subgraph, alias_map)
+        assert len(valid) == 1
+        assert len(rejected) == 0
+        node_ids = {fn.node_id for fn in valid[0].fact_nodes}
+        assert node_ids == {"content_nodes/n1", "content_nodes/n2"}
+
+    def test_unknown_alias_still_rejected(self):
+        subgraph = make_subgraph()
+        alias_map = {"content_nodes/n1": "n1"}
+        # LLM returns "n99" which is not in alias_map nor a valid node
+        query = make_valid_query_payload(
+            fact_nodes=[
+                {"node_id": "n99", "grade": 2, "parent_section": "s1"},
+            ]
+        )
+        raw_text = make_llm_response_text([query])
+        valid, rejected = parse_llm_response(raw_text, subgraph, alias_map)
+        assert len(valid) == 0
+        assert len(rejected) == 1
+
+    def test_backward_compat_no_alias_map(self):
+        """Existing callers without alias_map still work (full IDs in response)."""
+        subgraph = make_subgraph()
+        query = make_valid_query_payload()
+        raw_text = make_llm_response_text([query])
+        valid, rejected = parse_llm_response(raw_text, subgraph)
+        assert len(valid) == 1
+        assert len(rejected) == 0
