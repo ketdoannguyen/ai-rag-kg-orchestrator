@@ -114,7 +114,7 @@ def step_4_preview_prompt(subgraphs):
         logger.error("No subgraphs to preview!")
         return
 
-    system_prompt, user_prompt = build_prompt(subgraphs[0], QUERIES_PER_SUBGRAPH)
+    system_prompt, user_prompt, _alias_map = build_prompt(subgraphs[0], QUERIES_PER_SUBGRAPH)
     logger.info("System prompt length: %d chars", len(system_prompt))
     logger.info("User prompt length:   %d chars", len(user_prompt))
     logger.info("User prompt (first 500 chars):\n%s", user_prompt[:500])
