@@ -8,23 +8,92 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 from workflows.benchmark.models import Subgraph, SubgraphNode, SubgraphStructureNode
 
 
-def _format_node_line(idx: int, node: SubgraphNode) -> str:
-    """Format a single content node as a numbered line."""
-    node_key = node.node_id.split("/")[-1] if "/" in node.node_id else node.node_id
+def build_id_alias_map(subgraph: Subgraph) -> dict[str, str]:
+    """Build a deterministic mapping from full node_id → short alias (n1, n2, ...).
+
+    Iterates subgraph.nodes first (preserving order), then any extra IDs found
+    only in relations. Returns ``{full_id: "n1", ...}``.
+    """
+    alias_map: dict[str, str] = {}
+    counter = 1
+
+    for node in subgraph.nodes:
+        if node.node_id not in alias_map:
+            alias_map[node.node_id] = f"n{counter}"
+            counter += 1
+
+    for rel in subgraph.relations:
+        for nid in (rel.from_id, rel.to_id):
+            if nid not in alias_map:
+                alias_map[nid] = f"n{counter}"
+                counter += 1
+
+    return alias_map
+
+
+def _format_node_line(
+    idx: int,
+    node: SubgraphNode,
+    alias_map: dict[str, str] | None = None,
+) -> str:
+    """Format a single content node as a numbered line.
+
+    When ``alias_map`` is provided uses the short alias; otherwise falls back
+    to the bare UUID key after the ``/``.
+    """
+    if alias_map is not None:
+        label = alias_map.get(node.node_id, node.node_id)
+    else:
+        label = node.node_id.split("/")[-1] if "/" in node.node_id else node.node_id
     text_preview = node.text[:200] + "..." if len(node.text) > 200 else node.text
-    return f"{idx}. [{node_key}] {text_preview}"
+    return f"{idx}. [{label}] {text_preview}"
 
 
-def format_subgraph_for_llm(subgraph: Subgraph) -> str:
+def format_subgraph_for_llm(
+    subgraph: Subgraph,
+    context_mode: Literal["full", "node_only", "relation", "breadth"] = "full",
+) -> tuple[str, dict[str, str]]:
     """Format a Subgraph into hierarchy-aware LLM-readable markdown.
+
+    Node IDs are replaced with short aliases (``n1``, ``n2``, …) to reduce token
+    usage.  The alias map is returned alongside the text so callers can resolve
+    aliases back to full node IDs after parsing the LLM response.
+
+    Args:
+        subgraph: The subgraph to format.
+        context_mode: Controls how much context to include:
+            - ``"full"``: Full format (backward-compatible default).
+            - ``"node_only"``: Anchor summary + section titles + core nodes + breadcrumb.
+              Best for NT/TD queries where relations add noise.
+            - ``"relation"``: Compact section titles + all nodes + full relation list.
+              Best for HZ queries that need to follow relation edges.
+            - ``"breadth"``: All sections + summaries + node excerpts + relation types only.
+              Best for BU/CS queries requiring multi-section synthesis.
+
+    Returns:
+        ``(formatted_text, alias_map)`` where ``alias_map`` maps full node ID →
+        short alias string.
 
     Scenario A (no L6 children): L5 summary → content nodes → related sections
     Scenario B (has L6 children): L5 summary → direct L5 content → L6 blocks → related
     """
+    alias_map = build_id_alias_map(subgraph)
+    if context_mode == "node_only":
+        return _format_node_only(subgraph, alias_map), alias_map
+    if context_mode == "relation":
+        return _format_relation(subgraph, alias_map), alias_map
+    if context_mode == "breadth":
+        return _format_breadth(subgraph, alias_map), alias_map
+    return _format_full(subgraph, alias_map), alias_map
+
+
+def _format_full(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
+    """Original full format (backward-compatible)."""
     sg_id_short = subgraph.subgraph_id[:8]
     anchor_key = subgraph.anchor_key
 
@@ -63,7 +132,7 @@ def format_subgraph_for_llm(subgraph: Subgraph) -> str:
         counter = 1
         for node in anchor_nodes:
             if node.node_id in subgraph.core_node_ids:
-                lines.append(_format_node_line(counter, node))
+                lines.append(_format_node_line(counter, node, alias_map))
                 counter += 1
     else:
         # Scenario B: L5 direct content first, then L6 blocks
@@ -74,7 +143,7 @@ def format_subgraph_for_llm(subgraph: Subgraph) -> str:
             lines.append("Direct content:")
             counter = 1
             for node in direct_nodes:
-                lines.append(_format_node_line(counter, node))
+                lines.append(_format_node_line(counter, node, alias_map))
                 counter += 1
 
         for l6_key in l6_keys:
@@ -91,7 +160,7 @@ def format_subgraph_for_llm(subgraph: Subgraph) -> str:
                 lines.append("Content nodes:")
                 counter = 1
                 for node in l6_content:
-                    lines.append(_format_node_line(counter, node))
+                    lines.append(_format_node_line(counter, node, alias_map))
                     counter += 1
 
     # ----- Enriched / Related sections -----
@@ -120,16 +189,16 @@ def format_subgraph_for_llm(subgraph: Subgraph) -> str:
         lines.append("Content nodes:")
         counter = 1
         for node in enrich_nodes:
-            lines.append(_format_node_line(counter, node))
+            lines.append(_format_node_line(counter, node, alias_map))
             counter += 1
 
     # ----- Relations -----
     lines.append("")
     lines.append(f"### Relations ({len(subgraph.relations)}):")
     for rel in subgraph.relations:
-        from_key = rel.from_id.split("/")[-1] if "/" in rel.from_id else rel.from_id
-        to_key = rel.to_id.split("/")[-1] if "/" in rel.to_id else rel.to_id
-        lines.append(f"- [{from_key}] --{rel.relation_type}--> [{to_key}]")
+        from_alias = alias_map.get(rel.from_id, rel.from_id)
+        to_alias = alias_map.get(rel.to_id, rel.to_id)
+        lines.append(f"- [{from_alias}] --{rel.relation_type}--> [{to_alias}]")
 
     # ----- Breadcrumb -----
     lines.append("")
@@ -142,6 +211,130 @@ def format_subgraph_for_llm(subgraph: Subgraph) -> str:
             if node.breadcrumb not in seen_breadcrumbs:
                 seen_breadcrumbs.add(node.breadcrumb)
                 lines.append(f"- {node.breadcrumb}")
+
+    return "\n".join(lines)
+
+
+def _format_node_only(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
+    """Compact format for NT/TD: anchor summary + section titles + core nodes + breadcrumb.
+
+    Omits full relation list and enriched sections to reduce noise.
+    """
+    sg_id_short = subgraph.subgraph_id[:8]
+    anchor_key = subgraph.anchor_key
+
+    struct_map: dict[str, SubgraphStructureNode] = {
+        sn.section_key: sn for sn in subgraph.structure_nodes
+    }
+    nodes_by_parent: dict[str | None, list[SubgraphNode]] = {}
+    for node in subgraph.nodes:
+        nodes_by_parent.setdefault(node.parent_section_key, []).append(node)
+
+    anchor_sn = struct_map.get(anchor_key)
+    summary_text = (
+        anchor_sn.summary if anchor_sn and anchor_sn.summary else subgraph.anchor_summary
+    )
+    summary_suffix = f" — Summary: {summary_text}" if summary_text else ""
+
+    lines: list[str] = [
+        f'## Subgraph: "{subgraph.anchor_title}" (SG-{sg_id_short})',
+        "",
+        f'### L5: "{subgraph.anchor_title}"{summary_suffix}',
+    ]
+
+    # List all section titles present in subgraph
+    section_titles = [sn.title for sn in subgraph.structure_nodes if sn.title]
+    if section_titles:
+        lines.append("Sections: " + " | ".join(section_titles))
+    lines.append("")
+
+    # Core nodes under anchor
+    counter = 1
+    for node in subgraph.nodes:
+        if node.node_id in subgraph.core_node_ids:
+            lines.append(_format_node_line(counter, node, alias_map))
+            counter += 1
+
+    # Breadcrumb
+    lines.append("")
+    lines.append("### Breadcrumb:")
+    lines.append(f"- {subgraph.breadcrumb}")
+
+    return "\n".join(lines)
+
+
+def _format_relation(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
+    """Relation-focused format for HZ: compact section titles + all nodes + full relation list.
+
+    Keeps section context but emphasises relation edges.
+    """
+    sg_id_short = subgraph.subgraph_id[:8]
+
+    lines: list[str] = [
+        f'## Subgraph: "{subgraph.anchor_title}" (SG-{sg_id_short})',
+        "",
+    ]
+
+    # Compact section titles (no full summaries)
+    section_titles = [sn.title for sn in subgraph.structure_nodes if sn.title]
+    if section_titles:
+        lines.append("Sections: " + " | ".join(section_titles))
+    lines.append("")
+
+    # All nodes (core + enriched)
+    lines.append("### Nodes:")
+    counter = 1
+    for node in subgraph.nodes:
+        lines.append(_format_node_line(counter, node, alias_map))
+        counter += 1
+
+    # Full relation list — this is the key signal for HZ
+    lines.append("")
+    lines.append(f"### Relations ({len(subgraph.relations)}):")
+    for rel in subgraph.relations:
+        from_alias = alias_map.get(rel.from_id, rel.from_id)
+        to_alias = alias_map.get(rel.to_id, rel.to_id)
+        lines.append(f"- [{from_alias}] --{rel.relation_type}--> [{to_alias}]")
+
+    return "\n".join(lines)
+
+
+def _format_breadth(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
+    """Multi-section breadth format for BU/CS: all sections + summaries + node excerpts.
+
+    Includes relation type inventory (not individual pairs) to avoid HZ bias.
+    """
+    sg_id_short = subgraph.subgraph_id[:8]
+
+    nodes_by_parent: dict[str | None, list[SubgraphNode]] = {}
+    for node in subgraph.nodes:
+        nodes_by_parent.setdefault(node.parent_section_key, []).append(node)
+
+    lines: list[str] = [
+        f'## Subgraph: "{subgraph.anchor_title}" (SG-{sg_id_short})',
+        "",
+    ]
+
+    # All sections with summaries and concrete node excerpts
+    for sn in subgraph.structure_nodes:
+        summary_suffix = f" — Summary: {sn.summary}" if sn.summary else ""
+        lines.append(f'### Section: "{sn.title}"{summary_suffix}')
+        section_nodes = [
+            n
+            for n in nodes_by_parent.get(sn.section_key, [])
+            if n.node_id in subgraph.core_node_ids or n.node_id in subgraph.enriched_node_ids
+        ]
+        if section_nodes:
+            counter = 1
+            for node in section_nodes:
+                lines.append(_format_node_line(counter, node, alias_map))
+                counter += 1
+        lines.append("")
+
+    # Relation types only — suppress individual pairs to avoid HZ bias
+    if subgraph.relations:
+        rel_types = sorted({r.relation_type for r in subgraph.relations})
+        lines.append(f"### Relation types present: {', '.join(rel_types)}")
 
     return "\n".join(lines)
 
@@ -160,7 +353,7 @@ def export_subgraph_json(
     filepath = str(Path(output_dir) / filename)
 
     data = subgraph.model_dump(mode="json", exclude={"nodes": {"__all__": {"embedding"}}})
-    data["llm_format"] = format_subgraph_for_llm(subgraph)
+    data["llm_format"] = format_subgraph_for_llm(subgraph)[0]
 
     with open(filepath, "w") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)

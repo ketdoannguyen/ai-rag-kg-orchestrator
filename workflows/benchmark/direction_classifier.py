@@ -5,6 +5,9 @@ the structure of fact_nodes — deterministic, not content-based.
 
 Rule order matters (NT is a strict subset of TD conditions):
   NT → TD → HZ → BU → CS → AMBIGUOUS
+
+NOTE: classify_batch() is kept for analysis only. Direction is now LLM-assigned
+via constrained prompts. Use validate_direction() to cross-check consistency.
 """
 
 from __future__ import annotations
@@ -71,3 +74,21 @@ def classify_batch(
 
     distribution = dict(Counter(directions))
     return updated, distribution
+
+
+def validate_direction(query: BenchmarkQuery) -> tuple[bool, str]:
+    """Check if LLM-assigned direction is structurally consistent with rules.
+
+    Compares the LLM-assigned ``query.direction`` against the rule-based
+    classifier result. Inconsistency is a warning, not a hard rejection —
+    the rule is approximate and may disagree with valid LLM choices.
+
+    Returns:
+        (is_consistent, message) where message is empty when consistent.
+    """
+    if query.direction is None:
+        return False, "direction is None"
+    inferred = classify_direction(query)
+    if inferred == query.direction:
+        return True, ""
+    return False, f"LLM={query.direction!r}, rule_inferred={inferred!r}"
