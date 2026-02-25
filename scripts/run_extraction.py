@@ -507,8 +507,8 @@ Examples:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=200,
-        help="Number of nodes per batch (default: 100)",
+        default=800,
+        help="Number of nodes per batch (default: 800)",
     )
     parser.add_argument(
         "--continuous",

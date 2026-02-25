@@ -43,6 +43,7 @@ class TextbookParser:
         page_offset: int = 5,
         extract_images: bool = True,
         bucket: str = settings.MINIO_BUCKET,
+        title: str = "Lịch sử 12",
     ):
         self.input_path = input_path
         self.output_path = output_path
@@ -60,7 +61,7 @@ class TextbookParser:
         self.root = StructureNode(
             node_type="structure",
             level=1,
-            attributes=StructureAttributes(title="Lịch sử 10"),
+            attributes=StructureAttributes(title=title),
             metadata=StructureMetadata(start_page=0),
         )
 

@@ -25,6 +25,8 @@ dependencies = [
     "pyvis>=0.3.2",
     "rank-bm25>=0.2.2",  # BM25 scoring for hybrid retrieval (Robertson et al. 1994)
     "loguru>=0.7.3",
+    "scipy>=1.11.0",  # Friedman + Wilcoxon tests for benchmark statistics
+    "statsmodels>=0.14.0",  # BH FDR correction for pairwise comparisons
 ]
 
 [project.optional-dependencies]
@@ -123,6 +125,7 @@ indent-style = "space"
 pythonpath = ["."]
 addopts = "--import-mode=prepend"
 asyncio_mode = "auto"
+testpaths = ["tests"]
 norecursedirs = ["docker", "data"]
 markers = [
     "integration: integration tests requiring external services (ArangoDB, LLM)",

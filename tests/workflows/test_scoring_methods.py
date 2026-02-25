@@ -51,11 +51,13 @@ class TestRRFConstants:
         assert E2ScoringMethod.RRF_COSINE_SEED_RELATION.value == "rrf_cosine_seed_relation"
 
     def test_e3_scoring_methods(self) -> None:
-        """E3 should have 3 scoring methods."""
-        assert len(E3ScoringMethod) == 3
+        """E3 should have 5 scoring methods."""
+        assert len(E3ScoringMethod) == 5
         assert E3ScoringMethod.PARENT_COSINE.value == "parent_cosine"
         assert E3ScoringMethod.AVG_LOG.value == "avg_log"
         assert E3ScoringMethod.RRF_PARENT_AVGLOG.value == "rrf_parent_avglog"
+        assert E3ScoringMethod.FILTERED_AVG_LOG.value == "filtered_avg_log"
+        assert E3ScoringMethod.RRF_PARENT_FILTERED.value == "rrf_parent_filtered"
 
 
 # =============================================================================
@@ -248,6 +250,8 @@ class TestEnumConversion:
         assert E3ScoringMethod("parent_cosine") == E3ScoringMethod.PARENT_COSINE
         assert E3ScoringMethod("avg_log") == E3ScoringMethod.AVG_LOG
         assert E3ScoringMethod("rrf_parent_avglog") == E3ScoringMethod.RRF_PARENT_AVGLOG
+        assert E3ScoringMethod("filtered_avg_log") == E3ScoringMethod.FILTERED_AVG_LOG
+        assert E3ScoringMethod("rrf_parent_filtered") == E3ScoringMethod.RRF_PARENT_FILTERED
 
     def test_invalid_string_raises(self) -> None:
         """Invalid string should raise ValueError."""
