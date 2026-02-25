@@ -120,6 +120,21 @@ data/ingest_file/*
 data/ingest_web/*
 !data/ingest_web/.gitkeep
 
+# Generated/large data files
+data/pdf/
+data/benchmark/
+data/kg_health_check_results.json
+
+# Large binary/document files
+*.pdf
+*.docx
+*.xlsx
+*.pptx
+
+# Architecture diagrams (generated)
+*.drawio.png
+*.drawio.svg
+
 # Docker
 docker-compose.override.yml
 .dockerignore
