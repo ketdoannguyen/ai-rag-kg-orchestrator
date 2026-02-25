@@ -16,9 +16,10 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from litellm.exceptions import BadRequestError as LiteLLMBadRequestError
 from llm_gateway_client import AIGatewayClient, GatewayModelConfig
 from llm_gateway_client.models.request import GatewayChatTurn, GatewayInvokeRequest
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 
 from config.langfuse import configure_langfuse
 from config.settings import get_settings
@@ -31,6 +32,9 @@ from workflows.benchmark.models import (
 from workflows.benchmark.prompts import build_prompt
 
 logger = logging.getLogger(__name__)
+
+# Only 5 directions accepted from LLM (AMBIGUOUS is not a valid LLM output)
+_LLM_VALID_DIRECTIONS = {"NT", "TD", "HZ", "BU", "CS"}
 
 
 def build_benchmark_llm_client() -> AIGatewayClient:
@@ -82,14 +86,21 @@ def _extract_json(text: str) -> dict:
     raise ValueError(f"Could not extract valid JSON from LLM response: {text[:200]}...")
 
 
-def _parse_fact_node(raw: dict, valid_node_ids: set[str]) -> FactNode:
+def _parse_fact_node(
+    raw: dict,
+    valid_node_ids: set[str],
+    reverse_alias: dict[str, str] | None = None,
+) -> FactNode:
     """Parse a single fact_node dict into FactNode model.
 
-    Auto-prefixes 'content_nodes/' if the LLM returned a bare key
-    that matches an existing node in the subgraph.
+    Resolution order:
+    1. If ``reverse_alias`` is provided and ``node_id`` is an alias key, resolve to full ID.
+    2. Auto-prefix ``content_nodes/`` if the bare key matches an existing node.
     """
     node_id = raw["node_id"]
-    if "/" not in node_id:
+    if reverse_alias is not None and node_id in reverse_alias:
+        node_id = reverse_alias[node_id]
+    elif "/" not in node_id:
         prefixed = f"content_nodes/{node_id}"
         if prefixed in valid_node_ids:
             node_id = prefixed
@@ -114,10 +125,18 @@ def _parse_confidence(raw: dict) -> ConfidenceScore:
 def parse_llm_response(
     raw_text: str,
     subgraph: Subgraph,
+    alias_map: dict[str, str] | None = None,
 ) -> tuple[list[BenchmarkQuery], list[dict]]:
     """Parse LLM JSON response into BenchmarkQuery objects.
 
     Validates that all fact_node IDs exist in the subgraph.
+
+    Args:
+        raw_text: Raw LLM response text (JSON).
+        subgraph: Subgraph used to validate node IDs.
+        alias_map: Optional alias → full_id mapping from ``build_prompt``.  When
+            provided, LLM-returned aliases (``n1``, ``n2``, …) are resolved to
+            full node IDs before validation.
 
     Returns:
         (valid_queries, rejected_items) where rejected_items contains
@@ -131,6 +150,10 @@ def parse_llm_response(
         raise ValueError(f"Expected 'queries' to be a list, got {type(raw_queries).__name__}")
 
     valid_node_ids = {n.node_id for n in subgraph.nodes}
+    # Build reverse map: alias → full_id
+    reverse_alias: dict[str, str] | None = (
+        {alias: full_id for full_id, alias in alias_map.items()} if alias_map else None
+    )
     valid_queries: list[BenchmarkQuery] = []
     rejected: list[dict] = []
 
@@ -144,7 +167,8 @@ def parse_llm_response(
 
             # Parse fact nodes
             fact_nodes = [
-                _parse_fact_node(fn, valid_node_ids) for fn in raw_q.get("fact_nodes", [])
+                _parse_fact_node(fn, valid_node_ids, reverse_alias)
+                for fn in raw_q.get("fact_nodes", [])
             ]
 
             # Validate node IDs against subgraph
@@ -171,6 +195,18 @@ def parse_llm_response(
                 )
                 continue
 
+            # Parse and validate direction (must be one of 5 valid directions from LLM)
+            direction = raw_q.get("direction")
+            if direction not in _LLM_VALID_DIRECTIONS:
+                rejected.append(
+                    {
+                        "index": i,
+                        "reason": f"Invalid or missing direction: {direction!r}",
+                        "query_text": raw_q.get("query_text", ""),
+                    }
+                )
+                continue
+
             confidence = _parse_confidence(raw_q.get("confidence", {}))
 
             query = BenchmarkQuery(
@@ -182,6 +218,7 @@ def parse_llm_response(
                 confidence=confidence,
                 confidence_concerns=raw_q.get("confidence_concerns", ""),
                 reasoning=raw_q.get("reasoning", ""),
+                direction=direction,
             )
             valid_queries.append(query)
 
@@ -190,7 +227,9 @@ def parse_llm_response(
                 {
                     "index": i,
                     "reason": str(exc),
-                    "query_text": raw_q.get("query_text", "N/A") if isinstance(raw_q, dict) else "N/A",
+                    "query_text": raw_q.get("query_text", "N/A")
+                    if isinstance(raw_q, dict)
+                    else "N/A",
                 }
             )
 
@@ -215,6 +254,7 @@ async def _call_llm(
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=60),
+        retry=retry_if_not_exception_type(LiteLLMBadRequestError),
         reraise=True,
     )
     async def _invoke():
@@ -236,6 +276,8 @@ async def generate_queries_for_subgraph(
     llm_client: AIGatewayClient,
     subgraph: Subgraph,
     target_count: int,
+    direction_allocation: dict[str, int] | None = None,
+    context_mode: str = "full",
 ) -> tuple[list[BenchmarkQuery], list[dict]]:
     """Generate benchmark queries for a single subgraph via LLM.
 
@@ -243,11 +285,18 @@ async def generate_queries_for_subgraph(
         llm_client: AIGatewayClient configured with benchmark endpoint.
         subgraph: The subgraph to generate queries for.
         target_count: Number of queries to generate.
+        direction_allocation: Per-direction quota, e.g. ``{"NT": 1, "TD": 2, "HZ": 3}``.
+        context_mode: Context format mode passed to ``build_prompt``.
 
     Returns:
         (valid_queries, rejected_items)
     """
-    system_prompt, user_prompt = build_prompt(subgraph, target_count)
+    system_prompt, user_prompt, alias_map = build_prompt(
+        subgraph,
+        target_count,
+        direction_allocation,
+        context_mode,  # type: ignore[arg-type]
+    )
 
     raw_text = await _call_llm(llm_client, system_prompt, user_prompt)
 
@@ -255,7 +304,7 @@ async def generate_queries_for_subgraph(
         logger.error("LLM returned empty response for subgraph %s", subgraph.subgraph_id)
         return [], [{"reason": "Empty LLM response", "subgraph_id": subgraph.subgraph_id}]
 
-    valid, rejected = parse_llm_response(raw_text, subgraph)
+    valid, rejected = parse_llm_response(raw_text, subgraph, alias_map)
 
     logger.info(
         "Subgraph %s: generated %d valid, %d rejected queries (target=%d)",
@@ -272,10 +321,20 @@ async def generate_batch(
     llm_client: AIGatewayClient,
     subgraphs: list[Subgraph],
     output_dir: str = "data/benchmark/queries",
+    per_subgraph_allocations: dict[str, dict[str, int]] | None = None,
+    context_mode: str = "full",
 ) -> dict[str, Any]:
     """Generate queries for multiple subgraphs with progress tracking.
 
     Resume-safe: skips subgraphs whose output file already exists.
+
+    Args:
+        llm_client: LLM client for generation.
+        subgraphs: List of subgraphs to process.
+        output_dir: Directory for checkpoint JSON files.
+        per_subgraph_allocations: Mapping of subgraph_id → direction allocation dict.
+            If None, ``generate_queries_for_subgraph`` uses its own default.
+        context_mode: Context format mode for all subgraphs.
 
     Returns:
         Summary stats dict.
@@ -305,10 +364,15 @@ async def generate_batch(
             continue
 
         try:
+            allocation = (
+                per_subgraph_allocations.get(sg.subgraph_id) if per_subgraph_allocations else None
+            )
             valid, rejected = await generate_queries_for_subgraph(
                 llm_client,
                 sg,
                 target,
+                direction_allocation=allocation,
+                context_mode=context_mode,
             )
         except Exception:
             logger.exception("Failed to generate for subgraph %s", sg.subgraph_id[:8])
