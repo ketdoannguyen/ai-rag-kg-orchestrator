@@ -540,6 +540,42 @@ class TestFormatSubgraphForLlm:
         result, _ = format_subgraph_for_llm(sg)
         assert "#### L6:" not in result
 
+    def test_enriched_l6_node_does_not_create_spurious_anchor_l6_block(self):
+        """Enriched node under a foreign L6 section must not produce a spurious anchor-L6 header."""
+        anchor_key = "anchor_l5"
+        nodes = [
+            make_subgraph_node(
+                "content_nodes/c1",
+                "core",
+                parent_section_key=anchor_key,
+                parent_section_level=5,
+            ),
+            make_subgraph_node(
+                "content_nodes/e1",
+                "enriched",
+                parent_section_key="foreign_l6",
+                parent_section_title="Foreign L6",
+                parent_section_level=6,
+            ),
+        ]
+        structure = [
+            SubgraphStructureNode(section_key=anchor_key, title="Anchor", level=5),
+            SubgraphStructureNode(
+                section_key="foreign_l6", title="Foreign L6", level=6, parent_key=None
+            ),
+        ]
+        sg = make_subgraph(
+            nodes=nodes,
+            core_node_ids=["content_nodes/c1"],
+            enriched_node_ids=["content_nodes/e1"],
+            structure_nodes=structure,
+        )
+        result, _ = format_subgraph_for_llm(sg)
+        # No spurious L6 block under anchor
+        assert "#### L6:" not in result
+        # The enriched section is still rendered as a related section
+        assert "Foreign L6" in result
+
 
 # ---------------------------------------------------------------------------
 # build_id_alias_map

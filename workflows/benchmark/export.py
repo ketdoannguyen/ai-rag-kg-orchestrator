@@ -110,11 +110,15 @@ def _format_full(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
         for sn in subgraph.structure_nodes
         if sn.level == 6 and sn.parent_key == anchor_key
     }
-    # Also detect L6 keys referenced by nodes but missing from structure_nodes
+    # Also detect L6 keys referenced by core nodes but missing from structure_nodes.
+    # Restrict to core_node_ids only — enriched nodes belong to other branches and
+    # must not be mistaken for anchor L6 children.
+    core_id_set = set(subgraph.core_node_ids)
     l6_keys_from_nodes = {
         n.parent_section_key
         for n in subgraph.nodes
-        if n.parent_section_key
+        if n.node_id in core_id_set
+        and n.parent_section_key
         and n.parent_section_key != anchor_key
         and n.parent_section_level == 6
     }
