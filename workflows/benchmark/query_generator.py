@@ -9,9 +9,12 @@ via llm_gateway_client for consistency with the rest of the project.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 import re
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -323,10 +326,12 @@ async def generate_batch(
     output_dir: str = "data/benchmark/queries",
     per_subgraph_allocations: dict[str, dict[str, int]] | None = None,
     context_mode: str = "full",
+    max_concurrency: int = 5,
 ) -> dict[str, Any]:
-    """Generate queries for multiple subgraphs with progress tracking.
+    """Generate queries for multiple subgraphs with parallel execution.
 
     Resume-safe: skips subgraphs whose output file already exists.
+    Concurrency is controlled by ``max_concurrency`` (Semaphore).
 
     Args:
         llm_client: LLM client for generation.
@@ -335,35 +340,38 @@ async def generate_batch(
         per_subgraph_allocations: Mapping of subgraph_id → direction allocation dict.
             If None, ``generate_queries_for_subgraph`` uses its own default.
         context_mode: Context format mode for all subgraphs.
+        max_concurrency: Maximum number of concurrent LLM calls (default 5).
 
     Returns:
-        Summary stats dict.
+        Summary stats dict including ``subgraphs_failed`` count.
     """
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    max_concurrency = max(1, max_concurrency)
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
 
-    total_valid = 0
-    total_rejected = 0
-    all_queries: list[dict] = []
+    semaphore = asyncio.Semaphore(max_concurrency)
 
-    for i, sg in enumerate(subgraphs):
-        checkpoint_path = Path(output_dir) / f"{sg.subgraph_id}.json"
+    async def _process_one(sg: Subgraph) -> dict[str, Any]:
+        checkpoint_path = out_path / f"{sg.subgraph_id}.json"
 
-        # Resume: skip if already processed
-        if checkpoint_path.exists():
-            logger.info("Skipping %s (already processed)", sg.subgraph_id[:8])
-            with open(checkpoint_path) as f:
-                existing = json.load(f)
-            total_valid += len(existing.get("queries", []))
-            total_rejected += existing.get("rejected_count", 0)
-            all_queries.extend(existing.get("queries", []))
-            continue
+        async with semaphore:
+            # Resume check inside semaphore to avoid TOCTOU
+            if checkpoint_path.exists():
+                logger.info("Skipping %s (already processed)", sg.subgraph_id[:8])
+                with open(checkpoint_path) as f:
+                    existing = json.load(f)
+                return {
+                    "status": "skipped",
+                    "valid": len(existing.get("queries", [])),
+                    "rejected": existing.get("rejected_count", 0),
+                    "queries": existing.get("queries", []),
+                }
 
-        target = sg.query_allocation
-        if target <= 0:
-            logger.debug("Skipping %s (allocation=0)", sg.subgraph_id[:8])
-            continue
+            target = sg.query_allocation
+            if target <= 0:
+                logger.debug("Skipping %s (allocation=0)", sg.subgraph_id[:8])
+                return {"status": "skipped_zero", "valid": 0, "rejected": 0, "queries": []}
 
-        try:
             allocation = (
                 per_subgraph_allocations.get(sg.subgraph_id) if per_subgraph_allocations else None
             )
@@ -374,37 +382,57 @@ async def generate_batch(
                 direction_allocation=allocation,
                 context_mode=context_mode,
             )
-        except Exception:
-            logger.exception("Failed to generate for subgraph %s", sg.subgraph_id[:8])
-            continue
 
-        total_valid += len(valid)
-        total_rejected += len(rejected)
+            checkpoint_data = {
+                "subgraph_id": sg.subgraph_id,
+                "target_count": target,
+                "valid_count": len(valid),
+                "rejected_count": len(rejected),
+                "queries": [q.model_dump(mode="json") for q in valid],
+                "rejected": rejected,
+            }
 
-        # Save checkpoint
-        checkpoint_data = {
-            "subgraph_id": sg.subgraph_id,
-            "target_count": target,
-            "valid_count": len(valid),
-            "rejected_count": len(rejected),
-            "queries": [q.model_dump(mode="json") for q in valid],
-            "rejected": rejected,
-        }
-        with open(checkpoint_path, "w") as f:
-            json.dump(checkpoint_data, f, indent=2, ensure_ascii=False)
+            # Atomic write: tmpfile → Path.replace()
+            fd, tmp_path = tempfile.mkstemp(dir=out_path, suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(checkpoint_data, f, indent=2, ensure_ascii=False)
+                Path(tmp_path).replace(checkpoint_path)
+            except BaseException:
+                try:
+                    Path(tmp_path).unlink()
+                except OSError:
+                    pass
+                raise
 
-        all_queries.extend(checkpoint_data["queries"])
+            return {
+                "status": "generated",
+                "valid": len(valid),
+                "rejected": len(rejected),
+                "queries": checkpoint_data["queries"],
+            }
 
-        if (i + 1) % 10 == 0:
-            logger.info(
-                "Progress: %d/%d subgraphs, %d queries so far",
-                i + 1,
-                len(subgraphs),
-                total_valid,
-            )
+    tasks = [asyncio.create_task(_process_one(sg)) for sg in subgraphs]
+
+    total_valid = 0
+    total_rejected = 0
+    subgraphs_failed = 0
+    all_queries: list[dict] = []
+
+    for completed, coro in enumerate(asyncio.as_completed(tasks), start=1):
+        try:
+            result = await coro
+            total_valid += result["valid"]
+            total_rejected += result["rejected"]
+            all_queries.extend(result["queries"])
+        except Exception as exc:
+            subgraphs_failed += 1
+            logger.exception("Subgraph task failed: %s", exc)
+        logger.info("Progress: %d/%d subgraphs done", completed, len(subgraphs))
 
     return {
         "subgraphs_processed": len(subgraphs),
+        "subgraphs_failed": subgraphs_failed,
         "total_valid": total_valid,
         "total_rejected": total_rejected,
         "output_dir": output_dir,

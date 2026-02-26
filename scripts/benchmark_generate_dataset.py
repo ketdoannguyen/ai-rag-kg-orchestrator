@@ -169,7 +169,11 @@ def step_extract_subgraphs(client, max_subgraphs: int, target_total: int):
 
 
 async def step_generate_queries(
-    subgraphs, output_dir: str, seed: int, per_subgraph_allocations: dict | None = None
+    subgraphs,
+    output_dir: str,
+    seed: int,
+    per_subgraph_allocations: dict | None = None,
+    max_concurrency: int = 5,
 ):
     """Run full generation pipeline (LLM calls + distractors + validation)."""
     from workflows.benchmark.runner import run_full_generation
@@ -181,6 +185,7 @@ async def step_generate_queries(
         distractor_count=2,
         seed=seed,
         per_subgraph_allocations=per_subgraph_allocations,
+        max_concurrency=max_concurrency,
     )
     logger.info(
         "  Generated %d queries (%d validation issues)",
@@ -318,6 +323,7 @@ async def async_main(
     skip_qa: bool,
     seed: int,
     force_regen: bool = False,
+    concurrency: int = 5,
 ) -> bool:
     """Run the full benchmark dataset generation pipeline."""
     from benchmark_reports import generate_direction_analysis, generate_quality_report
@@ -354,7 +360,11 @@ async def async_main(
 
         # Step 4: Generate queries via LLM
         summary = await step_generate_queries(
-            subgraphs, output_dir, seed, per_subgraph_allocations=per_subgraph_allocations
+            subgraphs,
+            output_dir,
+            seed,
+            per_subgraph_allocations=per_subgraph_allocations,
+            max_concurrency=concurrency,
         )
 
         # Load dataset from runner output
@@ -481,6 +491,13 @@ def main():
         action="store_true",
         help="Delete existing checkpoint files and regenerate from scratch",
     )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=5,
+        metavar="N",
+        help="Max concurrent LLM calls (default: 5, min: 1)",
+    )
 
     args = parser.parse_args()
 
@@ -492,6 +509,7 @@ def main():
             skip_qa=args.skip_qa,
             seed=args.seed,
             force_regen=args.force_regen,
+            concurrency=max(1, args.concurrency),
         )
     )
     sys.exit(0 if success else 1)

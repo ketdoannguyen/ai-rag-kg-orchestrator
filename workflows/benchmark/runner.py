@@ -222,6 +222,7 @@ async def run_full_generation(
     seed: int = 42,
     per_subgraph_allocations: dict[str, dict[str, int]] | None = None,
     context_mode: str = "full",
+    max_concurrency: int = 5,
 ) -> dict[str, Any]:
     """Run the full query generation pipeline with distractors.
 
@@ -240,6 +241,7 @@ async def run_full_generation(
         per_subgraph_allocations: Mapping of subgraph_id → direction allocation dict.
             If None, generation uses default even distribution.
         context_mode: Context format mode passed to ``generate_batch``.
+        max_concurrency: Maximum number of concurrent LLM calls.
 
     Returns:
         Summary statistics dict.
@@ -255,6 +257,7 @@ async def run_full_generation(
         output_dir,
         per_subgraph_allocations=per_subgraph_allocations,
         context_mode=context_mode,
+        max_concurrency=max_concurrency,
     )
 
     logger.info(
