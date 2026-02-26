@@ -494,7 +494,7 @@ def main():
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=5,
+        default=10,
         metavar="N",
         help="Max concurrent LLM calls (default: 5, min: 1)",
     )

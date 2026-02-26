@@ -49,12 +49,7 @@ Câu hỏi so sánh đúng 2 chủ đề. Nodes từ đúng 2 sections.
 
 ## Confidence Score
 Mỗi câu hỏi PHẢI có block confidence:
-- question_clarity (0-10): Câu hỏi rõ ràng, không mơ hồ?
-- fact_node_completeness (0-10): Đã chỉ đủ TẤT CẢ nodes cần thiết?
-- fact_node_precision (0-10): Mỗi node được chỉ thực sự LIÊN QUAN?
-- grade_certainty (0-10): Tự tin về việc chấm grade 0/1/2?
 - overall (0-100): Tổng thể tự tin về câu hỏi này
-- confidence_concerns: Nếu overall < 70, giải thích tại sao
 - reasoning: Giải thích ngắn gọn logic chọn nodes, grades, VÀ tại sao direction đúng
 """
 
@@ -81,13 +76,8 @@ Trả về ĐÚNG JSON (không markdown, không ```json```) theo schema:
       ],
       "relations_used": [],
       "confidence": {{
-        "question_clarity": 9,
-        "fact_node_completeness": 8,
-        "fact_node_precision": 9,
-        "grade_certainty": 8,
         "overall": 85
       }},
-      "confidence_concerns": "",
       "reasoning": "Giải thích ngắn tại sao direction NT đúng: fact_nodes ≤2, cùng 1 section, relations_used=[]"
     }}
   ]
@@ -109,10 +99,8 @@ Trả về ĐÚNG JSON (không markdown, không ```json```) theo schema:
   ],
   "relations_used": [],
   "confidence": {{
-    "question_clarity": 10, "fact_node_completeness": 9,
-    "fact_node_precision": 10, "grade_certainty": 9, "overall": 92
+    "overall": 92
   }},
-  "confidence_concerns": "",
   "reasoning": "NT vì fact_nodes=1 (≤2), cùng section 'Trận Bạch Đằng', relations_used=[]."
 }}
 
@@ -127,10 +115,8 @@ Trả về ĐÚNG JSON (không markdown, không ```json```) theo schema:
   ],
   "relations_used": ["LED_TO"],
   "confidence": {{
-    "question_clarity": 8, "fact_node_completeness": 7,
-    "fact_node_precision": 8, "grade_certainty": 7, "overall": 72
+    "overall": 72
   }},
-  "confidence_concerns": "Có thể cần thêm node n6 để trả lời đầy đủ",
   "reasoning": "HZ vì cần follow relation LED_TO từ n2→n5. relations_used=['LED_TO'] (không rỗng)."
 }}
 
@@ -146,10 +132,8 @@ Trả về ĐÚNG JSON (không markdown, không ```json```) theo schema:
   ],
   "relations_used": [],
   "confidence": {{
-    "question_clarity": 8, "fact_node_completeness": 7,
-    "fact_node_precision": 8, "grade_certainty": 6, "overall": 68
+    "overall": 68
   }},
-  "confidence_concerns": "Câu hỏi tổng hợp rộng, có thể thiếu nodes từ section khác.",
   "reasoning": "BU vì fact_nodes từ 3 sections khác nhau (Kinh tế/Quân sự/Chính trị). relations_used=[]."
 }}
 """

@@ -27,10 +27,6 @@ from workflows.benchmark.models import (
 def make_confidence(**overrides) -> ConfidenceScore:
     """Return a valid ConfidenceScore, optionally overriding fields."""
     defaults = {
-        "question_clarity": 8,
-        "fact_node_completeness": 7,
-        "fact_node_precision": 9,
-        "grade_certainty": 8,
         "overall": 75,
     }
     defaults.update(overrides)
@@ -89,7 +85,6 @@ def make_benchmark_query(**overrides) -> BenchmarkQuery:
         "fact_nodes": [make_fact_node()],
         "relations_used": [],
         "confidence": make_confidence(),
-        "confidence_concerns": "",
         "reasoning": "Because reasons.",
     }
     defaults.update(overrides)
@@ -142,15 +137,6 @@ class TestConfidenceScore:
     def test_valid_score(self):
         cs = make_confidence()
         assert cs.overall == 75
-        assert cs.question_clarity == 8
-
-    def test_sub_score_minimum_zero(self):
-        cs = make_confidence(question_clarity=0)
-        assert cs.question_clarity == 0
-
-    def test_sub_score_maximum_ten(self):
-        cs = make_confidence(grade_certainty=10)
-        assert cs.grade_certainty == 10
 
     def test_overall_minimum_zero(self):
         cs = make_confidence(overall=0)
@@ -160,14 +146,6 @@ class TestConfidenceScore:
         cs = make_confidence(overall=100)
         assert cs.overall == 100
 
-    def test_sub_score_below_zero(self):
-        with pytest.raises(ValueError):
-            make_confidence(question_clarity=-1)
-
-    def test_sub_score_above_ten(self):
-        with pytest.raises(ValueError):
-            make_confidence(fact_node_completeness=11)
-
     def test_overall_below_zero(self):
         with pytest.raises(ValueError):
             make_confidence(overall=-1)
@@ -175,16 +153,6 @@ class TestConfidenceScore:
     def test_overall_above_100(self):
         with pytest.raises(ValueError):
             make_confidence(overall=101)
-
-    def test_all_sub_scores_validated(self):
-        for field in (
-            "question_clarity",
-            "fact_node_completeness",
-            "fact_node_precision",
-            "grade_certainty",
-        ):
-            with pytest.raises(ValueError):
-                make_confidence(**{field: 15})
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +198,6 @@ class TestBenchmarkQuery:
             fact_nodes=[make_fact_node()],
             relations_used=[],
             confidence=make_confidence(),
-            confidence_concerns="",
             reasoning="some reasoning",
         )
         assert q.query_id is not None
@@ -244,7 +211,6 @@ class TestBenchmarkQuery:
             fact_nodes=[make_fact_node()],
             relations_used=[],
             confidence=make_confidence(),
-            confidence_concerns="",
             reasoning="some reasoning",
         )
         assert q.query_id == "explicit-id"
@@ -256,7 +222,6 @@ class TestBenchmarkQuery:
             "fact_nodes": [make_fact_node()],
             "relations_used": [],
             "confidence": make_confidence(),
-            "confidence_concerns": "",
             "reasoning": "r",
         }
         q1 = BenchmarkQuery.with_generated_id(**shared_kwargs)

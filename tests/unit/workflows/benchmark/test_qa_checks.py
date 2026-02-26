@@ -23,7 +23,6 @@ def _make_query(
     fact_nodes: list[FactNode] | None = None,
     overall_confidence: int = 85,
     direction: str | None = "TD",
-    confidence_concerns: str = "",
 ) -> BenchmarkQuery:
     if fact_nodes is None:
         fact_nodes = [
@@ -38,13 +37,8 @@ def _make_query(
         fact_nodes=fact_nodes,
         relations_used=[],
         confidence=ConfidenceScore(
-            question_clarity=8,
-            fact_node_completeness=8,
-            fact_node_precision=8,
-            grade_certainty=8,
             overall=overall_confidence,
         ),
-        confidence_concerns=confidence_concerns,
         reasoning="Test",
         direction=direction,
     )

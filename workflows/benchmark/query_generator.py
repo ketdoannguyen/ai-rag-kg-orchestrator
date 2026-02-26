@@ -117,10 +117,6 @@ def _parse_fact_node(
 def _parse_confidence(raw: dict) -> ConfidenceScore:
     """Parse confidence dict into ConfidenceScore model."""
     return ConfidenceScore(
-        question_clarity=raw.get("question_clarity", 5),
-        fact_node_completeness=raw.get("fact_node_completeness", 5),
-        fact_node_precision=raw.get("fact_node_precision", 5),
-        grade_certainty=raw.get("grade_certainty", 5),
         overall=raw.get("overall", 50),
     )
 
@@ -219,7 +215,6 @@ def parse_llm_response(
                 fact_nodes=fact_nodes,
                 relations_used=raw_q.get("relations_used", []),
                 confidence=confidence,
-                confidence_concerns=raw_q.get("confidence_concerns", ""),
                 reasoning=raw_q.get("reasoning", ""),
                 direction=direction,
             )

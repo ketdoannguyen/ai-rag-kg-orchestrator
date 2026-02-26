@@ -368,16 +368,17 @@ FOR doc IN @@view
   RETURN {doc: doc, score: score}
 """
 
-# BM25 content search using TOKENS + ALL IN for token-level matching
-# Works better than PHRASE for multi-word queries (e.g. Vietnamese text)
+# BM25 content search using TOKENS + ANY IN for token-level matching.
+# Uses "identity" analyzer (no stemming, no stopwords) for Vietnamese text.
+# ANY IN (vs ALL IN) gives broader recall for multi-word queries.
 BM25_SEARCH_CONTENT = """
 FOR doc IN @@view
   SEARCH ANALYZER(
-    TOKENS(@search_term, "text_en") ALL IN doc.text OR
-    TOKENS(@search_term, "text_en") ALL IN doc.attributes.text OR
-    TOKENS(@search_term, "text_en") ALL IN doc.attributes.title OR
-    TOKENS(@search_term, "text_en") ALL IN doc.summary,
-    "text_en"
+    TOKENS(@search_term, "identity") ANY IN doc.text OR
+    TOKENS(@search_term, "identity") ANY IN doc.attributes.text OR
+    TOKENS(@search_term, "identity") ANY IN doc.attributes.title OR
+    TOKENS(@search_term, "identity") ANY IN doc.summary,
+    "identity"
   )
   FILTER doc.node_type IN @node_types
   LET score = BM25(doc)
@@ -390,11 +391,11 @@ FOR doc IN @@view
 BM25_SEARCH_CONTENT_WITH_SOURCE = """
 FOR doc IN @@view
   SEARCH ANALYZER(
-    TOKENS(@search_term, "text_en") ALL IN doc.text OR
-    TOKENS(@search_term, "text_en") ALL IN doc.attributes.text OR
-    TOKENS(@search_term, "text_en") ALL IN doc.attributes.title OR
-    TOKENS(@search_term, "text_en") ALL IN doc.summary,
-    "text_en"
+    TOKENS(@search_term, "identity") ANY IN doc.text OR
+    TOKENS(@search_term, "identity") ANY IN doc.attributes.text OR
+    TOKENS(@search_term, "identity") ANY IN doc.attributes.title OR
+    TOKENS(@search_term, "identity") ANY IN doc.summary,
+    "identity"
   )
   FILTER doc.node_type IN @node_types
   FILTER doc.source_id == @source_id

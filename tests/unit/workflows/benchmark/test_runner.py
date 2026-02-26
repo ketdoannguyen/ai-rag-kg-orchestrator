@@ -84,13 +84,8 @@ def _make_query(
         fact_nodes=fact_nodes,
         relations_used=["CAUSED_BY"],
         confidence=ConfidenceScore(
-            question_clarity=8,
-            fact_node_completeness=9,
-            fact_node_precision=8,
-            grade_certainty=7,
             overall=82,
         ),
-        confidence_concerns="",
         reasoning="Test reasoning",
     )
 

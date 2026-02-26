@@ -2,13 +2,19 @@
 
 Implements grade-aware IR metrics: NDCG@k, Recall@k, Precision@k, MRR.
 Relevance grades: 0 (irrelevant), 1 (partial), 2 (highly relevant).
+
+E3 grading note:
+    E3 returns structure_nodes (parent sections), not content_nodes.
+    To grade E3 results, we build an extended relevance map that includes
+    structure node IDs derived from the subgraph's parent_section_key fields.
+    A structure node gets the maximum grade of its child fact_nodes.
 """
 
 from __future__ import annotations
 
 import math
 
-from workflows.benchmark.models import BenchmarkQuery, EvaluationResult
+from workflows.benchmark.models import BenchmarkQuery, EvaluationResult, Subgraph
 
 
 def ndcg_at_k(
@@ -96,15 +102,68 @@ def build_relevance_map(query: BenchmarkQuery) -> dict[str, int]:
     return {fn.node_id: fn.grade for fn in query.fact_nodes}
 
 
+def build_relevance_map_with_e3(
+    query: BenchmarkQuery,
+    subgraph: Subgraph | None,
+) -> dict[str, int]:
+    """Build relevance map including structure node IDs for E3 grading.
+
+    E3 returns structure_nodes (parent sections). This function extends the
+    standard content-node relevance map with entries for their parent structure
+    nodes. A structure node gets the maximum grade of its child fact_nodes.
+
+    Args:
+        query: Benchmark query with fact_nodes (content node IDs + grades).
+        subgraph: Subgraph for this query, used to resolve parent_section_keys.
+                  If None, falls back to content-node-only map.
+
+    Returns:
+        {doc_id: grade} for content nodes AND structure nodes.
+    """
+    rel: dict[str, int] = {fn.node_id: fn.grade for fn in query.fact_nodes}
+
+    if subgraph is None:
+        return rel
+
+    # Build content_key → parent_section_key mapping from subgraph nodes
+    content_key_to_parent: dict[str, str] = {}
+    for node in subgraph.nodes:
+        if node.parent_section_key:
+            # node_id is like "content_nodes/UUID"
+            content_key_to_parent[node.node_id] = node.parent_section_key
+
+    # For each fact_node, find its parent section key and assign max grade
+    structure_grades: dict[str, int] = {}
+    for fn in query.fact_nodes:
+        parent_key = content_key_to_parent.get(fn.node_id)
+        if parent_key:
+            structure_id = f"structure_nodes/{parent_key}"
+            existing = structure_grades.get(structure_id, 0)
+            structure_grades[structure_id] = max(existing, fn.grade)
+
+    rel.update(structure_grades)
+    return rel
+
+
 def evaluate_single(
     query: BenchmarkQuery,
     method_id: str,
     method_name: str,
     retrieved_ids: list[str],
     k: int = 10,
+    subgraph: Subgraph | None = None,
 ) -> EvaluationResult:
-    """Evaluate a single query against one retrieval method's results."""
-    rel = build_relevance_map(query)
+    """Evaluate a single query against one retrieval method's results.
+
+    Args:
+        query: Benchmark query with fact_nodes.
+        method_id: Short identifier (e.g. "B1", "E3a").
+        method_name: Human-readable name.
+        retrieved_ids: List of retrieved document IDs.
+        k: Cutoff rank for metrics.
+        subgraph: Optional subgraph for E3 structure-node grading.
+    """
+    rel = build_relevance_map_with_e3(query, subgraph)
     return EvaluationResult(
         query_id=query.query_id,
         method_id=method_id,
@@ -124,6 +183,7 @@ def evaluate_batch(
     method_name: str,
     results_map: dict[str, list[str]],
     k: int = 10,
+    subgraphs_by_id: dict[str, Subgraph] | None = None,
 ) -> list[EvaluationResult]:
     """Evaluate a batch of queries against one method's results.
 
@@ -133,6 +193,7 @@ def evaluate_batch(
         method_name: Human-readable name.
         results_map: Mapping of query_id -> list of retrieved document IDs.
         k: Cutoff rank for metrics.
+        subgraphs_by_id: Optional {subgraph_id: Subgraph} for E3 grading.
 
     Returns:
         List of EvaluationResult, one per query found in results_map.
@@ -142,5 +203,8 @@ def evaluate_batch(
         retrieved = results_map.get(query.query_id)
         if retrieved is None:
             continue
-        results.append(evaluate_single(query, method_id, method_name, retrieved, k))
+        subgraph = None
+        if subgraphs_by_id is not None:
+            subgraph = subgraphs_by_id.get(query.subgraph_id)
+        results.append(evaluate_single(query, method_id, method_name, retrieved, k, subgraph))
     return results

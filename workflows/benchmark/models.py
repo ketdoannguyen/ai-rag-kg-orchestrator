@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 TIER2_TYPES: list[str] = [
     "CAUSED_BY",
@@ -64,20 +64,9 @@ class FactNode(BaseModel):
 class ConfidenceScore(BaseModel):
     """LLM self-assessed confidence for a generated benchmark query."""
 
-    question_clarity: int
-    fact_node_completeness: int
-    fact_node_precision: int
-    grade_certainty: int
-    overall: int
+    model_config = ConfigDict(extra="forbid")
 
-    @field_validator(
-        "question_clarity", "fact_node_completeness", "fact_node_precision", "grade_certainty"
-    )
-    @classmethod
-    def validate_0_10(cls, v: int) -> int:
-        if not 0 <= v <= 10:
-            raise ValueError(f"Score must be 0-10, got {v}")
-        return v
+    overall: int
 
     @field_validator("overall")
     @classmethod
@@ -90,13 +79,14 @@ class ConfidenceScore(BaseModel):
 class BenchmarkQuery(BaseModel):
     """A single benchmark query with graded fact nodes and metadata."""
 
+    model_config = ConfigDict(extra="forbid")
+
     query_id: str
     query_text: str
     subgraph_id: str
     fact_nodes: list[FactNode]
     relations_used: list[str]
     confidence: ConfidenceScore
-    confidence_concerns: str
     reasoning: str
     # Post-hoc fields (filled after generation)
     direction: str | None = None

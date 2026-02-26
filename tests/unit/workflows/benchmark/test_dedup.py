@@ -17,10 +17,6 @@ from workflows.benchmark.models import BenchmarkQuery, ConfidenceScore, FactNode
 
 def make_confidence(overall: int = 70) -> ConfidenceScore:
     return ConfidenceScore(
-        question_clarity=7,
-        fact_node_completeness=7,
-        fact_node_precision=7,
-        grade_certainty=7,
         overall=overall,
     )
 
@@ -42,7 +38,6 @@ def make_query(
         fact_nodes=fact_nodes,
         relations_used=[],
         confidence=make_confidence(overall=confidence_overall),
-        confidence_concerns="",
         reasoning="test",
     )
 

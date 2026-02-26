@@ -16,13 +16,14 @@ TIER_MULTIPLIERS: dict[str, float] = {
 }
 
 TIER_MIN_QUERIES: dict[str, int] = {
-    "large": 21,
+    "large": 20,
     "medium": 14,
     "small": 8,
     "tiny": 5,
 }
 
 TARGET_TOTAL = 1500
+MAX_QUERIES_PER_SUBGRAPH = 20
 
 
 def classify_tier(core_content_count: int) -> str:
@@ -50,7 +51,7 @@ def allocate_queries(core_content_count: int) -> int:
     """
     tier = classify_tier(core_content_count)
     raw = int(core_content_count * TIER_MULTIPLIERS[tier])
-    return max(TIER_MIN_QUERIES[tier], raw)
+    return min(MAX_QUERIES_PER_SUBGRAPH, max(TIER_MIN_QUERIES[tier], raw))
 
 
 def balance_allocations(
@@ -77,7 +78,7 @@ def balance_allocations(
 
     updated = []
     for sg, raw in zip(subgraphs, raw_allocs, strict=True):
-        adjusted = max(1, round(raw * scale))
+        adjusted = min(MAX_QUERIES_PER_SUBGRAPH, max(1, round(raw * scale)))
         updated.append(sg.model_copy(update={"query_allocation": adjusted}))
 
     return updated

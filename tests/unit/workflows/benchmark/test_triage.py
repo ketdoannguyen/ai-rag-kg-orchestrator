@@ -19,13 +19,8 @@ def _make_query(query_id: str, confidence: int, direction: str = "TD") -> Benchm
         fact_nodes=[FactNode(node_id="content_nodes/n1", grade=2, parent_section="sec/a")],
         relations_used=[],
         confidence=ConfidenceScore(
-            question_clarity=8,
-            fact_node_completeness=8,
-            fact_node_precision=8,
-            grade_certainty=8,
             overall=confidence,
         ),
-        confidence_concerns="",
         reasoning="Test",
         direction=direction,
     )

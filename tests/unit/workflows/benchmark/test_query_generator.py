@@ -68,13 +68,8 @@ def make_valid_query_payload(
         "relations_used": relations_used or [],
         "confidence": confidence
         or {
-            "question_clarity": 8,
-            "fact_node_completeness": 7,
-            "fact_node_precision": 9,
-            "grade_certainty": 8,
             "overall": 75,
         },
-        "confidence_concerns": "none",
         "reasoning": "Because of facts.",
         "direction": direction,
     }

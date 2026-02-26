@@ -31,10 +31,6 @@ from workflows.benchmark.models import (
 
 def make_confidence(**overrides) -> ConfidenceScore:
     defaults = {
-        "question_clarity": 8,
-        "fact_node_completeness": 7,
-        "fact_node_precision": 9,
-        "grade_certainty": 8,
         "overall": 75,
     }
     defaults.update(overrides)
@@ -67,7 +63,6 @@ def make_benchmark_query(
         "fact_nodes": fact_nodes,
         "relations_used": [],
         "confidence": make_confidence(),
-        "confidence_concerns": "",
         "reasoning": "test",
     }
     defaults.update(overrides)

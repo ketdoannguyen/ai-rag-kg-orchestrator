@@ -109,7 +109,7 @@ def check_content_relevance(
     return CheckResult(check_name="content_relevance", passed=True, action="PASS")
 
 
-def check_confidence_completeness(query: BenchmarkQuery) -> CheckResult:
+def check_confidence_completeness(_query: BenchmarkQuery) -> CheckResult:
     """Check 6: Confidence score is present and valid."""
     return CheckResult(check_name="confidence_completeness", passed=True, action="PASS")
 
@@ -131,15 +131,15 @@ def check_concern_for_low_confidence(
     query: BenchmarkQuery,
     threshold: int = 80,
 ) -> CheckResult:
-    """Check 7b: Concern text required when confidence < threshold."""
-    if query.confidence.overall < threshold and not query.confidence_concerns.strip():
+    """Check 7b: Flag queries with low confidence (no longer requires concern text)."""
+    if query.confidence.overall < threshold:
         return CheckResult(
-            check_name="concern_required",
+            check_name="low_confidence_flag",
             passed=False,
             action="FLAG",
-            detail=f"Confidence={query.confidence.overall} but no concern text",
+            detail=f"Low confidence={query.confidence.overall}",
         )
-    return CheckResult(check_name="concern_required", passed=True, action="PASS")
+    return CheckResult(check_name="low_confidence_flag", passed=True, action="PASS")
 
 
 # ------------------------------------------------------------------ #

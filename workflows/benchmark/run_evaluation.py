@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from workflows.benchmark.evaluation import evaluate_batch
-from workflows.benchmark.models import BenchmarkQuery, EvaluationResult
+from workflows.benchmark.models import BenchmarkQuery, EvaluationResult, Subgraph
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,11 @@ METHOD_CONFIGS: list[dict[str, Any]] = [
         "family": "E3",
         "scoring": "RRF_PARENT_FILTERED",
     },
+]
+
+# Subset: only cosine-scoring variants + baselines (for quick evaluation runs)
+COSINE_ONLY_CONFIGS: list[dict[str, Any]] = [
+    cfg for cfg in METHOD_CONFIGS if cfg["id"] in {"B1", "B2", "B3", "E1a", "E2a", "E3a"}
 ]
 
 
@@ -153,6 +158,7 @@ def evaluate_method_offline(
     queries: list[BenchmarkQuery],
     results_map: dict[str, list[str]],
     k: int = 10,
+    subgraphs_by_id: dict[str, Subgraph] | None = None,
 ) -> MethodRunResult:
     """Evaluate one method using pre-computed retrieval results.
 
@@ -162,11 +168,12 @@ def evaluate_method_offline(
         queries: Full query set.
         results_map: {query_id: [retrieved_node_ids]}.
         k: Cutoff rank.
+        subgraphs_by_id: Optional {subgraph_id: Subgraph} for E3 grading.
 
     Returns:
         MethodRunResult with per-query evaluations and averages.
     """
-    evaluations = evaluate_batch(queries, method_id, method_name, results_map, k)
+    evaluations = evaluate_batch(queries, method_id, method_name, results_map, k, subgraphs_by_id)
 
     return aggregate_method_results(method_id, method_name, evaluations)
 
@@ -175,6 +182,8 @@ def evaluate_all_methods_offline(
     queries: list[BenchmarkQuery],
     all_results: dict[str, dict[str, list[str]]],
     k: int = 10,
+    method_configs: list[dict[str, Any]] | None = None,
+    subgraphs_by_id: dict[str, Subgraph] | None = None,
 ) -> EvaluationRunSummary:
     """Evaluate all methods using pre-computed retrieval results.
 
@@ -182,19 +191,22 @@ def evaluate_all_methods_offline(
         queries: Full query set.
         all_results: {method_id: {query_id: [retrieved_ids]}}.
         k: Cutoff rank.
+        method_configs: Optional subset of METHOD_CONFIGS (defaults to all 14).
+        subgraphs_by_id: Optional {subgraph_id: Subgraph} for E3 grading.
 
     Returns:
         Complete evaluation summary.
     """
+    configs = method_configs if method_configs is not None else METHOD_CONFIGS
     method_results = []
     total_evaluations = 0
 
-    for config in METHOD_CONFIGS:
+    for config in configs:
         mid = config["id"]
         mname = config["name"]
         results_map = all_results.get(mid, {})
 
-        mr = evaluate_method_offline(mid, mname, queries, results_map, k)
+        mr = evaluate_method_offline(mid, mname, queries, results_map, k, subgraphs_by_id)
         method_results.append(mr)
         total_evaluations += mr.query_count
 
