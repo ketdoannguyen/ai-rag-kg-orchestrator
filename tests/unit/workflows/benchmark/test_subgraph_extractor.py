@@ -1,6 +1,6 @@
 """Unit tests for workflows/benchmark/subgraph_extractor.py.
 
-Covers: SEED depth, ENRICH cross-L5 filter, BOUND cap, coverage metric,
+Covers: SEED depth, ENRICH cross-L5 filter, coverage metric,
 structure_nodes collection.
 Uses mocked AQL client to avoid database dependency.
 """
@@ -116,7 +116,8 @@ class TestSeedDepth:
                 "parent_section_level": 6,
             },
         ]
-        # Responses: seed, structure, enrich, relations
+        # Call order: seed, structure, enrich, fetch_metadata(l6_sub)
+        # (_collect_relations skipped: only 1 node)
         client = MockArangoClient(responses=[seed_nodes, [], [], []])
         extractor = SubgraphExtractor(client)
         result = extractor.extract(
@@ -343,40 +344,32 @@ class TestStructureNodes:
 
 
 # ---------------------------------------------------------------------------
-# BOUND cap tests
+# L6 backfill + seed title fallback tests
 # ---------------------------------------------------------------------------
 
 
-class TestBound:
-    def test_bound_caps_enriched_nodes(self):
-        """BOUND should cap total nodes at max_size."""
+class TestL6BackfillAndTitleFallback:
+    def test_missing_l6_backfilled_from_db(self):
+        """L6 key in core_nodes but absent from _collect_structure_nodes is backfilled via DB query."""
+        l6_key = "l6_missing"
         seed_nodes = [
             {
-                "node_id": f"content_nodes/c{i}",
-                "text": f"P{i}",
+                "node_id": "content_nodes/c1",
+                "text": "Under L6",
                 "embedding": None,
-                "parent_section_key": "sec1",
-                "parent_section_title": "S1",
-                "parent_section_level": 5,
-            }
-            for i in range(15)
+                "parent_section_key": l6_key,
+                "parent_section_title": "Fetched L6 Title",
+                "parent_section_level": 6,
+            },
         ]
-        enrich_rows = [
-            {
-                "node_id": f"content_nodes/e{i}",
-                "text": f"E{i}",
-                "embedding": None,
-                "parent_section_key": f"sec{i + 2}",
-                "parent_section_title": f"S{i + 2}",
-                "parent_section_level": 5,
-                "relation_type": "SUPPORTS",
-                "connected_to": "content_nodes/c1",
-            }
-            for i in range(10)
-        ]
-        # Responses: seed, structure, enrich, relations
-        client = MockArangoClient(responses=[seed_nodes, [], enrich_rows, []])
-        extractor = SubgraphExtractor(client, max_size=20)
+        # _collect_structure_nodes returns empty (L6 not found via HAS_SECTION edge)
+        l6_from_edges: list[dict] = []
+        # _fetch_structure_metadata returns the missing L6's metadata
+        fetched_l6 = [{"key": l6_key, "title": "DB L6 Title", "summary": "Sum", "level": 6}]
+        # Call order: seed, structure, enrich, fetch_metadata
+        # (_collect_relations skipped: only 1 node total, len < 2)
+        client = MockArangoClient(responses=[seed_nodes, l6_from_edges, [], fetched_l6])
+        extractor = SubgraphExtractor(client)
         result = extractor.extract(
             anchor_key="sec1",
             anchor_title="S1",
@@ -384,11 +377,232 @@ class TestBound:
             breadcrumb="X",
         )
         assert result is not None
-        total_nodes = len(result.core_node_ids) + len(result.enriched_node_ids)
-        assert total_nodes <= 20
+        l6_sn = next((sn for sn in result.structure_nodes if sn.section_key == l6_key), None)
+        assert l6_sn is not None, "Missing L6 should be backfilled"
+        assert l6_sn.title == "DB L6 Title"
+        assert l6_sn.level == 6
 
-    def test_bound_returns_all_when_under_limit(self):
-        """BOUND should keep all enriched when total is under max_size."""
+    def test_missing_l6_backfill_uses_content_node_title_when_db_empty(self):
+        """When DB returns nothing for missing L6, fallback to parent_section_title from core_nodes."""
+        l6_key = "l6_ghost"
+        seed_nodes = [
+            {
+                "node_id": "content_nodes/c1",
+                "text": "text",
+                "embedding": None,
+                "parent_section_key": l6_key,
+                "parent_section_title": "Content Node Parent Title",
+                "parent_section_level": 6,
+            },
+        ]
+        # Call order: seed, structure (empty), enrich, fetch_metadata (empty)
+        # (_collect_relations skipped: only 1 node)
+        client = MockArangoClient(responses=[seed_nodes, [], [], []])
+        extractor = SubgraphExtractor(client)
+        result = extractor.extract(
+            anchor_key="sec1",
+            anchor_title="S1",
+            anchor_summary=None,
+            breadcrumb="X",
+        )
+        assert result is not None
+        l6_sn = next((sn for sn in result.structure_nodes if sn.section_key == l6_key), None)
+        assert l6_sn is not None
+        assert l6_sn.title == "Content Node Parent Title"
+
+    def test_seed_title_fallback_when_attributes_title_null(self):
+        """_seed() AQL title fallback: NULL attributes.title falls back to v.title or v._key.
+
+        We verify the AQL contains the fallback chain.
+        """
+        client = MockArangoClient(responses=[[]])
+        extractor = SubgraphExtractor(client)
+        extractor.extract(
+            anchor_key="sec1",
+            anchor_title="S1",
+            anchor_summary=None,
+            breadcrumb="X",
+        )
+        seed_query = client.queries[0]
+        assert "pp.attributes.title || pp.title || pp._key" in seed_query
+
+    def test_collect_structure_nodes_title_fallback(self):
+        """_collect_structure_nodes() AQL should use title fallback chain."""
+        seed_nodes = [
+            {
+                "node_id": "content_nodes/c1",
+                "text": "P1",
+                "embedding": None,
+                "parent_section_key": "sec1",
+                "parent_section_title": "S1",
+                "parent_section_level": 5,
+            },
+        ]
+        client = MockArangoClient(responses=[seed_nodes, [], [], []])
+        extractor = SubgraphExtractor(client)
+        extractor.extract(
+            anchor_key="sec1",
+            anchor_title="S1",
+            anchor_summary=None,
+            breadcrumb="X",
+        )
+        structure_query = client.queries[1]
+        assert "v.attributes.title || v.title || v._key" in structure_query
+
+
+# ---------------------------------------------------------------------------
+# Enrichment section cap tests
+# ---------------------------------------------------------------------------
+
+
+class TestEnrichSectionCap:
+    def test_enriched_capped_to_top_2_sections(self):
+        """Enriched nodes should be limited to top-2 parent sections by connection count."""
+        seed_nodes = [
+            {
+                "node_id": "content_nodes/c1",
+                "text": "P1",
+                "embedding": None,
+                "parent_section_key": "sec1",
+                "parent_section_title": "S1",
+                "parent_section_level": 5,
+            },
+        ]
+        # 3 sections: sec2 (3 connections), sec3 (2 connections), sec4 (1 connection)
+        enrich_rows = [
+            # sec2: 3 connections (highest)
+            {
+                "node_id": "content_nodes/e1",
+                "text": "E1",
+                "embedding": None,
+                "parent_section_key": "sec2",
+                "parent_section_title": "S2",
+                "parent_section_level": 5,
+                "relation_type": "SUPPORTS",
+                "connected_to": "content_nodes/c1",
+            },
+            {
+                "node_id": "content_nodes/e1",
+                "text": "E1",
+                "embedding": None,
+                "parent_section_key": "sec2",
+                "parent_section_title": "S2",
+                "parent_section_level": 5,
+                "relation_type": "CONTRASTS",
+                "connected_to": "content_nodes/c1",
+            },
+            {
+                "node_id": "content_nodes/e2",
+                "text": "E2",
+                "embedding": None,
+                "parent_section_key": "sec2",
+                "parent_section_title": "S2",
+                "parent_section_level": 5,
+                "relation_type": "SUPPORTS",
+                "connected_to": "content_nodes/c1",
+            },
+            # sec3: 2 connections (second)
+            {
+                "node_id": "content_nodes/e3",
+                "text": "E3",
+                "embedding": None,
+                "parent_section_key": "sec3",
+                "parent_section_title": "S3",
+                "parent_section_level": 5,
+                "relation_type": "LED_TO",
+                "connected_to": "content_nodes/c1",
+            },
+            {
+                "node_id": "content_nodes/e4",
+                "text": "E4",
+                "embedding": None,
+                "parent_section_key": "sec3",
+                "parent_section_title": "S3",
+                "parent_section_level": 5,
+                "relation_type": "CAUSED_BY",
+                "connected_to": "content_nodes/c1",
+            },
+            # sec4: 1 connection (lowest — should be excluded)
+            {
+                "node_id": "content_nodes/e5",
+                "text": "E5",
+                "embedding": None,
+                "parent_section_key": "sec4",
+                "parent_section_title": "S4",
+                "parent_section_level": 5,
+                "relation_type": "ELABORATES",
+                "connected_to": "content_nodes/c1",
+            },
+        ]
+        # Responses: seed, structure, enrich, relations
+        client = MockArangoClient(responses=[seed_nodes, [], enrich_rows, []])
+        extractor = SubgraphExtractor(client)  # default max_enriched_sections=2
+        result = extractor.extract(
+            anchor_key="sec1",
+            anchor_title="S1",
+            anchor_summary=None,
+            breadcrumb="X",
+        )
+        assert result is not None
+        # sec2 has e1, e2; sec3 has e3, e4 → total 4 enriched nodes
+        # sec4 (e5) should be excluded
+        assert len(result.enriched_node_ids) == 4
+        enriched_ids = set(result.enriched_node_ids)
+        assert "content_nodes/e1" in enriched_ids
+        assert "content_nodes/e2" in enriched_ids
+        assert "content_nodes/e3" in enriched_ids
+        assert "content_nodes/e4" in enriched_ids
+        assert "content_nodes/e5" not in enriched_ids
+
+    def test_custom_max_enriched_sections(self):
+        """max_enriched_sections=1 should keep only the top section."""
+        seed_nodes = [
+            {
+                "node_id": "content_nodes/c1",
+                "text": "P1",
+                "embedding": None,
+                "parent_section_key": "sec1",
+                "parent_section_title": "S1",
+                "parent_section_level": 5,
+            },
+        ]
+        enrich_rows = [
+            {
+                "node_id": "content_nodes/e1",
+                "text": "E1",
+                "embedding": None,
+                "parent_section_key": "sec2",
+                "parent_section_title": "S2",
+                "parent_section_level": 5,
+                "relation_type": "SUPPORTS",
+                "connected_to": "content_nodes/c1",
+            },
+            {
+                "node_id": "content_nodes/e2",
+                "text": "E2",
+                "embedding": None,
+                "parent_section_key": "sec3",
+                "parent_section_title": "S3",
+                "parent_section_level": 5,
+                "relation_type": "SUPPORTS",
+                "connected_to": "content_nodes/c1",
+            },
+        ]
+        # Responses: seed, structure, enrich, relations
+        client = MockArangoClient(responses=[seed_nodes, [], enrich_rows, []])
+        extractor = SubgraphExtractor(client, max_enriched_sections=1)
+        result = extractor.extract(
+            anchor_key="sec1",
+            anchor_title="S1",
+            anchor_summary=None,
+            breadcrumb="X",
+        )
+        assert result is not None
+        # Both sections have 1 connection each; only top-1 kept
+        assert len(result.enriched_node_ids) == 1
+
+    def test_fewer_sections_than_cap(self):
+        """When fewer sections exist than the cap, all should be included."""
         seed_nodes = [
             {
                 "node_id": "content_nodes/c1",
@@ -413,7 +627,7 @@ class TestBound:
         ]
         # Responses: seed, structure, enrich, relations
         client = MockArangoClient(responses=[seed_nodes, [], enrich_rows, []])
-        extractor = SubgraphExtractor(client, max_size=20)
+        extractor = SubgraphExtractor(client)  # cap=2, but only 1 section exists
         result = extractor.extract(
             anchor_key="sec1",
             anchor_title="S1",
@@ -422,6 +636,7 @@ class TestBound:
         )
         assert result is not None
         assert len(result.enriched_node_ids) == 1
+        assert result.enriched_node_ids[0] == "content_nodes/e1"
 
 
 # ---------------------------------------------------------------------------

@@ -172,7 +172,7 @@ class TestFormatSubgraphForLlm:
         assert "eb131378-62ae-4394-a92d-405198cc355b" not in result
         assert "[n1]" in result
 
-    def test_text_truncated_at_200_chars(self):
+    def test_full_text_not_truncated(self):
         long_text = "A" * 300
         sg = make_subgraph(
             nodes=[
@@ -186,7 +186,8 @@ class TestFormatSubgraphForLlm:
             enriched_node_ids=[],
         )
         result, _ = format_subgraph_for_llm(sg)
-        assert "..." in result
+        assert "..." not in result
+        assert long_text in result
 
     def test_short_text_not_truncated(self):
         short_text = "Short text."
@@ -438,6 +439,107 @@ class TestFormatSubgraphForLlm:
         result, _ = format_subgraph_for_llm(sg)
         assert "### Related: [unknown_sec]" in result
 
+    def test_l6_no_uuid_in_header(self):
+        """L6 section with no title uses content-node metadata, not raw UUID key."""
+        import re
+
+        l6_key = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        nodes = [
+            make_subgraph_node(
+                "content_nodes/c1",
+                "L6 content",
+                parent_section_key=l6_key,
+                parent_section_title="My L6 Title",
+                parent_section_level=6,
+            ),
+        ]
+        structure = [
+            SubgraphStructureNode(section_key="anchor_key_1", title="Anchor", level=5),
+            # L6 struct node with no title
+            SubgraphStructureNode(
+                section_key=l6_key, title=None, level=6, parent_key="anchor_key_1"
+            ),
+        ]
+        sg = make_subgraph(
+            nodes=nodes,
+            core_node_ids=["content_nodes/c1"],
+            enriched_node_ids=[],
+            structure_nodes=structure,
+        )
+        result, _ = format_subgraph_for_llm(sg)
+        uuid_pattern = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+        l6_header_lines = [ln for ln in result.splitlines() if ln.startswith("#### L6:")]
+        assert l6_header_lines, "Expected at least one L6 header line"
+        for line in l6_header_lines:
+            assert not uuid_pattern.search(line), f"UUID found in L6 header: {line!r}"
+        assert "My L6 Title" in result
+
+    def test_l6_no_title_falls_back_to_untitled_section(self):
+        """L6 with no title anywhere uses [Untitled Section] placeholder, not UUID."""
+        import re
+
+        l6_key = "deadbeef-dead-beef-dead-beefdeadbeef"
+        nodes = [
+            make_subgraph_node(
+                "content_nodes/c1",
+                "content",
+                parent_section_key=l6_key,
+                parent_section_title=None,  # no title available
+                parent_section_level=6,
+            ),
+        ]
+        structure = [
+            SubgraphStructureNode(section_key="anchor_key_1", title="Anchor", level=5),
+            SubgraphStructureNode(
+                section_key=l6_key, title=None, level=6, parent_key="anchor_key_1"
+            ),
+        ]
+        sg = make_subgraph(
+            nodes=nodes,
+            core_node_ids=["content_nodes/c1"],
+            enriched_node_ids=[],
+            structure_nodes=structure,
+        )
+        result, _ = format_subgraph_for_llm(sg)
+        uuid_pattern = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+        l6_header_lines = [ln for ln in result.splitlines() if ln.startswith("#### L6:")]
+        assert l6_header_lines
+        for line in l6_header_lines:
+            assert not uuid_pattern.search(line), f"UUID found in L6 header: {line!r}"
+        assert "[Untitled Section]" in result
+
+    def test_l6_keys_from_nodes_requires_level_6(self):
+        """A node with parent_section_level != 6 must NOT be detected as an L6 section."""
+        anchor_key = "anchor_key_1"
+        # Node whose parent is L5 (not L6) — should not generate an L6 header
+        non_l6_parent = "another_l5_key"
+        nodes = [
+            make_subgraph_node(
+                "content_nodes/c1",
+                "core",
+                parent_section_key=anchor_key,
+                parent_section_level=5,
+            ),
+            make_subgraph_node(
+                "content_nodes/c2",
+                "enriched",
+                parent_section_key=non_l6_parent,
+                parent_section_level=5,  # L5, not L6
+            ),
+        ]
+        structure = [
+            SubgraphStructureNode(section_key=anchor_key, title="Anchor", level=5),
+            SubgraphStructureNode(section_key=non_l6_parent, title="Other L5", level=5),
+        ]
+        sg = make_subgraph(
+            nodes=nodes,
+            core_node_ids=["content_nodes/c1"],
+            enriched_node_ids=["content_nodes/c2"],
+            structure_nodes=structure,
+        )
+        result, _ = format_subgraph_for_llm(sg)
+        assert "#### L6:" not in result
+
 
 # ---------------------------------------------------------------------------
 # build_id_alias_map
@@ -520,8 +622,12 @@ class TestBuildIdAliasMap:
         from workflows.benchmark.models import SubgraphRelation
 
         relations = [
-            SubgraphRelation(from_id="content_nodes/n1", to_id="content_nodes/n2", relation_type="LEADS_TO"),
-            SubgraphRelation(from_id="content_nodes/n1", to_id="content_nodes/outside", relation_type="CAUSES"),
+            SubgraphRelation(
+                from_id="content_nodes/n1", to_id="content_nodes/n2", relation_type="LEADS_TO"
+            ),
+            SubgraphRelation(
+                from_id="content_nodes/n1", to_id="content_nodes/outside", relation_type="CAUSES"
+            ),
         ]
         sg = make_subgraph(
             nodes=nodes,

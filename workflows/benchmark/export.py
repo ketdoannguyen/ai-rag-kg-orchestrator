@@ -45,8 +45,7 @@ def _format_node_line(
         label = alias_map.get(node.node_id, node.node_id)
     else:
         label = node.node_id.split("/")[-1] if "/" in node.node_id else node.node_id
-    text_preview = node.text[:200] + "..." if len(node.text) > 200 else node.text
-    return f"{idx}. [{label}] {text_preview}"
+    return f"{idx}. [{label}] {node.text}"
 
 
 def format_subgraph_for_llm(
@@ -88,7 +87,11 @@ def format_subgraph_for_llm(
 
 
 def _format_full(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
-    """Original full format (backward-compatible)."""
+    """Original full format (backward-compatible).
+
+    Renders ALL nodes in the subgraph, grouped by section when possible.
+    A safety-net pass at the end guarantees no node is silently dropped.
+    """
     sg_id_short = subgraph.subgraph_id[:8]
     anchor_key = subgraph.anchor_key
 
@@ -101,17 +104,29 @@ def _format_full(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
         pkey = node.parent_section_key
         nodes_by_parent.setdefault(pkey, []).append(node)
 
-    # Identify L6 sections under anchor
-    l6_keys = [
+    # Identify L6 sections under anchor — from structure_nodes AND from node parents
+    l6_keys_from_struct = {
         sn.section_key
         for sn in subgraph.structure_nodes
         if sn.level == 6 and sn.parent_key == anchor_key
-    ]
+    }
+    # Also detect L6 keys referenced by nodes but missing from structure_nodes
+    l6_keys_from_nodes = {
+        n.parent_section_key
+        for n in subgraph.nodes
+        if n.parent_section_key
+        and n.parent_section_key != anchor_key
+        and n.parent_section_level == 6
+    }
+    l6_keys = sorted(l6_keys_from_struct | l6_keys_from_nodes)
 
     lines: list[str] = [
         f'## Subgraph: "{subgraph.anchor_title}" (SG-{sg_id_short})',
         "",
     ]
+
+    # Track which nodes have been rendered
+    rendered_ids: set[str] = set()
 
     # ----- Anchor block -----
     anchor_sn = struct_map.get(anchor_key)
@@ -128,6 +143,7 @@ def _format_full(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
         for node in anchor_nodes:
             if node.node_id in subgraph.core_node_ids:
                 lines.append(_format_node_line(counter, node, alias_map))
+                rendered_ids.add(node.node_id)
                 counter += 1
     else:
         # Scenario B: L5 direct content first, then L6 blocks
@@ -139,11 +155,22 @@ def _format_full(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
             counter = 1
             for node in direct_nodes:
                 lines.append(_format_node_line(counter, node, alias_map))
+                rendered_ids.add(node.node_id)
                 counter += 1
 
         for l6_key in l6_keys:
             l6_sn = struct_map.get(l6_key)
-            l6_title = l6_sn.title if l6_sn and l6_sn.title else l6_key
+            if l6_sn and l6_sn.title:
+                l6_title = l6_sn.title
+            else:
+                l6_title = next(
+                    (
+                        n.parent_section_title
+                        for n in nodes_by_parent.get(l6_key, [])
+                        if n.parent_section_title
+                    ),
+                    "[Untitled Section]",
+                )
             l6_summary = l6_sn.summary if l6_sn else None
             l6_suffix = f" — Summary: {l6_summary}" if l6_summary else ""
             lines.append("")
@@ -156,6 +183,7 @@ def _format_full(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
                 counter = 1
                 for node in l6_content:
                     lines.append(_format_node_line(counter, node, alias_map))
+                    rendered_ids.add(node.node_id)
                     counter += 1
 
     # ----- Enriched / Related sections -----
@@ -185,11 +213,25 @@ def _format_full(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
         counter = 1
         for node in enrich_nodes:
             lines.append(_format_node_line(counter, node, alias_map))
+            rendered_ids.add(node.node_id)
             counter += 1
 
-    # ----- Relations -----
+    # ----- Safety net: emit any nodes not yet rendered -----
+    missed = [n for n in subgraph.nodes if n.node_id not in rendered_ids]
+    if missed:
+        lines.append("")
+        lines.append("### Additional content:")
+        counter = 1
+        for node in missed:
+            lines.append(_format_node_line(counter, node, alias_map))
+            rendered_ids.add(node.node_id)
+            counter += 1
+
+    # ----- Relations (intra-subgraph only) -----
     node_ids = {n.node_id for n in subgraph.nodes}
-    intra_relations = [r for r in subgraph.relations if r.from_id in node_ids and r.to_id in node_ids]
+    intra_relations = [
+        r for r in subgraph.relations if r.from_id in node_ids and r.to_id in node_ids
+    ]
     lines.append("")
     lines.append(f"### Relations ({len(intra_relations)}):")
     for rel in intra_relations:
@@ -213,19 +255,13 @@ def _format_full(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
 
 
 def _format_node_only(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
-    """Compact format for NT/TD: anchor summary + section titles + core nodes + breadcrumb.
-
-    Omits full relation list and enriched sections to reduce noise.
-    """
+    """Compact format for NT/TD: anchor summary + section titles + all nodes + breadcrumb."""
     sg_id_short = subgraph.subgraph_id[:8]
     anchor_key = subgraph.anchor_key
 
     struct_map: dict[str, SubgraphStructureNode] = {
         sn.section_key: sn for sn in subgraph.structure_nodes
     }
-    nodes_by_parent: dict[str | None, list[SubgraphNode]] = {}
-    for node in subgraph.nodes:
-        nodes_by_parent.setdefault(node.parent_section_key, []).append(node)
 
     anchor_sn = struct_map.get(anchor_key)
     summary_text = (
@@ -245,12 +281,11 @@ def _format_node_only(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
         lines.append("Sections: " + " | ".join(section_titles))
     lines.append("")
 
-    # Core nodes under anchor
+    # All nodes
     counter = 1
     for node in subgraph.nodes:
-        if node.node_id in subgraph.core_node_ids:
-            lines.append(_format_node_line(counter, node, alias_map))
-            counter += 1
+        lines.append(_format_node_line(counter, node, alias_map))
+        counter += 1
 
     # Breadcrumb
     lines.append("")
@@ -287,7 +322,9 @@ def _format_relation(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
 
     # Full relation list — only intra-subgraph edges, this is the key signal for HZ
     node_ids = {n.node_id for n in subgraph.nodes}
-    intra_relations = [r for r in subgraph.relations if r.from_id in node_ids and r.to_id in node_ids]
+    intra_relations = [
+        r for r in subgraph.relations if r.from_id in node_ids and r.to_id in node_ids
+    ]
     lines.append("")
     lines.append(f"### Relations ({len(intra_relations)}):")
     for rel in intra_relations:
@@ -314,20 +351,30 @@ def _format_breadth(subgraph: Subgraph, alias_map: dict[str, str]) -> str:
         "",
     ]
 
+    # Track rendered nodes
+    rendered_ids: set[str] = set()
+
     # All sections with summaries and concrete node excerpts
     for sn in subgraph.structure_nodes:
         summary_suffix = f" — Summary: {sn.summary}" if sn.summary else ""
         lines.append(f'### Section: "{sn.title}"{summary_suffix}')
-        section_nodes = [
-            n
-            for n in nodes_by_parent.get(sn.section_key, [])
-            if n.node_id in subgraph.core_node_ids or n.node_id in subgraph.enriched_node_ids
-        ]
+        section_nodes = nodes_by_parent.get(sn.section_key, [])
         if section_nodes:
             counter = 1
             for node in section_nodes:
                 lines.append(_format_node_line(counter, node, alias_map))
+                rendered_ids.add(node.node_id)
                 counter += 1
+        lines.append("")
+
+    # Safety net: emit nodes not covered by any structure_node section
+    missed = [n for n in subgraph.nodes if n.node_id not in rendered_ids]
+    if missed:
+        lines.append("### Additional content:")
+        counter = 1
+        for node in missed:
+            lines.append(_format_node_line(counter, node, alias_map))
+            counter += 1
         lines.append("")
 
     # Relation types only — suppress individual pairs to avoid HZ bias

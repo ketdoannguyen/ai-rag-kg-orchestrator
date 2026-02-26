@@ -1,7 +1,11 @@
-"""Subgraph Extractor for Benchmark v4.0 — SEED + ENRICH + BOUND.
+"""Subgraph Extractor for Benchmark v4.0 — SEED + ENRICH.
 
-v4.0 key change: Relation-Coverage Subgraph Assembly to capture ≥80% Tier 2
-relations (including cross-L5 which v3.2 missed entirely).
+v4.0 key change: Relation-Coverage Subgraph Assembly to capture cross-L5
+Tier 2 relations (which v3.2 missed entirely).
+
+v4.1 fix: Cap enriched sections to ``max_enriched_sections`` (default 2) to
+prevent 1-hop fan-out from pulling ~1/3 of the database into each subgraph.
+Only the top-N cross-L5 parent sections ranked by connection count are kept.
 """
 
 from __future__ import annotations
@@ -17,8 +21,6 @@ from workflows.benchmark.models import (
     SubgraphStructureNode,
 )
 from workflows.benchmark.query_allocator import classify_tier
-
-MAX_SUBGRAPH_SIZE = 20
 
 
 @dataclass
@@ -36,15 +38,25 @@ class _EnrichedNode:
 
 
 class SubgraphExtractor:
-    """Extract v4.0 subgraphs via SEED → ENRICH → BOUND pipeline.
+    """Extract v4.1 subgraphs via SEED → ENRICH pipeline.
 
     Given an L5 anchor section, assembles a subgraph that covers both
     same-L5 (core) nodes and cross-L5 1-hop neighbors (enriched nodes).
+
+    Enrichment is capped to ``max_enriched_sections`` cross-L5 parent sections
+    (default 2), ranked by connection count, to keep subgraphs small and
+    focused.
     """
 
-    def __init__(self, client, max_size: int = MAX_SUBGRAPH_SIZE) -> None:
+    DEFAULT_MAX_ENRICHED_SECTIONS = 2
+
+    def __init__(self, client, *, max_enriched_sections: int | None = None) -> None:
         self._client = client
-        self._max_size = max_size
+        self._max_enriched_sections = (
+            max_enriched_sections
+            if max_enriched_sections is not None
+            else self.DEFAULT_MAX_ENRICHED_SECTIONS
+        )
 
     # ------------------------------------------------------------------ #
     # Public API                                                           #
@@ -73,11 +85,8 @@ class SubgraphExtractor:
         # STRUCTURE: collect L6 children of anchor
         l6_nodes = self._collect_structure_nodes(anchor_id)
 
-        # ENRICH: 1-hop cross-L5 neighbors
-        enriched_candidates = self._enrich(core_node_ids, anchor_key)
-
-        # BOUND: cap total at max_size
-        enriched_nodes = self._bound(core_nodes, enriched_candidates)
+        # ENRICH: 1-hop cross-L5 neighbors (capped to top-N sections)
+        enriched_nodes = self._enrich(core_node_ids, anchor_key)
         enriched_node_ids = [n.node_id for n in enriched_nodes]
 
         all_node_ids = core_node_ids + enriched_node_ids
@@ -105,6 +114,39 @@ class SubgraphExtractor:
                     parent_key=anchor_key,
                 )
             )
+
+        # Backfill any L6 keys referenced by core_nodes but missing from _collect_structure_nodes
+        seen_keys = {sn.section_key for sn in structure_nodes}
+        missing_l6_keys: list[str] = []
+        for n in core_nodes:
+            pkey = n.get("parent_section_key")
+            plevel = n.get("parent_section_level")
+            if plevel == 6 and pkey and pkey not in seen_keys:
+                missing_l6_keys.append(pkey)
+                seen_keys.add(pkey)
+
+        if missing_l6_keys:
+            fetched = self._fetch_structure_metadata(missing_l6_keys)
+            fetched_map = {r["key"]: r for r in fetched}
+            for pkey in missing_l6_keys:
+                meta = fetched_map.get(pkey, {})
+                title = meta.get("title") or next(
+                    (
+                        n.get("parent_section_title")
+                        for n in core_nodes
+                        if n.get("parent_section_key") == pkey and n.get("parent_section_title")
+                    ),
+                    None,
+                )
+                structure_nodes.append(
+                    SubgraphStructureNode(
+                        section_key=pkey,
+                        title=title,
+                        summary=meta.get("summary"),
+                        level=6,
+                        parent_key=anchor_key,
+                    )
+                )
 
         # Collect unique enriched parent sections as structure nodes
         seen_keys = {sn.section_key for sn in structure_nodes}
@@ -211,7 +253,7 @@ class SubgraphExtractor:
               FILTER IS_SAME_COLLECTION("structure_nodes", pp)
               RETURN {
                 key: pp._key,
-                title: pp.attributes.title,
+                title: pp.attributes.title || pp.title || pp._key,
                 summary: pp.summary,
                 level: pp.level
               }
@@ -236,7 +278,7 @@ class SubgraphExtractor:
           FILTER v.level == 6
           RETURN {
             key: v._key,
-            title: v.attributes.title,
+            title: v.attributes.title || v.title || v._key,
             summary: v.summary,
             level: v.level
           }
@@ -244,7 +286,11 @@ class SubgraphExtractor:
         return self._client.execute_aql(query, bind_vars={"anchor_id": anchor_id})
 
     def _enrich(self, core_node_ids: list[str], anchor_key: str) -> list[_EnrichedNode]:
-        """ENRICH: Find 1-hop cross-L5 neighbors via Tier 2 relations."""
+        """ENRICH: Find 1-hop cross-L5 neighbors via Tier 2 relations.
+
+        Returns only nodes belonging to the top ``max_enriched_sections``
+        parent sections ranked by total connection count to core nodes.
+        """
         if not core_node_ids:
             return []
 
@@ -298,31 +344,29 @@ class SubgraphExtractor:
             seen[nid].connection_count += 1
             seen[nid].relation_types.add(row["relation_type"])
 
-        return list(seen.values())
+        # Group by parent section and rank by total connections
+        section_connections: dict[str | None, int] = {}
+        section_nodes: dict[str | None, list[_EnrichedNode]] = {}
+        for node in seen.values():
+            pkey = node.parent_section_key
+            section_connections[pkey] = section_connections.get(pkey, 0) + node.connection_count
+            section_nodes.setdefault(pkey, []).append(node)
 
-    def _bound(
-        self,
-        core_nodes: list[dict],
-        enriched_candidates: list[_EnrichedNode],
-    ) -> list[_EnrichedNode]:
-        """BOUND: Cap total subgraph at max_size nodes.
-
-        When enriched candidates exceed available slots, rank by:
-        1. connection_count (desc) — more connections to core = higher priority
-        2. len(relation_types) (desc) — more relation type diversity = higher priority
-        """
-        available = self._max_size - len(core_nodes)
-        if available <= 0:
-            return []
-        if len(enriched_candidates) <= available:
-            return enriched_candidates
-
-        sorted_candidates = sorted(
-            enriched_candidates,
-            key=lambda n: (n.connection_count, len(n.relation_types)),
+        # Select top-N sections by connection count
+        ranked_sections = sorted(
+            section_connections.keys(),
+            key=lambda k: section_connections[k],
             reverse=True,
         )
-        return sorted_candidates[:available]
+        top_sections = set(ranked_sections[: self._max_enriched_sections])
+
+        # Return only nodes from top sections
+        result: list[_EnrichedNode] = []
+        for pkey in ranked_sections:
+            if pkey in top_sections:
+                result.extend(section_nodes[pkey])
+
+        return result
 
     def _collect_relations(self, all_node_ids: list[str]) -> list[SubgraphRelation]:
         """Collect all Tier 2 relations between nodes in the bounded subgraph."""
@@ -348,3 +392,18 @@ class SubgraphExtractor:
             )
             for r in rows
         ]
+
+    def _fetch_structure_metadata(self, keys: list[str]) -> list[dict]:
+        """Fetch title/summary/level for structure_nodes by key list."""
+        query = """
+        FOR key IN @keys
+          LET v = DOCUMENT(CONCAT("structure_nodes/", key))
+          FILTER v != null
+          RETURN {
+            key: v._key,
+            title: v.attributes.title || v.title || v._key,
+            summary: v.summary,
+            level: v.level
+          }
+        """
+        return self._client.execute_aql(query, bind_vars={"keys": keys})
