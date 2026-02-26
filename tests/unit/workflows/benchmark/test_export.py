@@ -358,7 +358,6 @@ class TestFormatSubgraphForLlm:
             content_count=3,
         )
         result, alias_map = format_subgraph_for_llm(sg)
-        assert "Direct content:" in result
         assert '#### L6: "Sub A" — Summary: Sub A summary' in result
         assert '#### L6: "Sub B"' in result
         assert f"[{alias_map['content_nodes/d1']}]" in result
@@ -575,6 +574,77 @@ class TestFormatSubgraphForLlm:
         assert "#### L6:" not in result
         # The enriched section is still rendered as a related section
         assert "Foreign L6" in result
+
+    def test_orphan_core_node_not_in_prompt(self):
+        """Core node whose parent_section_key is neither anchor_key nor any anchor-L6 key
+        must NOT appear in the prompt (no safety-net dump)."""
+        anchor_key = "anchor_l5"
+        nodes = [
+            make_subgraph_node(
+                "content_nodes/c1",
+                "legitimate core",
+                parent_section_key=anchor_key,
+                parent_section_level=5,
+            ),
+            make_subgraph_node(
+                "content_nodes/orphan",
+                "orphan text should not appear",
+                parent_section_key="completely_foreign_l5",
+                parent_section_level=5,
+            ),
+        ]
+        structure = [
+            SubgraphStructureNode(section_key=anchor_key, title="Anchor", level=5),
+        ]
+        sg = make_subgraph(
+            nodes=nodes,
+            # Both are listed as core, but orphan has wrong parent
+            core_node_ids=["content_nodes/c1", "content_nodes/orphan"],
+            enriched_node_ids=[],
+            structure_nodes=structure,
+            content_count=2,
+        )
+        result, _ = format_subgraph_for_llm(sg)
+        assert "orphan text should not appear" not in result
+        assert "### Additional content:" not in result
+
+    def test_l6_child_node_renders_in_l6_block_not_additional(self):
+        """Node whose parent is an anchor-owned L6 must appear in the L6 block, never in
+        '### Additional content:'."""
+        anchor_key = "anchor_l5"
+        l6_key = "child_l6"
+        nodes = [
+            make_subgraph_node(
+                "content_nodes/c1",
+                "direct L5 content",
+                parent_section_key=anchor_key,
+                parent_section_level=5,
+            ),
+            make_subgraph_node(
+                "content_nodes/c2",
+                "L6 child content",
+                parent_section_key=l6_key,
+                parent_section_title="Child L6 Section",
+                parent_section_level=6,
+            ),
+        ]
+        structure = [
+            SubgraphStructureNode(section_key=anchor_key, title="Anchor", level=5),
+            SubgraphStructureNode(
+                section_key=l6_key, title="Child L6 Section", level=6, parent_key=anchor_key
+            ),
+        ]
+        sg = make_subgraph(
+            nodes=nodes,
+            core_node_ids=["content_nodes/c1", "content_nodes/c2"],
+            enriched_node_ids=[],
+            structure_nodes=structure,
+            content_count=2,
+        )
+        result, alias_map = format_subgraph_for_llm(sg)
+        assert "#### L6:" in result
+        assert "L6 child content" in result
+        assert "### Additional content:" not in result
 
 
 # ---------------------------------------------------------------------------

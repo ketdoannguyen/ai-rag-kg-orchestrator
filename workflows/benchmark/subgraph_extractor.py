@@ -245,6 +245,7 @@ class SubgraphExtractor:
         """SEED: Extract all content nodes belonging to this L5 section."""
         query = """
         FOR v, e IN 1..2 OUTBOUND DOCUMENT(@anchor_id) knowledge_edges
+          PRUNE e != null AND e.type NOT IN ["HAS_SECTION", "HAS_CONTENT"]
           FILTER e.type IN ["HAS_SECTION", "HAS_CONTENT"]
           FILTER IS_SAME_COLLECTION("content_nodes", v)
           LET direct_parent = FIRST(
