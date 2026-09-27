@@ -18,7 +18,7 @@ def get_arango_client() -> ArangoClient:
 
 
 def get_ingest_workflow():
-    def runner(file_path: str) -> dict:
-        return start_ingest(file_path=file_path)
+    def runner(data_source_id: str) -> dict:
+        return start_ingest(data_source_id)
 
     return runner

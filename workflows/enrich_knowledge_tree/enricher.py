@@ -242,6 +242,18 @@ class KnowledgeTreeEnricher:
                 structure_children.append(child)
 
         original_detail_count = len(detail_nodes)
+        if not workflow_input.refine_config.refine_details:
+            # The producer already grouped its blocks into retrieval-sized
+            # chunks, so re-chunking here would only let the LLM rewrite text
+            # that should stay verbatim.
+            return (
+                list(node.children),
+                {
+                    "original_detail_count": original_detail_count,
+                    "refined_detail_count": original_detail_count,
+                },
+                None,
+            )
         if original_detail_count <= 1:
             # Children order: details (unchanged) + images + structure children
             new_children: list[KnowledgeNode] = [

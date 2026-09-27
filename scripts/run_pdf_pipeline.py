@@ -31,6 +31,7 @@ from workflows.dependencies import init_arango_client, init_llm_client
 from workflows.embed_nodes import EmbedNodesInput, start_embed_nodes
 from workflows.embed_nodes.helper import extract_text_for_embedding
 from workflows.enrich_knowledge_tree import EnrichKnowledgeTreeInput, start_enrich_knowledge_tree
+from workflows.enrich_knowledge_tree.models import RefineConfig
 from workflows.ingest_file import start_ingest
 from workflows.save_embeddings_to_arango import (
     SaveEmbeddingsInput,
@@ -112,6 +113,10 @@ async def _process_data_source(
     enrich_out = await start_enrich_knowledge_tree(
         EnrichKnowledgeTreeInput(
             knowledge_tree=root_node,
+            # ingest_file already grouped blocks into retrieval-sized chunks,
+            # so the detail merge would only re-chunk them and let the LLM
+            # rewrite text that must stay verbatim.
+            refine_config=RefineConfig(refine_details=False),
         ),
         llm_client=llm_client,
     )

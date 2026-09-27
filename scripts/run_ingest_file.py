@@ -16,28 +16,25 @@ from workflows.ingest_file import FileIngestionInput, start_ingest
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Ingest PDF file using Marker SDK")
-    parser.add_argument(
-        "file_path",
-        type=str,
-        help="Path to the input PDF file",
+    parser = argparse.ArgumentParser(
+        description="Ingest an uploaded DataSource with the vision OCR workflow"
     )
     parser.add_argument(
-        "--enable-ocr",
-        action="store_true",
-        help="Enable OCR processing (disabled by default)",
+        "data_source_id",
+        type=str,
+        help="UUID of the DataSource created by the upload_file workflow",
     )
     parser.add_argument(
         "--max-retries",
         type=int,
         default=2,
-        help="Maximum number of retries for operations (default: 2, max: 5)",
+        help="Maximum retries per page (default: 2, max: 5)",
     )
     parser.add_argument(
         "--timeout-seconds",
         type=float,
         default=300.0,
-        help="Timeout for conversion in seconds (default: 300, max: 1800)",
+        help="Timeout per vision request in seconds (default: 300, max: 1800)",
     )
     parser.add_argument(
         "--output",
@@ -48,24 +45,13 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        # Validate file path
-        file_path = Path(args.file_path).expanduser().resolve()
-        if not file_path.exists():
-            raise FileNotFoundError(f"Input file not found: {file_path}")
-        if not file_path.is_file():
-            raise ValueError(f"Path is not a file: {file_path}")
-        if file_path.suffix.lower() != ".pdf":
-            raise ValueError(f"Only PDF files are supported, got: {file_path.suffix}")
-
-        # Create input payload
         input_payload = FileIngestionInput(
-            file_path=file_path,
-            enable_ocr=args.enable_ocr,
+            data_source_id=args.data_source_id,
             max_retries=args.max_retries,
             timeout_seconds=args.timeout_seconds,
         )
 
-        logger.info(f"Starting file ingestion for {file_path.name}")
+        logger.info(f"Starting file ingestion for DataSource {args.data_source_id}")
         result = start_ingest(payload=input_payload)
 
         # Print result
@@ -83,6 +69,10 @@ def main() -> None:
                 json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
             )
             logger.info(f"Result saved to: {output_path}")
+
+        if result.get("status") != "complete":
+            logger.error(f"Ingestion failed: {result.get('error')}")
+            sys.exit(1)
 
         logger.success("File ingestion completed successfully")
     except Exception as e:

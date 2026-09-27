@@ -6,5 +6,5 @@ router = APIRouter(prefix="/ingest", tags=["ingest"])
 
 
 @router.post("/file")
-def ingest_file(file_path: str, workflow=Depends(get_ingest_workflow)) -> dict:
-    return workflow(file_path)
+def ingest_file(data_source_id: str, workflow=Depends(get_ingest_workflow)) -> dict:
+    return workflow(data_source_id)

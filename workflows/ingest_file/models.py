@@ -16,7 +16,6 @@ class FileIngestionInput(BaseModel):
     """Input model for file ingestion workflow."""
 
     data_source_id: str = Field(..., description="ID of the DataSource to ingest (UUID as string)")
-    enable_ocr: bool = False
     max_retries: NonNegativeInt = Field(default=2, le=5)
     timeout_seconds: float = Field(default=300.0, gt=0.0, le=1800.0)
 

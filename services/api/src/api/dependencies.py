@@ -39,8 +39,8 @@ def get_llm_client(
 def get_ingest_workflow(
     settings: Settings = Depends(get_app_settings),
 ) -> Callable[[str], dict]:
-    def workflow_instance(file_path: str) -> dict:
-        return start_ingest(file_path=file_path)
+    def workflow_instance(data_source_id: str) -> dict:
+        return start_ingest(data_source_id)
 
     return workflow_instance
 

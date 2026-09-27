@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import shutil
 import warnings
 from datetime import UTC, datetime
@@ -28,9 +27,9 @@ from config.settings import settings
 from workflows.dependencies import get_minio_client, init_arango_client
 from workflows.shared import calculate_md5
 
-from .marker_client import MarkerClient
 from .models import FileIngestionInput, FileIngestionResult, FileIngestionStatus
-from .parser import TextbookParser
+from .vision_ocr import VisionOCRClient, VisionOCRConfig, render_pdf_pages
+from .vision_parser import VisionDocumentParser
 
 if TYPE_CHECKING:
     from minio_client import StorageClient  # type: ignore[import-not-found]
@@ -57,11 +56,12 @@ def start_ingest(
     else:
         input_payload = FileIngestionInput(**payload)
 
-    marker_client = MarkerClient(
-        use_llm=settings.MARKER_USE_LLM,
-        force_ocr=input_payload.enable_ocr or settings.MARKER_FORCE_OCR,
-        torch_device=settings.MARKER_TORCH_DEVICE,
-        google_api_key=settings.GOOGLE_API_KEY,
+    vision_client = VisionOCRClient(
+        VisionOCRConfig.from_settings(
+            settings,
+            max_retries=input_payload.max_retries,
+            timeout_seconds=input_payload.timeout_seconds,
+        )
     )
 
     storage_client = storage or get_minio_client()
@@ -70,7 +70,7 @@ def start_ingest(
     workflow = FileIngestionWorkflow(
         storage=storage_client,
         workspace_root=Path(settings.INGEST_FILE_WORKDIR),
-        marker_client=marker_client,
+        vision_client=vision_client,
         arango_client=db_client,
     )
 
@@ -86,19 +86,19 @@ def start_ingest(
 
 
 class FileIngestionWorkflow:
-    """Coordinates DataSource-based ingestion, Marker parsing, and in-memory knowledge tree build."""
+    """Coordinates DataSource-based ingestion, vision OCR, and in-memory knowledge tree build."""
 
     def __init__(
         self,
         *,
         storage: StorageClient,
         workspace_root: Path,
-        marker_client: MarkerClient,
+        vision_client: VisionOCRClient,
         arango_client: ArangoClient,
     ) -> None:
         self._storage = storage
         self._workspace_root = workspace_root
-        self._marker_client = marker_client
+        self._vision_client = vision_client
         self._arango_client = arango_client
         self._logger = logger.bind(job_id=None, workflow="ingest_file")
 
@@ -107,12 +107,10 @@ class FileIngestionWorkflow:
         Run the ingestion workflow:
 
         1. Load DataSource and validate status/config
-        2. Download file from MinIO
-        3. Verify MD5 hash
-        4. Parse file using Marker
-        5. Build knowledge tree via TextbookParser
-        6. Validate nodes
-        7. Update DataSource metadata
+        2. Download file from MinIO and verify MD5
+        3. Render and transcribe every page with the vision model
+        4. Normalize accepted pages into the knowledge tree
+        5. Validate nodes and update DataSource metadata
         """
         # Use timezone-aware UTC for job IDs and timing
         job_id = datetime.now(UTC).strftime("%H-%M-%S")
@@ -178,47 +176,59 @@ class FileIngestionWorkflow:
                 actual_hash=calculated_hash,
             )
 
-            # Bước 4: Parse File - Phân tích nội dung (Marker)
-            marker_result = await asyncio.to_thread(self._marker_client.convert_pdf, local_path)
-            payload_dict: dict[str, Any] = marker_result.get("payload", {})
-            raw_json = payload_dict.get("json")
-            if raw_json is None:
-                raise ValueError("Marker output does not contain 'json' payload")
+            # Bước 4: OCR từng trang bằng vision model - Trang lỗi làm hỏng cả tài liệu
+            parser = VisionDocumentParser(title=data_source.name)
+            pages_processed = 0
+            attempts_used = 0
+            prompt_tokens = 0
+            completion_tokens = 0
 
-            # Persist raw JSON locally for parser only (không upload MinIO)
-            raw_json_path = job_dir / "marker_raw.json"
-            await asyncio.to_thread(
-                raw_json_path.write_text,
-                json.dumps(raw_json, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            for page_number, png_bytes in render_pdf_pages(
+                local_path,
+                dpi=settings.VISION_DPI,
+                page_offset=settings.VISION_PAGE_OFFSET,
+            ):
+                extraction = await self._vision_client.extract_page(
+                    png_bytes,
+                    page_number=page_number,
+                    state=parser.state,
+                )
+                parser.add_page(extraction.page, page_number=page_number)
+                pages_processed += 1
+                attempts_used += extraction.attempts
+                prompt_tokens += extraction.prompt_tokens
+                completion_tokens += extraction.completion_tokens
+
+            if pages_processed == 0:
+                raise ValueError(f"Document has no renderable pages: {local_filename}")
 
             # Bước 5: Build Knowledge Tree - Tạo cây phân cấp (in-memory)
-            processed_json_path = job_dir / "processed.json"
-            parser = TextbookParser(
-                input_path=str(raw_json_path),
-                output_path=str(processed_json_path),
-                page_offset=5,
-                extract_images=True,
-                bucket=minio_bucket,
-            )
-
-            await parser.parse()
+            root = parser.finish()
 
             # Set parent IDs & positions cho toàn bộ cây
-            set_parent_ids(parser.root)
-            set_positions(parser.root)
+            set_parent_ids(root)
+            set_positions(root)
 
             # Gán source_id + validate tree theo rule
-            validate_tree_and_attach_source(parser.root, data_source_id)
+            validate_tree_and_attach_source(root, data_source_id)
 
-            # Bước 7: Calculate Statistics - Thống kê
+            # Bước 6: Calculate Statistics - Thống kê
             statistics = compute_tree_statistics(
-                parser.root,
+                root,
                 start_time=ingestion_start_time,
+                extra={
+                    "pages_processed": pages_processed,
+                    "ocr_attempts": attempts_used,
+                    "ocr_prompt_tokens": prompt_tokens,
+                    "ocr_completion_tokens": completion_tokens,
+                    "blocks_by_kind": dict(parser.blocks_by_kind),
+                    "normalization": dict(parser.normalization),
+                    "vision_model": self._vision_client.config.model,
+                    "vision_endpoint_host": self._vision_client.config.host,
+                },
             )
 
-            # Bước 8: Update DataSource metadata (không persist tree vào DB)
+            # Bước 7: Update DataSource metadata (không persist tree vào DB)
             # ArangoClient sync operations - convert datetime to ISO string
             sys_handler.sources.update(
                 data_source_id,
@@ -243,7 +253,7 @@ class FileIngestionWorkflow:
             # model_dump() doesn't handle nested subclass children correctly
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", UserWarning)
-                root_node_dict = serialize_tree_to_dict(parser.root) if parser.root else None
+                root_node_dict = serialize_tree_to_dict(root) if root else None
 
             return FileIngestionResult(
                 status=FileIngestionStatus.COMPLETE,
@@ -259,6 +269,18 @@ class FileIngestionWorkflow:
             try:
                 sys_handler = SystemAdminHandler(self._arango_client.db)
                 data_source_on_error = sys_handler.sources.get_by_id(data_source_id)
+                # Never downgrade an already ingested source
+                if data_source_on_error and data_source_on_error.status != "active":
+                    sys_handler.sources.update(
+                        data_source_id,
+                        {
+                            "updated_at": datetime.now(UTC).isoformat(),
+                            "status": "error",
+                        },
+                    )
+                    data_source_on_error = (
+                        sys_handler.sources.get_by_id(data_source_id) or data_source_on_error
+                    )
             except Exception:
                 pass
 
@@ -283,7 +305,11 @@ class FileIngestionWorkflow:
                 error=str(exc),
             )
         finally:
-            # Best-effort cleanup of temp workspace
+            # Best-effort cleanup of temp workspace and HTTP connections
+            try:
+                await self._vision_client.aclose()
+            except Exception:
+                pass
             try:
                 shutil.rmtree(job_dir, ignore_errors=True)
             except Exception:

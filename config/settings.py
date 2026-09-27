@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
@@ -25,11 +25,36 @@ class Settings(BaseSettings):
     MINIO_BUCKET: str = "ingest"
     MINIO_KNOWLEDGE_BUCKET: str = "knowledge-files"
     INGEST_FILE_WORKDIR: str = "data/ingest_file"
-    # Marker (local SDK) configuration
-    MARKER_USE_LLM: bool = True
-    MARKER_FORCE_OCR: bool = False
-    MARKER_TORCH_DEVICE: str | None = None  # e.g. "cuda", "cuda:0", "cpu"
-    GOOGLE_API_KEY: str | None = None  # used when MARKER_USE_LLM is True
+
+    # =========================================================================
+    # Vision OCR Configuration (ingest_file)
+    # =========================================================================
+    # OpenAI-compatible chat-completions endpoint used to transcribe PDF pages.
+    # Changing VISION_API_BASE also requires updating VISION_ALLOWED_HOSTS: the
+    # client refuses to send VISION_API_KEY to any other host.
+    VISION_API_BASE: str = "https://opencode.ai/zen/go/v1/chat/completions"
+    VISION_API_KEY: str | None = None
+    VISION_MODEL: str = "deepseek-v4-flash-vision-exp"
+    VISION_ALLOWED_HOSTS: str = "opencode.ai"
+    """Comma-separated hosts allowed to receive the API key. Empty = no restriction."""
+    VISION_HEADERS: dict[str, str] = Field(default_factory=dict)
+    """Extra request headers. An Authorization entry here is ignored on purpose."""
+    VISION_IMAGE_DETAIL: Literal["low", "high", "auto"] = "high"
+    VISION_DPI: int = 200
+    VISION_TEMPERATURE: float = 0.0
+    VISION_MAX_TOKENS: int = 8000
+    VISION_REASONING_EFFORT: str | None = "none"
+    """Reasoning budget hint sent to the vision model.
+
+    A reasoning model spends max_tokens on hidden reasoning before it emits any
+    content, so a low ceiling returns an empty answer rather than a short one.
+    "none" disables reasoning outright (measured ~8x fewer output tokens with no
+    loss of transcription fidelity); "low"/"medium"/"high" trade cost for it. Set
+    to an empty value to omit the parameter entirely.
+    """
+    VISION_MAX_BLOCKS_PER_PAGE: int = 400
+    VISION_PAGE_OFFSET: int = 0
+    """Printed page number offset: printed = physical PDF page + VISION_PAGE_OFFSET."""
 
     # =========================================================================
     # LLM Chat Configuration

@@ -2,8 +2,9 @@
 
 Full pipeline: upload_file → ingest_file → enrich_knowledge_tree → save_knowledge_to_arango → embed_nodes → save_embeddings
 
-This test uses pre-generated JSON from Marker dashboard instead of running the heavy Marker model.
-All output files are organized in timestamped folders for easy management.
+The vision model is replaced by a stub that returns deterministic pages, so the
+test never calls a vision endpoint. All output files are organized in
+timestamped folders for easy management.
 """
 
 from __future__ import annotations
@@ -11,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
@@ -31,9 +31,15 @@ from workflows.embed_nodes import start_embed_nodes
 from workflows.embed_nodes.helper import extract_text_for_embedding
 from workflows.embed_nodes.models import EmbedNodesInput
 from workflows.enrich_knowledge_tree import start_enrich_knowledge_tree
-from workflows.enrich_knowledge_tree.models import EnrichKnowledgeTreeInput
+from workflows.enrich_knowledge_tree.models import EnrichKnowledgeTreeInput, RefineConfig
 from workflows.ingest_file import FileIngestionInput, FileIngestionStatus
 from workflows.ingest_file.run import FileIngestionWorkflow
+from workflows.ingest_file.vision_ocr import (
+    PageExtraction,
+    VisionBlock,
+    VisionOCRConfig,
+    VisionPage,
+)
 from workflows.save_embeddings_to_arango import start_save_embeddings_to_arango
 from workflows.save_embeddings_to_arango.models import SaveEmbeddingsInput
 from workflows.save_knowledge_to_arango import start_save_knowledge_to_arango
@@ -46,13 +52,12 @@ class IngestFilePipelineTest(unittest.TestCase):
 
     Pipeline: upload → ingest → enrich → save → embed → save_embeddings
 
-    Uses pre-generated JSON from Marker dashboard to avoid heavy model execution.
+    Uses a stub vision client instead of a real model call.
     Output files are organized in timestamped folders for easy management.
     """
 
     # Test configuration
     SAMPLE_FILE = Path("data/pdf/raw/Lich-su-12.pdf")
-    RAW_JSON = Path("data/pdf/parsed/SGK-Lich-su-12.json")
     CREATED_BY = UUID("550e8400-e29b-41d4-a716-446655440000")
     BASE_OUTPUT_DIR = Path("tests/workflows/output")
 
@@ -60,12 +65,8 @@ class IngestFilePipelineTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         """Set up test fixtures."""
         if not cls.SAMPLE_FILE.exists():
-            raise FileNotFoundError(
+            raise unittest.SkipTest(
                 f"Sample file '{cls.SAMPLE_FILE}' is required for the integration test."
-            )
-        if not cls.RAW_JSON.exists():
-            raise FileNotFoundError(
-                f"Raw JSON file '{cls.RAW_JSON}' is required for the integration test."
             )
 
         cls._storage = get_minio_client()
@@ -92,22 +93,34 @@ class IngestFilePipelineTest(unittest.TestCase):
             )
             handler.users.create(user)
 
-    class _TestMarkerClient:
-        """Lightweight MarkerClient that reads pre-generated JSON instead of running Marker model."""
+    class _FakeVisionClient:
+        """Vision client stub: one section per page instead of a real model call."""
 
-        def __init__(self, raw_json_path: Path) -> None:
-            self._raw_json_path = raw_json_path
+        def __init__(self) -> None:
+            self.config = VisionOCRConfig(
+                api_base="https://fake-vision.invalid/v1/chat/completions",
+                model="fake-vision",
+            )
 
-        def convert_pdf(self, file_path: Path):
-            data = json.loads(self._raw_json_path.read_text(encoding="utf-8"))
-            return {
-                "request_id": f"test-ingest-{uuid.uuid4().hex}",
-                "payload": {
-                    "json": data,
-                    "images": [],
-                    "metadata": {},
-                },
-            }
+        async def extract_page(
+            self, png_bytes: bytes, *, page_number: int, state: list[dict]
+        ) -> PageExtraction:
+            page = VisionPage(
+                page=page_number,
+                blocks=[
+                    VisionBlock(
+                        kind="heading",
+                        marker=str(page_number),
+                        depth=1,
+                        text=f"Trang {page_number}",
+                    ),
+                    VisionBlock(kind="p", text=f"Nội dung trang {page_number}."),
+                ],
+            )
+            return PageExtraction(page=page, attempts=1, prompt_tokens=0, completion_tokens=0)
+
+        async def aclose(self) -> None:
+            pass
 
     def _create_output_folder(self) -> Path:
         """Create timestamped output folder for this test run."""
@@ -162,11 +175,11 @@ class IngestFilePipelineTest(unittest.TestCase):
         handler.sources.update(data_source_id, {"status": "pending"})
 
         # ============ Stage 2: Ingest File ============
-        print("\n[Stage 2/6] Ingesting file (using pre-generated JSON)...")
+        print("\n[Stage 2/6] Ingesting file (stub vision client)...")
         workflow = FileIngestionWorkflow(
             storage=self._storage,
             workspace_root=Path(settings.INGEST_FILE_WORKDIR),
-            marker_client=self._TestMarkerClient(self.RAW_JSON),
+            vision_client=self._FakeVisionClient(),
             arango_client=self._arango_client,
         )
 
@@ -194,6 +207,7 @@ class IngestFilePipelineTest(unittest.TestCase):
             start_enrich_knowledge_tree(
                 EnrichKnowledgeTreeInput(
                     knowledge_tree=root_node,
+                    refine_config=RefineConfig(refine_details=False),
                 ),
                 llm_client=self._llm_client,
             )
@@ -204,6 +218,7 @@ class IngestFilePipelineTest(unittest.TestCase):
         self._save_json(enrich_result["enriched_tree"], output_dir / "3_enriched_tree.json")
 
         enrich_stats = enrich_result["statistics"]
+        self.assertEqual(enrich_stats["detail_llm_calls"], 0)
         print(
             f"  ✓ Paragraphs: {enrich_stats['paragraphs_before']} → {enrich_stats['paragraphs_after']}"
         )

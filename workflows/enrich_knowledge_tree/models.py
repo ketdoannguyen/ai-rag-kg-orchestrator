@@ -14,6 +14,11 @@ if TYPE_CHECKING:
 class RefineConfig(BaseModel):
     """Configuration for detail-level refinement."""
 
+    refine_details: bool = Field(
+        default=True,
+        description="Let an LLM merge detail nodes into retrieval-sized chunks. "
+        "Turn off when the producer (e.g. ingest_file) already grouped them.",
+    )
     min_paragraph_length: int = Field(default=100, ge=0)
     max_paragraph_length: int = Field(default=800, ge=1)
     batch_size: int = Field(default=3, ge=1, le=100)
