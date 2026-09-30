@@ -1,4 +1,4 @@
-COMPOSE ?= docker compose -f docker/docker-compose.yml
+COMPOSE ?= docker compose --env-file .env -f docker/docker-compose.yml
 COMPOSE_SERVICES ?= docker compose -f docker/docker-compose.services.yml
 
 lint:
@@ -41,6 +41,27 @@ ps:
 
 build:
 	$(COMPOSE) build
+
+# Local data services (ArangoDB + MinIO). Redis is never part of these targets.
+storage-up:
+	$(COMPOSE) up -d arangodb minio
+
+storage-down:
+	$(COMPOSE) stop arangodb minio
+
+# --all-packages is required: the workspace libs (arango_client, minio_client) are
+# not dependencies of the root project, so a plain `uv run` would leave them out
+# of the environment and these scripts would fail to import them.
+storage-init:
+	uv run --all-packages python scripts/init_local_storage.py
+
+storage-verify:
+	uv run --all-packages python scripts/verify_local_storage.py
+
+# Destructive. Without CONFIRM this only prints what would be deleted.
+# Run with: make storage-reset CONFIRM=RESET-ARANGO-MINIO
+storage-reset:
+	@bash scripts/reset_local_storage.sh --confirm "$(CONFIRM)"
 
 up-services:
 	$(COMPOSE_SERVICES) up -d

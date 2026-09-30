@@ -1,4 +1,12 @@
-version: "3.9"
+# Local data services for AI RAG KG (ArangoDB + MinIO).
+#
+# Credentials come from the repository-root `.env` (untracked). Always pass it
+# explicitly, because Compose would otherwise look for `.env` inside this folder:
+#
+#   docker compose --env-file .env -f docker/docker-compose.yml up -d arangodb minio
+#
+# or simply `make storage-up`. Data lives in named volumes so the reset script can
+# target ArangoDB and MinIO precisely without touching Redis.
 
 services:
   redis:
@@ -8,22 +16,59 @@ services:
     volumes:
       - ../docker/data/redis:/data
 
-  minio:
-    image: minio/minio
-    command: server /data --console-address ":9001"
-    env_file:
-      - .env.dev
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - ../docker/data/minio:/data
-
   arangodb:
-    image: arangodb:3.12
+    # ArangoDB 3.12.12, pinned to the multi-arch manifest digest. The official
+    # image is the Enterprise build (no Community container is published); it runs
+    # unlicensed below a disk limit. See docker/README.md.
+    image: arangodb:3.12.12@sha256:4bc086d5050ca7ea11c6d00a36d8b910c838bb54ad553f8c1b715769d3499bcf
     environment:
-      - ARANGO_ROOT_PASSWORD=test
+      ARANGO_ROOT_PASSWORD: ${ARANGO_PASSWORD:?ARANGO_PASSWORD must be set in the root .env}
     ports:
-      - "8529:8529"
+      - "127.0.0.1:8529:8529"
     volumes:
-      - ../docker/data/arangodb_clean:/var/lib/arangodb3
+      - arangodb_data:/var/lib/arangodb3
+    healthcheck:
+      # arangosh ships with the official image; the check reads the root password
+      # from the container environment, so no credential is stored in this file.
+      test:
+        [
+          "CMD-SHELL",
+          "arangosh --server.endpoint tcp://127.0.0.1:8529 --server.username root --server.password \"$$ARANGO_ROOT_PASSWORD\" --javascript.execute-string 'require(\"@arangodb\").db._version()' >/dev/null 2>&1",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 40s
+
+  minio:
+    # MinIO community release published on Quay; Docker Hub no longer serves
+    # minio/minio, and the upstream project distributes community builds from source.
+    # Pinned to the multi-arch manifest digest read from the verified local image.
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY must be set in the root .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY must be set in the root .env}
+    ports:
+      # Bound to loopback only: the host application talks to MinIO on localhost.
+      # Host ports are 9002/9003, not MinIO's usual 9000/9001, because another
+      # Compose project on this machine (vku-science-infra) already publishes
+      # 127.0.0.1:9000 and :9001. Set MINIO_ENDPOINT in .env to match 9002.
+      - "127.0.0.1:9002:9000"
+      - "127.0.0.1:9003:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      # `mc` ships in this image (verified: /usr/bin/mc), so `mc ready local`
+      # reaches the server through the image's own local alias.
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  arangodb_data:
+    name: ai-rag-kg-arangodb-data
+  minio_data:
+    name: ai-rag-kg-minio-data
