@@ -6,28 +6,21 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from arango_client import (
-    ImageNode,
     KnowledgeNode,
     ParagraphNode,
     StructureNode,
-    TableNode,
 )
 from llm_gateway_client import AIGatewayClient
 from llm_gateway_client.models import GatewayChatTurn, GatewayInvokeRequest
 from loguru import logger
-from prompts import (
-    build_detail_merge_prompt,
-    build_structure_enrich_prompt,
-)
+from prompts import build_structure_enrich_prompt
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from config.chunking import MAX_CHUNK_SIZE
 from workflows.shared.file_utils import extract_json_from_response
 
+from .detail_refiner import DetailRefiner
 from .helper import (
-    collect_detail_items,
     count_paragraphs,
-    create_refined_paragraphs_from_segments,
     get_title,
 )
 from .models import (
@@ -52,6 +45,7 @@ class KnowledgeTreeEnricher:
 
     def __init__(self, llm_client: AIGatewayClient) -> None:
         self.llm_client = llm_client
+        self.detail_refiner = DetailRefiner(llm_client)
 
     # ---------------------------------------------------------------------
     # Low-level LLM invocation with retry
@@ -223,206 +217,28 @@ class KnowledgeTreeEnricher:
     ) -> tuple[list[KnowledgeNode], dict[str, int], str | None]:
         """Refine DETAIL children (Paragraph/Table) of a StructureNode.
 
+        The merge itself lives in `DetailRefiner`; this adapter feeds the
+        traversal-level statistics and keeps the runtime call site unchanged.
+
         Returns:
             (new_children, section_stats, detail_section_summary)
         """
-        detail_nodes: list[KnowledgeNode] = []
-        structure_children: list[KnowledgeNode] = []
-        image_children: list[KnowledgeNode] = []
-
-        for child in node.children:
-            if isinstance(child, (ParagraphNode, TableNode)):
-                detail_nodes.append(child)
-            elif isinstance(child, StructureNode):
-                structure_children.append(child)
-            elif isinstance(child, ImageNode):
-                image_children.append(child)
-            else:
-                # Preserve unknown nodes as-is (defensive)
-                structure_children.append(child)
-
-        original_detail_count = len(detail_nodes)
-        if not workflow_input.refine_config.refine_details:
-            # The producer already grouped its blocks into retrieval-sized
-            # chunks, so re-chunking here would only let the LLM rewrite text
-            # that should stay verbatim.
-            return (
-                list(node.children),
-                {
-                    "original_detail_count": original_detail_count,
-                    "refined_detail_count": original_detail_count,
-                },
-                None,
-            )
-        if original_detail_count <= 1:
-            # Children order: details (unchanged) + images + structure children
-            new_children: list[KnowledgeNode] = [
-                *detail_nodes,
-                *image_children,
-                *structure_children,
-            ]
-            # _enrich_structure_node will read full paragraph text from children directly.
-            return (
-                new_children,
-                {
-                    "original_detail_count": original_detail_count,
-                    "refined_detail_count": original_detail_count,
-                },
-                None,
-            )
-
-        # Case: >=2 detail nodes → call LLM to merge/refine
-        logger.info(
-            "Refining detail children of section",
-            extra={
-                "section": " > ".join(breadcrumb),
-                "detail_count": len(detail_nodes),
-                "structure_children": len(structure_children),
-            },
-        )
-
-        # Build text items for LLM
-        collected_items = collect_detail_items(detail_nodes)
-
-        if not collected_items:
-            # Nothing textual to refine
-            new_children: list[KnowledgeNode] = [
-                *detail_nodes,
-                *image_children,
-                *structure_children,
-            ]
-            return (
-                new_children,
-                {
-                    "original_detail_count": original_detail_count,
-                    "refined_detail_count": original_detail_count,
-                },
-                None,
-            )
-
-        detail_result = await self._invoke_detail_llm(
-            items=collected_items,
+        refinement = await self.detail_refiner.refine_details(
+            node=node,
             breadcrumb=breadcrumb,
-            workflow_input=workflow_input,
-            state=state,
+            refine_config=workflow_input.refine_config,
             semaphore=semaphore,
         )
-
-        segments = detail_result.get("segments", [])
-        detail_section_summary = detail_result.get("section_summary")
-        excluded_indices = detail_result.get("excluded_indices", [])
-
-        refined_paragraphs = create_refined_paragraphs_from_segments(
-            segments=segments,
-            items=collected_items,
-            parent=node,
-            excluded_indices=excluded_indices,
-        )
-
-        refined_detail_count = len(refined_paragraphs)
-
-        # Rebuild children: refined paragraphs + images + structure children
-        new_children: list[KnowledgeNode] = [
-            *refined_paragraphs,
-            *image_children,
-            *structure_children,
-        ]
+        state.stats.detail_llm_calls += refinement.llm_calls
 
         return (
-            new_children,
+            refinement.children,
             {
-                "original_detail_count": original_detail_count,
-                "refined_detail_count": refined_detail_count,
+                "original_detail_count": refinement.original_detail_count,
+                "refined_detail_count": refinement.refined_detail_count,
             },
-            detail_section_summary,
+            refinement.section_summary,
         )
-
-    async def _invoke_detail_llm(
-        self,
-        items: list[dict[str, Any]],
-        breadcrumb: list[str],
-        workflow_input: EnrichKnowledgeTreeInput,
-        state: _EnrichState,
-        semaphore: asyncio.Semaphore | None = None,
-    ) -> dict[str, Any]:
-        """Call LLM to merge/refine detail items.
-
-        Returns dict with:
-            - segments: list of segment dicts
-            - section_summary: optional summary string for the whole section
-        """
-        prompt = build_detail_merge_prompt(
-            items,
-            breadcrumb,
-            max_chunk_size=MAX_CHUNK_SIZE,
-        )
-        section = " > ".join(breadcrumb)
-        logger.debug(
-            "Detail LLM prompt",
-            extra={
-                "section": section,
-                "item_count": len(items),
-                "prompt": prompt,
-            },
-        )
-        # Single combined prompt used as system message
-        request = GatewayInvokeRequest(
-            model=workflow_input.refine_config.llm_model,
-            messages=[
-                GatewayChatTurn(
-                    role="user",
-                    content=prompt,
-                )
-            ],
-            provider_options={"temperature": workflow_input.refine_config.llm_temperature},
-        )
-
-        try:
-            if semaphore:
-                async with semaphore:
-                    response = await self._invoke_with_retry(request)
-            else:
-                response = await self._invoke_with_retry(request)
-            state.stats.detail_llm_calls += 1
-        except Exception as e:
-            logger.error(
-                "Detail-level LLM call failed; keeping original detail nodes",
-                extra={"error": str(e)},
-            )
-            return {"segments": [], "section_summary": None}
-
-        try:
-            content = response.message.content
-            parsed = extract_json_from_response(content)
-            data = json.loads(parsed)
-            segments = data.get("segments", [])
-            if not isinstance(segments, list):
-                logger.error("Invalid segments format in detail LLM response")
-                return {"segments": [], "section_summary": None}
-            section_summary = (data.get("section_summary") or "").strip() or None
-            excluded_indices = data.get("excluded_indices", [])
-            if not isinstance(excluded_indices, list):
-                excluded_indices = []
-            logger.debug(
-                "Detail LLM response",
-                extra={
-                    "section": section,
-                    "raw_response": content,
-                    "segments": segments,
-                    "excluded_indices": excluded_indices,
-                },
-            )
-            return {
-                "segments": segments,
-                "section_summary": section_summary,
-                "excluded_indices": excluded_indices,
-            }
-        except Exception as e:
-            logger.error(
-                "Failed to parse detail LLM response; keeping original detail nodes",
-                extra={"error": str(e)},
-            )
-            return {"segments": [], "section_summary": None}
 
     # ---------------------------------------------------------------------
     # Structure enrichment
@@ -473,22 +289,10 @@ class KnowledgeTreeEnricher:
             short=False,
             breadcrumb=breadcrumb,
         )
-        section_label = " > ".join(breadcrumb)
-        logger.debug(
-            "Structure LLM prompt",
-            extra={
-                "section": section_label,
-                "child_blocks": len(children_content),
-                "prompt": prompt,
-                "max_words": workflow_input.enrich_config.max_summary_length,
-            },
-        )
-
         return await self._invoke_structure_llm_for_summary(
             prompt=prompt,
             workflow_input=workflow_input,
             state=state,
-            section_label=section_label,
             semaphore=semaphore,
         )
 
@@ -497,7 +301,6 @@ class KnowledgeTreeEnricher:
         prompt: str,
         workflow_input: EnrichKnowledgeTreeInput,
         state: _EnrichState,
-        section_label: str | None = None,
         semaphore: asyncio.Semaphore | None = None,
     ) -> str | None:
         """Call LLM for structure-level enrichment, expecting a JSON with 'summary'."""
@@ -522,7 +325,7 @@ class KnowledgeTreeEnricher:
         except Exception as e:
             logger.error(
                 "Structure-level LLM call failed; falling back to None summary",
-                extra={"error": str(e)},
+                extra={"error_type": type(e).__name__},
             )
             return None
 
@@ -533,18 +336,10 @@ class KnowledgeTreeEnricher:
             summary = (data.get("summary") or "").strip()
             if not summary:
                 return None
-            logger.debug(
-                "Structure LLM response",
-                extra={
-                    "section": section_label,
-                    "raw_response": content,
-                    "summary": summary,
-                },
-            )
             return summary
         except Exception as e:
             logger.error(
                 "Failed to parse structure LLM response; returning None",
-                extra={"error": str(e)},
+                extra={"error_type": type(e).__name__},
             )
             return None

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
 from litellm import acompletion, aembedding
 from litellm.exceptions import BadRequestError as LiteLLMBadRequestError
 from loguru import logger
 from tenacity import (
+    AsyncRetrying,
+    RetryCallState,
     retry,
     retry_if_not_exception_type,
     stop_after_attempt,
@@ -25,6 +27,40 @@ from .utils import MessageConverter
 
 # Non-retryable exceptions - configuration errors that won't be fixed by retry
 NON_RETRYABLE_EXCEPTIONS = (ConfigurationError, ModelNotFoundError, LiteLLMBadRequestError)
+
+
+def _log_retry(what: str) -> Callable[[RetryCallState], None]:
+    """A retry log that names the error's type and repeats none of its text.
+
+    A provider error can quote the request it refused, so its text is exactly
+    what must not reach a log; the type is what tells a reader whether the retry
+    was worth making.
+    """
+
+    def log_retry(state: RetryCallState) -> None:
+        error = state.outcome.exception() if state.outcome else None
+        logger.warning(
+            "Retrying {what} after {error_type}. Attempt #{attempt}, sleeping {wait:.2f}s.",
+            what=what,
+            error_type=type(error).__name__,
+            attempt=state.attempt_number,
+            wait=state.next_action.sleep if state.next_action else 0,
+        )
+
+    return log_retry
+
+
+#: The retry policy a chat call runs under: three attempts, exponential backoff,
+#: configuration errors refused outright. A call copies it, so two calls in
+#: flight do not share attempt state; a test patches its ``wait`` to drop the
+#: sleep between attempts.
+_CHAT_RETRY = AsyncRetrying(
+    wait=wait_exponential(multiplier=1, min=2, max=60),
+    stop=stop_after_attempt(3),
+    retry=retry_if_not_exception_type(NON_RETRYABLE_EXCEPTIONS),
+    reraise=True,
+    before_sleep=_log_retry("chat completion"),
+)
 
 
 class AIGatewayClient:
@@ -92,41 +128,62 @@ class AIGatewayClient:
             "total_tokens": int(usage.get("total_tokens") or 0),
         }
 
+    def _stated_usage(self, usage: Any) -> dict[str, Any] | None:
+        """The usage envelope exactly as the provider stated it, or None for silence.
+
+        The normalized view fills every counter it does not find with a zero, so a
+        count the provider left out reads the same as one it reported as zero.
+        This keeps the provider's own envelope — cache detail included — so a
+        caller can tell the two apart.
+        """
+        if not isinstance(usage, Mapping) or not usage:
+            return None
+        return dict(usage)
+
+    def _served_model(self, response: dict[str, Any]) -> str | None:
+        """The model the provider named as the one that answered, if it named one."""
+        model = response.get("model")
+        return model if isinstance(model, str) and model else None
+
     def _first_choice(self, response: dict[str, Any]) -> dict[str, Any]:
         choices = response.get("choices") or []
         if not choices:
             raise GatewayAPIError("LLM provider returned no choices.")
         return choices[0]
 
-    @retry(
-        wait=wait_exponential(multiplier=1, min=2, max=60),
-        stop=stop_after_attempt(3),
-        retry=retry_if_not_exception_type(NON_RETRYABLE_EXCEPTIONS),
-        reraise=True,
-        before_sleep=lambda state: logger.warning(
-            "Retrying chat completion due to error: {error}. Attempt #{attempt}, sleeping {wait:.2f}s.",
-            error=state.outcome.exception() if state.outcome else "unknown",
-            attempt=state.attempt_number,
-            wait=state.next_action.sleep if state.next_action else 0,
-        ),
-    )
     async def invoke(self, request: GatewayInvokeRequest) -> InvokeResponse:
+        """Call the chat model, retrying, and report what the answer that came back cost.
+
+        The retry policy is copied for this call alone, so two calls in flight do
+        not count their attempts against each other, and the count travels on the
+        response: an answer that came back after a retry states the usage of its
+        last attempt alone, and whether the attempts before it were billed cannot
+        be read from it.
+        """
         chat_config = self.chat_registry.get(request.model)
         messages = MessageConverter.to_litellm_messages(request.messages)
         params = self._prepare_params(
             request.provider_options, chat_config, self._resolve_tools(request)
         )
         resolved_model = chat_config.model
-        response = await acompletion(
-            model=resolved_model,
-            messages=messages,
-            **params,
-        )
+
+        attempts = 0
+
+        async def attempt() -> Any:
+            nonlocal attempts
+            attempts += 1
+            return await acompletion(
+                model=resolved_model,
+                messages=messages,
+                **params,
+            )
+
+        response: Any = await _CHAT_RETRY.copy()(attempt)
         response_dict = self._to_dict(response)
 
         # Debug logging for troubleshooting empty responses
         logger.debug(
-            "Raw LLM response",
+            "LLM response",
             model=resolved_model,
             response_keys=list(response_dict.keys()) if response_dict else [],
             choices_count=len(response_dict.get("choices", [])),
@@ -134,26 +191,26 @@ class AIGatewayClient:
 
         choice = self._first_choice(response_dict)
 
-        # Debug logging for choice structure
+        # Debug logging for choice structure. The content itself is never logged:
+        # it is the book page the model was asked to rewrite.
         message_raw = choice.get("message") or {}
         logger.debug(
             "Choice message structure",
             finish_reason=choice.get("finish_reason"),
             message_keys=list(message_raw.keys()) if message_raw else [],
             content_type=type(message_raw.get("content")).__name__,
-            content_preview=str(message_raw.get("content"))[:200]
-            if message_raw.get("content")
-            else "NONE",
         )
 
-        message_payload = choice.get("message") or {}
-        message, tool_calls = MessageConverter.parse_assistant_message(message_payload)
+        message, tool_calls = MessageConverter.parse_assistant_message(message_raw)
 
         return InvokeResponse(
             message=message,
             tool_calls=tool_calls,
             finish_reason=choice.get("finish_reason") or "unknown",
             usage=self._normalize_usage(response_dict.get("usage")),
+            model=self._served_model(response_dict),
+            stated_usage=self._stated_usage(response_dict.get("usage")),
+            attempts=attempts,
         )
 
     @retry(
@@ -161,12 +218,7 @@ class AIGatewayClient:
         stop=stop_after_attempt(3),
         retry=retry_if_not_exception_type(NON_RETRYABLE_EXCEPTIONS),
         reraise=True,
-        before_sleep=lambda state: logger.warning(
-            "Retrying streaming call due to error: {error}. Attempt #{attempt}, sleeping {wait:.2f}s.",
-            error=state.outcome.exception() if state.outcome else "unknown",
-            attempt=state.attempt_number,
-            wait=state.next_action.sleep if state.next_action else 0,
-        ),
+        before_sleep=_log_retry("streaming call"),
     )
     async def astream(self, request: GatewayInvokeRequest) -> AsyncIterator[InvokeStreamChunk]:
         chat_config = self.chat_registry.get(request.model)
@@ -189,12 +241,7 @@ class AIGatewayClient:
         stop=stop_after_attempt(3),
         retry=retry_if_not_exception_type(NON_RETRYABLE_EXCEPTIONS),
         reraise=True,
-        before_sleep=lambda state: logger.warning(
-            "Retrying embedding call due to error: {error}. Attempt #{attempt}, sleeping {wait:.2f}s.",
-            error=state.outcome.exception() if state.outcome else "unknown",
-            attempt=state.attempt_number,
-            wait=state.next_action.sleep if state.next_action else 0,
-        ),
+        before_sleep=_log_retry("embedding call"),
     )
     async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
         """Generate embeddings for input texts.

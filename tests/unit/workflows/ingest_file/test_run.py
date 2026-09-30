@@ -76,9 +76,23 @@ class _FakeSystemAdminHandler:
 
 
 class _FakeVisionClient:
-    """Returns canned pages and records the state it was asked with."""
+    """Returns canned pages and records the state it was asked with.
 
-    def __init__(self, pages: dict[int, VisionPage], *, fail_on: int | None = None) -> None:
+    ``spend`` is what a failing page's requests were billed: it is handed to the
+    raised :class:`VisionOCRError` exactly as the real client hands over what the
+    endpoint answered with. ``unmeasured_pages`` are the pages the endpoint
+    answered without stating what they cost.
+    """
+
+    def __init__(
+        self,
+        pages: dict[int, VisionPage],
+        *,
+        fail_on: int | None = None,
+        spend: dict[str, Any] | None = None,
+        cached_tokens: int | None = 4,
+        unmeasured_pages: frozenset[int] = frozenset(),
+    ) -> None:
         self.config = VisionOCRConfig(
             api_base="https://fake-vision.invalid/v1/chat/completions",
             model="fake-vision",
@@ -87,6 +101,9 @@ class _FakeVisionClient:
         )
         self._pages = pages
         self._fail_on = fail_on
+        self._spend = spend or {}
+        self._cached_tokens = cached_tokens
+        self._unmeasured = unmeasured_pages
         self.states: list[dict[str, Any]] = []
         self.closed = False
 
@@ -95,9 +112,16 @@ class _FakeVisionClient:
     ) -> PageExtraction:
         self.states.append(dict(state))
         if page_number == self._fail_on:
-            raise VisionOCRError(f"page {page_number}: HTTP 500 (after 3 attempt(s))")
+            raise VisionOCRError(
+                f"page {page_number}: HTTP 500 (after 3 attempt(s))", **self._spend
+            )
+        measured = page_number not in self._unmeasured
         return PageExtraction(
-            page=self._pages[page_number], attempts=1, prompt_tokens=5, completion_tokens=3
+            page=self._pages[page_number],
+            attempts=1,
+            prompt_tokens=5 if measured else None,
+            completion_tokens=3 if measured else None,
+            cached_tokens=self._cached_tokens if measured else None,
         )
 
     async def aclose(self) -> None:
@@ -221,6 +245,7 @@ class TestSuccessfulIngestion:
         assert result.statistics["ocr_attempts"] == 2
         assert result.statistics["ocr_prompt_tokens"] == 10
         assert result.statistics["ocr_completion_tokens"] == 6
+        assert result.statistics["ocr_cached_tokens"] == 8
         assert result.statistics["blocks_by_kind"] == {"heading": 1, "p": 1, "list": 1}
         assert result.statistics["vision_model"] == "fake-vision"
         assert result.statistics["vision_endpoint_host"] == "fake-vision.invalid"
@@ -270,6 +295,60 @@ class TestSuccessfulIngestion:
         }
         assert vision.closed
 
+    async def test_an_unreported_cache_share_stays_unknown(
+        self,
+        handler: _FakeSources,
+        sources: dict[UUID, DataSource],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # The endpoint said nothing about the cache, so the run reports no share
+        # rather than a zero that would claim every prompt token was billed full.
+        source = _make_source()
+        sources[source.id] = source
+        _patch_renderer(monkeypatch, [1])
+        vision = _FakeVisionClient(
+            {1: _page(1, VisionBlock(kind="p", group=1, text="Đoạn"))}, cached_tokens=None
+        )
+
+        result = await _run_workflow(
+            source=source, vision_client=vision, storage=_FakeStorage(), tmp_path=tmp_path
+        )
+
+        assert result.statistics["ocr_cached_tokens"] is None
+
+    async def test_a_page_that_reported_nothing_makes_the_run_totals_unknown(
+        self,
+        handler: _FakeSources,
+        sources: dict[UUID, DataSource],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # One page was measured and one was not. The measured page's counts
+        # cannot stand in for the run's bill, so the totals go unknown while the
+        # attempts stay measured: the requests were made either way.
+        source = _make_source()
+        sources[source.id] = source
+        _patch_renderer(monkeypatch, [1, 2])
+        vision = _FakeVisionClient(
+            {
+                1: _page(1, VisionBlock(kind="p", group=1, text="Đoạn một")),
+                2: _page(2, VisionBlock(kind="p", group=1, text="Đoạn hai")),
+            },
+            unmeasured_pages=frozenset({2}),
+        )
+
+        result = await _run_workflow(
+            source=source, vision_client=vision, storage=_FakeStorage(), tmp_path=tmp_path
+        )
+
+        assert result.status == FileIngestionStatus.COMPLETE
+        assert result.statistics["pages_processed"] == 2
+        assert result.statistics["ocr_attempts"] == 2
+        assert result.statistics["ocr_prompt_tokens"] is None
+        assert result.statistics["ocr_completion_tokens"] is None
+        assert result.statistics["ocr_cached_tokens"] is None
+
     async def test_credentials_never_reach_the_statistics(
         self,
         handler: _FakeSources,
@@ -302,7 +381,9 @@ class TestFailedIngestion:
         source = _make_source()
         sources[source.id] = source
         _patch_renderer(monkeypatch, [1, 2])
-        vision = _FakeVisionClient({1: _page(1, VisionBlock(kind="p", group=1, text="Đoạn"))}, fail_on=2)
+        vision = _FakeVisionClient(
+            {1: _page(1, VisionBlock(kind="p", group=1, text="Đoạn"))}, fail_on=2
+        )
 
         result = await _run_workflow(
             source=source, vision_client=vision, storage=_FakeStorage(), tmp_path=tmp_path
@@ -313,6 +394,118 @@ class TestFailedIngestion:
         assert "HTTP 500" in result.error
         assert sources[source.id].status == "error"
         assert vision.closed
+        # A failed run still reports what it spent, under the names a completed
+        # one uses: one page came back and the failure carried no bill of its own.
+        assert result.statistics["successful"] is False
+        assert result.statistics["pages_processed"] == 1
+        assert result.statistics["ocr_attempts"] == 1
+        assert result.statistics["ocr_prompt_tokens"] == 5
+        assert result.statistics["ocr_completion_tokens"] == 3
+        assert result.statistics["ocr_cached_tokens"] == 4
+
+    async def test_a_failed_page_reports_its_own_bill(
+        self,
+        handler: _FakeSources,
+        sources: dict[UUID, DataSource],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # The page that failed was requested three times and the endpoint was
+        # paid for those requests, so the run's totals include them.
+        source = _make_source()
+        sources[source.id] = source
+        _patch_renderer(monkeypatch, [1, 2])
+        vision = _FakeVisionClient(
+            {1: _page(1, VisionBlock(kind="p", group=1, text="Đoạn"))},
+            fail_on=2,
+            spend={
+                "attempts": 3,
+                "prompt_tokens": 7,
+                "completion_tokens": 4,
+                "cached_tokens": 1,
+            },
+        )
+
+        result = await _run_workflow(
+            source=source, vision_client=vision, storage=_FakeStorage(), tmp_path=tmp_path
+        )
+
+        assert result.status == FileIngestionStatus.FAILED
+        assert result.statistics["pages_processed"] == 1
+        assert result.statistics["ocr_attempts"] == 4
+        assert result.statistics["ocr_prompt_tokens"] == 12
+        assert result.statistics["ocr_completion_tokens"] == 7
+        assert result.statistics["ocr_cached_tokens"] == 5
+
+    async def test_a_failed_page_that_reported_nothing_makes_the_total_unknown(
+        self,
+        handler: _FakeSources,
+        sources: dict[UUID, DataSource],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # The failed page was billed but said nothing about what it cost, so the
+        # totals are unknown rather than the measured pages alone: a total that
+        # skipped it would price it at zero.
+        source = _make_source()
+        sources[source.id] = source
+        _patch_renderer(monkeypatch, [1, 2])
+        vision = _FakeVisionClient(
+            {1: _page(1, VisionBlock(kind="p", group=1, text="Đoạn"))},
+            fail_on=2,
+            spend={"attempts": 3},
+        )
+
+        result = await _run_workflow(
+            source=source, vision_client=vision, storage=_FakeStorage(), tmp_path=tmp_path
+        )
+
+        assert result.statistics["ocr_attempts"] == 4
+        assert result.statistics["ocr_prompt_tokens"] is None
+        assert result.statistics["ocr_completion_tokens"] is None
+        assert result.statistics["ocr_cached_tokens"] is None
+
+    async def test_the_last_page_failing_keeps_the_whole_runs_accounting(
+        self,
+        handler: _FakeSources,
+        sources: dict[UUID, DataSource],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Three pages came back and were billed before the fourth failed. The
+        # manifest reports what the run spent, not the failed page's bill alone:
+        # every page the run paid for is in the total.
+        source = _make_source()
+        sources[source.id] = source
+        _patch_renderer(monkeypatch, [1, 2, 3, 4])
+        vision = _FakeVisionClient(
+            {
+                1: _page(1, VisionBlock(kind="p", group=1, text="Đoạn một")),
+                2: _page(2, VisionBlock(kind="p", group=1, text="Đoạn hai")),
+                3: _page(3, VisionBlock(kind="p", group=1, text="Đoạn ba")),
+            },
+            fail_on=4,
+            spend={
+                "attempts": 3,
+                "prompt_tokens": 7,
+                "completion_tokens": 4,
+                "cached_tokens": 1,
+            },
+        )
+
+        result = await _run_workflow(
+            source=source, vision_client=vision, storage=_FakeStorage(), tmp_path=tmp_path
+        )
+
+        assert result.status == FileIngestionStatus.FAILED
+        # No partial tree is published as a success.
+        assert result.root_node is None
+        assert result.statistics["pages_processed"] == 3
+        # Three measured pages (5/3/4 each, one attempt each) plus the failed page.
+        assert result.statistics["ocr_attempts"] == 6
+        assert result.statistics["ocr_prompt_tokens"] == 22
+        assert result.statistics["ocr_completion_tokens"] == 13
+        assert result.statistics["ocr_cached_tokens"] == 13
 
     async def test_hash_mismatch_fails_before_any_vision_call(
         self,
@@ -334,6 +527,12 @@ class TestFailedIngestion:
         assert "Integrity check failed" in result.error
         assert vision.states == []
         assert sources[source.id].status == "error"
+        # Nothing was sent, so the run's spend is a measured zero, not unknown.
+        assert result.statistics["pages_processed"] == 0
+        assert result.statistics["ocr_attempts"] == 0
+        assert result.statistics["ocr_prompt_tokens"] == 0
+        assert result.statistics["ocr_completion_tokens"] == 0
+        assert result.statistics["ocr_cached_tokens"] == 0
 
     async def test_already_active_source_keeps_its_status(
         self,

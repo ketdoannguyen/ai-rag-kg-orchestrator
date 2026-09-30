@@ -28,6 +28,19 @@ class RefineConfig(BaseModel):
         default=True,
         description="Whether to keep structure/ordering of children when rebuilding.",
     )
+    preserve_tables: bool = Field(
+        default=False,
+        description="Research policy: treat a TableNode as a merge boundary. The "
+        "contiguous paragraph runs between tables are merged separately, and a "
+        "table is never demoted into a paragraph. Off, the runtime behaviour is "
+        "unchanged.",
+    )
+    segment_summaries: bool = Field(
+        default=True,
+        description="Prefix each merged segment with the summary the merge prompt "
+        "asked for. Off, a merge produces the segment text alone, so an "
+        "LLM-written summary cannot enter a scored tree.",
+    )
     max_concurrent_sections: int = Field(
         default=20,
         ge=1,

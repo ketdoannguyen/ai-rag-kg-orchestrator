@@ -27,6 +27,7 @@ from workflows.ingest_file.vision_ocr import (
 
 ENDPOINT = "https://vision.test/v1/chat/completions"
 API_KEY = "secret-api-key"
+SESSION = "secret-session-token"
 
 STATE: dict[str, Any] = {
     "open_headings": [{"marker": "1", "depth": 1, "text": "Bài 1"}],
@@ -37,8 +38,14 @@ STATE: dict[str, Any] = {
 
 def _document(page: int = 1, blocks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     if blocks is None:
-        blocks = [{"kind": "p", "marker": None, "depth": None, "group": 1, "text": "Nội dung trang"}]
+        blocks = [
+            {"kind": "p", "marker": None, "depth": None, "group": 1, "text": "Nội dung trang"}
+        ]
     return {"page": page, "running": "", "blocks": blocks}
+
+
+USAGE: dict[str, Any] = {"prompt_tokens": 11, "completion_tokens": 7}
+"""The usage a clean canned response reports, so a retried page has a sum to show."""
 
 
 def _response(
@@ -46,16 +53,17 @@ def _response(
     *,
     finish_reason: str = "stop",
     content: str | None = None,
+    usage: Any = USAGE,
 ) -> httpx.Response:
+    """A 200 carrying a page and ``usage``; the usage envelope is omitted when ``None``."""
     if content is None:
         content = json.dumps(document if document is not None else _document())
-    return httpx.Response(
-        200,
-        json={
-            "choices": [{"finish_reason": finish_reason, "message": {"content": content}}],
-            "usage": {"prompt_tokens": 11, "completion_tokens": 7},
-        },
-    )
+    body: dict[str, Any] = {
+        "choices": [{"finish_reason": finish_reason, "message": {"content": content}}]
+    }
+    if usage is not None:
+        body["usage"] = usage
+    return httpx.Response(200, json=body)
 
 
 class _Transport:
@@ -82,10 +90,7 @@ def sleeps() -> list[float]:
     return []
 
 
-def _client(transport: _Transport, sleeps: list[float], **overrides: Any) -> VisionOCRClient:
-    async def _sleep(seconds: float) -> None:
-        sleeps.append(seconds)
-
+def _config(**overrides: Any) -> VisionOCRConfig:
     options: dict[str, Any] = {
         "api_base": ENDPOINT,
         "model": "test-model",
@@ -93,7 +98,14 @@ def _client(transport: _Transport, sleeps: list[float], **overrides: Any) -> Vis
         "allowed_hosts": ("vision.test",),
     }
     options.update(overrides)
-    config = VisionOCRConfig(**options)
+    return VisionOCRConfig(**options)
+
+
+def _client(transport: _Transport, sleeps: list[float], **overrides: Any) -> VisionOCRClient:
+    async def _sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    config = _config(**overrides)
     return VisionOCRClient(config, transport=httpx.MockTransport(transport), sleep=_sleep)
 
 
@@ -130,6 +142,260 @@ class TestAcceptedPages:
         assert result.page.blocks[0].text == "Nội dung trang"
 
 
+class TestMissingUsage:
+    """A 200 that omits token usage leaves the counts unknown, never zero.
+
+    An unknown count recorded as ``0`` would claim the page was free, and a
+    later cost calculation would price it at zero. The attempt count is still
+    measured, because the client did make the request.
+    """
+
+    async def test_omitted_usage_is_unknown_and_the_page_is_still_accepted(
+        self, sleeps: list[float]
+    ) -> None:
+        transport = _Transport(_response(usage=None))
+        client = _client(transport, sleeps)
+        try:
+            result = await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert result.page.page == 1
+        assert result.attempts == 1
+        assert result.prompt_tokens is None
+        assert result.completion_tokens is None
+        assert transport.calls == 1
+        assert sleeps == []
+
+    @pytest.mark.parametrize(
+        ("usage", "expected"),
+        [
+            ({}, (None, None)),
+            ({"prompt_tokens": None, "completion_tokens": None}, (None, None)),
+            ({"prompt_tokens": 11}, (11, None)),
+            ({"completion_tokens": 7}, (None, 7)),
+        ],
+        ids=["empty", "null", "prompt-only", "completion-only"],
+    )
+    async def test_absent_or_null_counts_are_unknown(
+        self,
+        usage: dict[str, Any],
+        expected: tuple[int | None, int | None],
+        sleeps: list[float],
+    ) -> None:
+        transport = _Transport(_response(usage=usage))
+        client = _client(transport, sleeps)
+        try:
+            result = await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert (result.prompt_tokens, result.completion_tokens) == expected
+        assert result.attempts == 1
+        assert transport.calls == 1
+
+    @pytest.mark.parametrize("bad", ["many", -1, {"nested": 1}])
+    async def test_malformed_counts_are_unknown_and_never_zeroed(
+        self, bad: Any, sleeps: list[float]
+    ) -> None:
+        # A malformed count is a broken envelope, not a broken page, so the page
+        # is accepted and the count stays unknown. Retrying would buy the same
+        # page again without recovering what the first attempt was billed for.
+        transport = _Transport(_response(usage={"prompt_tokens": bad}))
+        client = _client(transport, sleeps)
+        try:
+            result = await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert result.attempts == 1
+        assert (result.prompt_tokens, result.completion_tokens) == (None, None)
+        assert transport.calls == 1
+        assert sleeps == []
+
+
+class TestBilledRetries:
+    """Every 200 is a bill, including the ones whose page is rejected and retried.
+
+    A rejected page costs exactly as much as an accepted one, so the page's
+    totals sum all the responses that were paid for. A billed response that
+    reported no count makes the total unknown: a sum that skipped it would price
+    that attempt at zero.
+    """
+
+    @pytest.mark.parametrize(
+        "rejected",
+        [
+            _response(document=_document(page=99)),
+            _response(content="not json at all"),
+            _response(document={"page": 1, "running": "", "blocks": [], "extra": 1}),
+            _response(
+                document=_document(
+                    blocks=[{"kind": "p", "marker": None, "depth": None, "text": "một"}]
+                )
+            ),
+        ],
+        ids=["page-mismatch", "bad-json", "schema", "missing-group"],
+    )
+    async def test_a_rejected_200_is_added_to_the_page_total(
+        self, rejected: httpx.Response, sleeps: list[float]
+    ) -> None:
+        transport = _Transport(rejected, _response())
+        client = _client(transport, sleeps)
+        try:
+            result = await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert result.attempts == 2
+        assert (result.prompt_tokens, result.completion_tokens) == (22, 14)
+        assert transport.calls == 2
+
+    async def test_a_rejected_200_without_usage_makes_the_total_unknown(
+        self, sleeps: list[float]
+    ) -> None:
+        transport = _Transport(_response(content="not json at all", usage=None), _response())
+        client = _client(transport, sleeps)
+        try:
+            result = await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert result.attempts == 2
+        assert (result.prompt_tokens, result.completion_tokens) == (None, None)
+
+    async def test_a_200_whose_body_is_not_json_leaves_the_total_unknown(
+        self, sleeps: list[float]
+    ) -> None:
+        # The first 200 was answered, so it was billed, but nothing could be read
+        # out of its envelope. The second response's counts alone would be a
+        # subtotal presented as the page's bill, so the totals go unknown.
+        transport = _Transport(httpx.Response(200, text="<html>not json</html>"), _response())
+        client = _client(transport, sleeps)
+        try:
+            result = await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert result.attempts == 2
+        assert (result.prompt_tokens, result.completion_tokens) == (None, None)
+        assert result.cached_tokens is None
+
+    async def test_a_200_whose_body_is_not_an_object_leaves_the_total_unknown(
+        self, sleeps: list[float]
+    ) -> None:
+        transport = _Transport(httpx.Response(200, json=[{"error": "gateway"}]), _response())
+        client = _client(transport, sleeps)
+        try:
+            result = await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert result.attempts == 2
+        assert (result.prompt_tokens, result.completion_tokens) == (None, None)
+
+    async def test_a_response_that_never_arrived_is_not_billed(self, sleeps: list[float]) -> None:
+        # A 500 or a timeout is not a 200: the endpoint answered nothing that
+        # could have been billed, so it adds attempts but no tokens.
+        transport = _Transport(httpx.Response(500, text="server error"), _response())
+        client = _client(transport, sleeps)
+        try:
+            result = await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert result.attempts == 2
+        assert (result.prompt_tokens, result.completion_tokens) == (11, 7)
+
+    async def test_exhausted_retries_carry_the_pages_bill(self, sleeps: list[float]) -> None:
+        # Two billed 200s were rejected before the endpoint failed outright, so
+        # the error reports both the attempts and the tokens they cost.
+        rejected = _response(document=_document(page=99))
+        transport = _Transport(rejected, rejected, httpx.Response(503, text="unavailable"))
+        client = _client(transport, sleeps, max_retries=2)
+        try:
+            with pytest.raises(VisionOCRError) as excinfo:
+                await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert transport.calls == 3
+        assert excinfo.value.attempts == 3
+        assert (excinfo.value.prompt_tokens, excinfo.value.completion_tokens) == (22, 14)
+
+
+class TestCachedTokens:
+    """The cached-prompt share is read where the endpoint states it, and never guessed."""
+
+    async def test_cached_details_are_read_from_the_response(self, sleeps: list[float]) -> None:
+        usage = {**USAGE, "prompt_tokens_details": {"cached_tokens": 5}}
+        transport = _Transport(_response(usage=usage))
+        client = _client(transport, sleeps)
+        try:
+            result = await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert result.cached_tokens == 5
+        assert (result.prompt_tokens, result.completion_tokens) == (11, 7)
+
+    @pytest.mark.parametrize(
+        "usage",
+        [
+            USAGE,
+            {**USAGE, "prompt_tokens_details": {}},
+            {**USAGE, "prompt_tokens_details": None},
+        ],
+        ids=["no-details", "no-cached-count", "null-details"],
+    )
+    async def test_a_response_that_states_no_cache_share_leaves_it_unknown(
+        self, usage: dict[str, Any], sleeps: list[float]
+    ) -> None:
+        # Nothing was stated about the cache, so nothing is assumed: a zero here
+        # would claim the endpoint accounted for the cache and found no hit.
+        transport = _Transport(_response(usage=usage))
+        client = _client(transport, sleeps)
+        try:
+            result = await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert result.cached_tokens is None
+
+    async def test_cached_details_are_summed_over_billed_attempts(
+        self, sleeps: list[float]
+    ) -> None:
+        rejected = _response(
+            document=_document(page=99),
+            usage={**USAGE, "prompt_tokens_details": {"cached_tokens": 2}},
+        )
+        accepted = _response(usage={**USAGE, "prompt_tokens_details": {"cached_tokens": 3}})
+        transport = _Transport(rejected, accepted)
+        client = _client(transport, sleeps)
+        try:
+            result = await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert result.attempts == 2
+        assert result.cached_tokens == 5
+
+    async def test_a_billed_attempt_without_a_cache_share_makes_the_total_unknown(
+        self, sleeps: list[float]
+    ) -> None:
+        transport = _Transport(
+            _response(document=_document(page=99), usage=USAGE),
+            _response(usage={**USAGE, "prompt_tokens_details": {"cached_tokens": 3}}),
+        )
+        client = _client(transport, sleeps)
+        try:
+            result = await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert result.cached_tokens is None
+
+
 class TestRetries:
     """Transient failures retry with backoff; permanent ones do not."""
 
@@ -138,8 +404,8 @@ class TestRetries:
         [
             httpx.Response(500, text="server error"),
             httpx.Response(429, text="slow down"),
+            httpx.Response(408, text="timeout"),
             httpx.ConnectTimeout("timed out"),
-            _response(finish_reason="length"),
             _response(content="not json at all"),
             _response(document={"page": 1, "running": "", "blocks": [], "extra": 1}),
             _response(document=_document(page=99)),
@@ -152,20 +418,24 @@ class TestRetries:
             ),
             _response(
                 document=_document(
-                    blocks=[{"kind": "p", "marker": None, "depth": None, "group": -1, "text": "một"}]
+                    blocks=[
+                        {"kind": "p", "marker": None, "depth": None, "group": -1, "text": "một"}
+                    ]
                 )
             ),
             _response(
                 document=_document(
-                    blocks=[{"kind": "p", "marker": None, "depth": None, "group": 0, "text": "một"}]
+                    blocks=[
+                        {"kind": "p", "marker": None, "depth": None, "group": 0, "text": "một"}
+                    ]
                 )
             ),
         ],
         ids=[
             "http-500",
             "http-429",
+            "http-408",
             "timeout",
-            "truncated",
             "bad-json",
             "schema",
             "page-mismatch",
@@ -230,16 +500,52 @@ class TestRetries:
         assert sleeps == []
         assert "HTTP 400" in str(excinfo.value)
 
+    async def test_client_error_does_not_echo_response_body(self, sleeps: list[float]) -> None:
+        transport = _Transport(httpx.Response(400, text=f"sensitive {API_KEY}"))
+        client = _client(transport, sleeps)
+        try:
+            with pytest.raises(VisionOCRError) as excinfo:
+                await _extract(client)
+        finally:
+            await client.aclose()
+        assert API_KEY not in str(excinfo.value)
+        assert transport.calls == 1
+
     async def test_non_object_content_fails_without_retry(self, sleeps: list[float]) -> None:
+        # An identical payload bought a non-object answer, and the model is
+        # deterministic, so the retry would buy the same answer again. The 200
+        # that already answered is still a bill and travels with the error.
         transport = _Transport(_response(content="[1, 2, 3]"))
         client = _client(transport, sleeps)
         try:
-            with pytest.raises(VisionOCRError):
+            with pytest.raises(VisionOCRError) as excinfo:
                 await _extract(client)
         finally:
             await client.aclose()
 
         assert transport.calls == 1
+        assert sleeps == []
+        assert excinfo.value.attempts == 1
+        assert (excinfo.value.prompt_tokens, excinfo.value.completion_tokens) == (11, 7)
+
+    async def test_non_object_content_that_reported_nothing_keeps_its_attempt(
+        self, sleeps: list[float]
+    ) -> None:
+        # The attempt is measured even when the response stated no counts: the
+        # request was made, so the page owes an attempt and an unknown bill.
+        transport = _Transport(_response(content="[1, 2, 3]", usage=None))
+        client = _client(transport, sleeps)
+        try:
+            with pytest.raises(VisionOCRError) as excinfo:
+                await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert transport.calls == 1
+        assert excinfo.value.attempts == 1
+        assert excinfo.value.prompt_tokens is None
+        assert excinfo.value.completion_tokens is None
+        assert excinfo.value.cached_tokens is None
 
     async def test_non_object_response_envelope_is_retried(self, sleeps: list[float]) -> None:
         malformed = httpx.Response(200, json=[{"error": "temporary gateway response"}])
@@ -255,8 +561,103 @@ class TestRetries:
         assert sleeps == [1]
 
 
+class TestTruncatedResponses:
+    """A response cut off at ``max_tokens`` is not retried: nothing would change.
+
+    The payload is rebuilt once and sent unchanged on every attempt, so a retry
+    would truncate at the same ``max_tokens`` again — buying the same truncated
+    answer twice. The failure is reported instead, carrying what the 200 cost.
+    """
+
+    async def test_length_is_not_retried_and_the_bill_travels_with_the_error(
+        self, sleeps: list[float]
+    ) -> None:
+        transport = _Transport(_response(finish_reason="length"), _response())
+        client = _client(transport, sleeps)
+        try:
+            with pytest.raises(VisionOCRError) as excinfo:
+                await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert transport.calls == 1
+        assert sleeps == []
+        assert "finish_reason=length" in str(excinfo.value)
+        assert excinfo.value.attempts == 1
+        assert (excinfo.value.prompt_tokens, excinfo.value.completion_tokens) == (11, 7)
+
+    async def test_a_truncated_response_carries_its_cache_share(self, sleeps: list[float]) -> None:
+        # The truncated 200 stated how much of its prompt was cached, so the
+        # error reports that share instead of leaving it as an assumed zero.
+        usage = {**USAGE, "prompt_tokens_details": {"cached_tokens": 5}}
+        transport = _Transport(_response(finish_reason="length", usage=usage))
+        client = _client(transport, sleeps)
+        try:
+            with pytest.raises(VisionOCRError) as excinfo:
+                await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert excinfo.value.cached_tokens == 5
+
+    async def test_a_truncated_response_without_usage_stays_unknown(
+        self, sleeps: list[float]
+    ) -> None:
+        transport = _Transport(_response(finish_reason="length", usage=None))
+        client = _client(transport, sleeps)
+        try:
+            with pytest.raises(VisionOCRError) as excinfo:
+                await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert transport.calls == 1
+        assert excinfo.value.attempts == 1
+        assert excinfo.value.prompt_tokens is None
+        assert excinfo.value.completion_tokens is None
+
+    async def test_another_finish_reason_is_still_retried(self, sleeps: list[float]) -> None:
+        # Only ``length`` is known to be deterministic; anything else may be a
+        # gateway hiccup, so it keeps the retry.
+        transport = _Transport(_response(finish_reason="content_filter"), _response())
+        client = _client(transport, sleeps)
+        try:
+            result = await _extract(client)
+        finally:
+            await client.aclose()
+
+        assert transport.calls == 2
+        assert result.attempts == 2
+        assert sleeps == [1]
+
+
 class TestCredentials:
     """The key never leaves the allowlist, and never lands in a payload or error."""
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            {"allowed_hosts": ()},
+            {"allowed_hosts": ("other.test",)},
+            {"api_base": "http://vision.test/v1/chat/completions"},
+            {"api_base": "https://user:pass@vision.test/v1/chat/completions"},
+            {"api_base": "https://vision.test:8443/v1/chat/completions"},
+        ],
+        ids=["no-allowlist", "other-host", "http", "embedded-credentials", "non-standard-port"],
+    )
+    def test_invalid_endpoint_configuration_is_rejected(self, options: dict[str, Any]) -> None:
+        config = {
+            "api_base": ENDPOINT,
+            "model": "test-model",
+            "api_key": API_KEY,
+            "allowed_hosts": ("vision.test",),
+            "headers": {"X-Opencode-Session": SESSION},
+        }
+        config.update(options)
+        with pytest.raises(ValidationError) as excinfo:
+            VisionOCRConfig(**config)
+        assert API_KEY not in str(excinfo.value)
+        assert SESSION not in str(excinfo.value)
 
     async def test_missing_key_fails_before_any_request(self, sleeps: list[float]) -> None:
         transport = _Transport(_response())
@@ -273,18 +674,25 @@ class TestCredentials:
         self, sleeps: list[float]
     ) -> None:
         transport = _Transport(_response())
-        client = _client(transport, sleeps, allowed_hosts=("other.test",))
-        try:
-            with pytest.raises(VisionOCRError, match="refusing to send"):
-                await _extract(client)
-        finally:
-            await client.aclose()
+        with pytest.raises(ValidationError) as excinfo:
+            _client(
+                transport,
+                sleeps,
+                allowed_hosts=("other.test",),
+                headers={"X-Opencode-Session": SESSION},
+            )
 
         assert transport.calls == 0
+        assert API_KEY not in str(excinfo.value)
+        assert SESSION not in str(excinfo.value)
 
     async def test_key_is_sent_as_bearer_and_never_in_the_body(self, sleeps: list[float]) -> None:
         transport = _Transport(_response())
-        client = _client(transport, sleeps, headers={"X-Trace": "abc", "Authorization": "nope"})
+        client = _client(
+            transport,
+            sleeps,
+            headers={"X-Trace": "abc", "X-Opencode-Session": SESSION, "Authorization": "nope"},
+        )
         try:
             await _extract(client)
         finally:
@@ -293,6 +701,7 @@ class TestCredentials:
         request = transport.requests[0]
         assert request.headers["Authorization"] == f"Bearer {API_KEY}"
         assert request.headers["X-Trace"] == "abc"
+        assert request.headers["X-Opencode-Session"] == SESSION
         assert API_KEY not in request.content.decode("utf-8")
 
     async def test_error_message_does_not_leak_the_key(self, sleeps: list[float]) -> None:
@@ -305,6 +714,94 @@ class TestCredentials:
             await client.aclose()
 
         assert API_KEY not in str(excinfo.value)
+
+
+class TestConfigSecrets:
+    """Serialization and validation never echo the API key or header values."""
+
+    HEADERS = {"X-Opencode-Session": SESSION, "X-Trace": "trace-value"}
+
+    @staticmethod
+    def _assert_clean(error: ValidationError) -> None:
+        for text in (str(error), repr(error), error.json(), repr(error.errors())):
+            assert API_KEY not in text
+            assert SESSION not in text
+
+    def test_repr_str_and_dict_hide_secrets(self) -> None:
+        config = _config(headers=self.HEADERS)
+
+        for text in (repr(config), str(config), repr(dict(config))):
+            assert API_KEY not in text
+            assert SESSION not in text
+
+    def test_model_dump_hides_secrets(self) -> None:
+        config = _config(headers=self.HEADERS)
+
+        for dumped in (
+            config.model_dump(),
+            config.model_dump(mode="json"),
+            config.model_dump_json(),
+        ):
+            assert API_KEY not in str(dumped)
+            assert SESSION not in str(dumped)
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"allowed_hosts": ("other.test",), "headers": HEADERS},
+            {"headers": [SESSION]},
+        ],
+        ids=["model-level", "field-level"],
+    )
+    def test_validation_error_hides_secrets(self, overrides: dict[str, Any]) -> None:
+        with pytest.raises(ValidationError) as excinfo:
+            _config(**overrides)
+
+        self._assert_clean(excinfo.value)
+
+    def test_model_validate_error_hides_secrets(self) -> None:
+        payload = {
+            "api_base": ENDPOINT,
+            "model": "test-model",
+            "api_key": API_KEY,
+            "allowed_hosts": ["other.test"],
+            "headers": self.HEADERS,
+        }
+
+        with pytest.raises(ValidationError) as excinfo:
+            VisionOCRConfig.model_validate(payload)
+
+        self._assert_clean(excinfo.value)
+
+    def test_model_validate_json_error_hides_secrets(self) -> None:
+        payload = json.dumps(
+            {
+                "api_base": ENDPOINT,
+                "model": "test-model",
+                "api_key": API_KEY,
+                "allowed_hosts": ["other.test"],
+                "headers": self.HEADERS,
+            }
+        )
+
+        with pytest.raises(ValidationError) as excinfo:
+            VisionOCRConfig.model_validate_json(payload)
+
+        self._assert_clean(excinfo.value)
+
+    def test_model_validate_strings_error_hides_secrets(self) -> None:
+        payload = {
+            "api_base": ENDPOINT,
+            "model": "test-model",
+            "api_key": API_KEY,
+            "allowed_hosts": ["other.test"],
+            "headers": self.HEADERS,
+        }
+
+        with pytest.raises(ValidationError) as excinfo:
+            VisionOCRConfig.model_validate_strings(payload)
+
+        self._assert_clean(excinfo.value)
 
 
 class TestBlockText:
@@ -466,3 +963,22 @@ class TestRenderPdfPages:
         assert document.closed
         assert [page.scales for page in document.pages] == [[2.0], [2.0]]
         assert all(page.closed for page in document.pages)
+
+    def test_selected_physical_page_keeps_absolute_request_number(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _FakeDocument.instances = []
+        monkeypatch.setattr(vision_ocr.pypdfium2, "PdfDocument", _FakeDocument)
+        assert [
+            n for n, _ in render_pdf_pages(Path("book.pdf"), page_indices=[1], page_offset=5)
+        ] == [7]
+        document = _FakeDocument.instances[0]
+        assert document.pages[0].scales == []
+        assert document.pages[1].closed and document.closed
+
+    def test_out_of_range_selection_closes_document(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _FakeDocument.instances = []
+        monkeypatch.setattr(vision_ocr.pypdfium2, "PdfDocument", _FakeDocument)
+        with pytest.raises(ValueError, match="page index"):
+            list(render_pdf_pages(Path("book.pdf"), page_indices=[2]))
+        assert _FakeDocument.instances[0].closed

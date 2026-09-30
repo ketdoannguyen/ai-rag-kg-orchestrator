@@ -12,8 +12,10 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 from arango_client import (
@@ -103,7 +105,7 @@ class IngestFilePipelineTest(unittest.TestCase):
             )
 
         async def extract_page(
-            self, png_bytes: bytes, *, page_number: int, state: list[dict]
+            self, png_bytes: bytes, *, page_number: int, state: Mapping[str, Any]
         ) -> PageExtraction:
             page = VisionPage(
                 page=page_number,
@@ -112,9 +114,10 @@ class IngestFilePipelineTest(unittest.TestCase):
                         kind="heading",
                         marker=str(page_number),
                         depth=1,
+                        group=1,
                         text=f"Trang {page_number}",
                     ),
-                    VisionBlock(kind="p", text=f"Nội dung trang {page_number}."),
+                    VisionBlock(kind="p", group=2, text=f"Nội dung trang {page_number}."),
                 ],
             )
             return PageExtraction(page=page, attempts=1, prompt_tokens=0, completion_tokens=0)

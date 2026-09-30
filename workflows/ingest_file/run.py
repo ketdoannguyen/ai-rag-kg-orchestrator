@@ -28,7 +28,13 @@ from workflows.dependencies import get_minio_client, init_arango_client
 from workflows.shared import calculate_md5
 
 from .models import FileIngestionInput, FileIngestionResult, FileIngestionStatus
-from .vision_ocr import VisionOCRClient, VisionOCRConfig, render_pdf_pages
+from .vision_ocr import (
+    VisionOCRClient,
+    VisionOCRConfig,
+    VisionOCRError,
+    add_measured,
+    render_pdf_pages,
+)
 from .vision_parser import VisionDocumentParser
 
 if TYPE_CHECKING:
@@ -123,6 +129,16 @@ class FileIngestionWorkflow:
 
         data_source_id = UUID(payload.data_source_id)
 
+        # What the run has spent so far. It is tracked outside the try so a
+        # failure can report it too, under the same names a completed run uses:
+        # attempts are always measured, while a token count stays None when the
+        # endpoint did not report it, because a zero would price it as free.
+        pages_processed = 0
+        attempts_used = 0
+        prompt_tokens: int | None = 0
+        completion_tokens: int | None = 0
+        cached_tokens: int | None = 0
+
         try:
             # ArangoClient uses sync operations - no need for async context
             sys_handler = SystemAdminHandler(self._arango_client.db)
@@ -178,10 +194,6 @@ class FileIngestionWorkflow:
 
             # Bước 4: OCR từng trang bằng vision model - Trang lỗi làm hỏng cả tài liệu
             parser = VisionDocumentParser(title=data_source.name)
-            pages_processed = 0
-            attempts_used = 0
-            prompt_tokens = 0
-            completion_tokens = 0
 
             for page_number, png_bytes in render_pdf_pages(
                 local_path,
@@ -196,8 +208,9 @@ class FileIngestionWorkflow:
                 parser.add_page(extraction.page, page_number=page_number)
                 pages_processed += 1
                 attempts_used += extraction.attempts
-                prompt_tokens += extraction.prompt_tokens
-                completion_tokens += extraction.completion_tokens
+                prompt_tokens = add_measured(prompt_tokens, extraction.prompt_tokens)
+                completion_tokens = add_measured(completion_tokens, extraction.completion_tokens)
+                cached_tokens = add_measured(cached_tokens, extraction.cached_tokens)
 
             if pages_processed == 0:
                 raise ValueError(f"Document has no renderable pages: {local_filename}")
@@ -221,6 +234,7 @@ class FileIngestionWorkflow:
                     "ocr_attempts": attempts_used,
                     "ocr_prompt_tokens": prompt_tokens,
                     "ocr_completion_tokens": completion_tokens,
+                    "ocr_cached_tokens": cached_tokens,
                     "blocks_by_kind": dict(parser.blocks_by_kind),
                     "normalization": dict(parser.normalization),
                     "vision_model": self._vision_client.config.model,
@@ -264,6 +278,15 @@ class FileIngestionWorkflow:
             )
         except Exception as exc:
             self._logger.exception("File ingestion failed")
+            if isinstance(exc, VisionOCRError) and exc.attempts:
+                # The page that failed is still a bill: its requests were paid
+                # for even though no page came back. A count it did not report
+                # makes the total unknown rather than silently dropping it.
+                attempts_used += exc.attempts
+                prompt_tokens = add_measured(prompt_tokens, exc.prompt_tokens)
+                completion_tokens = add_measured(completion_tokens, exc.completion_tokens)
+                cached_tokens = add_measured(cached_tokens, exc.cached_tokens)
+
             # Try to get DataSource even on failure
             data_source_on_error = None
             try:
@@ -301,6 +324,11 @@ class FileIngestionWorkflow:
                 statistics={
                     "successful": False,
                     "error": str(exc),
+                    "pages_processed": pages_processed,
+                    "ocr_attempts": attempts_used,
+                    "ocr_prompt_tokens": prompt_tokens,
+                    "ocr_completion_tokens": completion_tokens,
+                    "ocr_cached_tokens": cached_tokens,
                 },
                 error=str(exc),
             )

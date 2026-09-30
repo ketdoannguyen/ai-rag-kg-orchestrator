@@ -33,13 +33,14 @@ BODY: dict[str, Any] = {
 class _FakeLLM:
     """Replays one canned JSON body for every call and records the prompts."""
 
-    def __init__(self) -> None:
+    def __init__(self, body: dict[str, Any] | None = None) -> None:
+        self.body = body if body is not None else BODY
         self.prompts: list[str] = []
 
     async def invoke(self, request: GatewayInvokeRequest) -> InvokeResponse:
         self.prompts.append(request.messages[0].content)
         return InvokeResponse(
-            message=GatewayChatTurn(role="assistant", content=json.dumps(BODY)),
+            message=GatewayChatTurn(role="assistant", content=json.dumps(self.body)),
             finish_reason="stop",
             usage={},
         )
@@ -94,3 +95,27 @@ class TestDetailMergeSwitch:
 
         assert root.children[0].summary == "Tóm tắt bài"
         assert output.statistics.paragraphs_before == output.statistics.paragraphs_after == 2
+
+
+class TestRuntimeSummary:
+    """The merge summary still reaches the tree at runtime (research must not)."""
+
+    async def test_detail_summary_fills_sections_without_structure_children(self) -> None:
+        body: dict[str, Any] = {
+            "segments": [{"source_indices": [1, 2], "text": "Đoạn một\nĐoạn hai"}],
+            "section_summary": "Tóm tắt mục",
+            "summary": "Tóm tắt bài",
+        }
+        root = _tree()
+        llm = _FakeLLM(body)
+
+        output = await KnowledgeTreeEnricher(llm).enrich(
+            EnrichKnowledgeTreeInput(knowledge_tree=root)
+        )
+
+        # The section has no structure children, so it reuses the merge summary
+        # and the root is the only node that needs the structure summariser.
+        assert root.children[0].summary == "Tóm tắt mục"
+        assert root.summary == "Tóm tắt bài"
+        assert output.statistics.detail_llm_calls == 1
+        assert output.statistics.structure_llm_calls == 1

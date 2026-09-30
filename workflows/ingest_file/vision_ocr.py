@@ -14,7 +14,7 @@ import re
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import urlparse
 
 import httpx
@@ -24,11 +24,13 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SecretStr,
     ValidationError,
     ValidationInfo,
     field_validator,
     model_validator,
 )
+from pydantic_core import InitErrorDetails
 
 from config.settings import Settings
 
@@ -47,11 +49,38 @@ _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 
 
 class VisionOCRError(RuntimeError):
-    """Raised when a page cannot be extracted, including after all retries."""
+    """Raised when a page cannot be extracted, including after all retries.
+
+    A page that failed is still a bill: every HTTP 200 the endpoint answered was
+    paid for, even when the page inside it was rejected and retried. ``attempts``
+    counts the requests the page cost, and the token counts are ``None`` when no
+    billed response reported them — an unknown count recorded as zero would claim
+    the page was free. An error raised before any request carries no attempts and
+    no counts, so a caller merging this spend keys off ``attempts``.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        attempts: int = 0,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        cached_tokens: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.attempts = attempts
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+        self.cached_tokens = cached_tokens
 
 
 class _RetryableAttemptError(Exception):
     """Internal signal: this attempt failed but a retry may still succeed."""
+
+
+class _PermanentAttemptError(Exception):
+    """Internal signal: this attempt failed and an identical retry cannot help."""
 
 
 class VisionBlock(BaseModel):
@@ -118,24 +147,123 @@ class VisionPage(BaseModel):
 
 @dataclass(frozen=True)
 class PageExtraction:
-    """An accepted page plus the accounting used for run statistics."""
+    """An accepted page plus the accounting used for run statistics.
+
+    ``attempts`` is always measured: the client knows how many requests the page
+    cost it. The token counts are the sum over every 200 the page was billed for,
+    retried ones included, and are ``None`` when one of those responses did not
+    report the count, because an unknown count recorded as zero would claim the
+    page was free.
+    """
 
     page: VisionPage
     attempts: int
-    prompt_tokens: int
-    completion_tokens: int
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    cached_tokens: int | None = None
+    """Cached-prompt share the endpoint reported, or ``None`` when it stated none."""
+
+
+def _count(value: Any) -> int | None:
+    """A non-negative integer token count, or ``None`` when the value is unusable.
+
+    Absent and null both mean "not reported": the count is unknown, and neither
+    is ever read as zero. A value that is present but not a non-negative integer
+    is a malformed envelope, and unknown for the same reason.
+    """
+    if value is None:
+        return None
+    try:
+        count = int(value)
+    except (ValueError, TypeError):
+        return None
+    return count if count >= 0 else None
+
+
+def _cached_count(usage: Mapping[str, Any]) -> int | None:
+    """The cached-prompt share the response reported, or ``None`` when it stated none.
+
+    An OpenAI-compatible endpoint states it under
+    ``prompt_tokens_details.cached_tokens``. A response that says nothing about
+    the cache leaves the share unknown, exactly like a missing token count:
+    reading it as zero would claim the endpoint accounted for the cache and found
+    no hit.
+    """
+    details = usage.get("prompt_tokens_details")
+    if not isinstance(details, Mapping):
+        return None
+    return _count(details.get("cached_tokens"))
+
+
+def add_measured(total: int | None, value: int | None) -> int | None:
+    """Add one count to a running total, or ``None`` once a count is unknown.
+
+    A total that skipped a count nobody reported would price that attempt at
+    zero, so one unknown count makes the whole total unknown.
+    """
+    if total is None or value is None:
+        return None
+    return total + value
+
+
+@dataclass
+class _BilledUsage:
+    """What one page's requests were billed, summed over the 200s that answered.
+
+    Every HTTP 200 is billed, including one whose page is rejected and retried,
+    so each response's counts are added to the page's totals. A count a billed
+    response left unreported makes that total unknown (``None``): a sum that
+    skipped it would price the attempt at zero.
+    """
+
+    prompt_tokens: int | None = 0
+    completion_tokens: int | None = 0
+    cached_tokens: int | None = 0
+
+    def record(self, usage: Mapping[str, Any] | None) -> None:
+        """Add one billed response's counts.
+
+        ``None`` is a response whose usage envelope could not be read at all:
+        the attempt stays on the bill, with every count unknown.
+        """
+        prompt = completion = cached = None
+        if usage is not None:
+            prompt = _count(usage.get("prompt_tokens"))
+            completion = _count(usage.get("completion_tokens"))
+            cached = _cached_count(usage)
+        self.prompt_tokens = add_measured(self.prompt_tokens, prompt)
+        self.completion_tokens = add_measured(self.completion_tokens, completion)
+        self.cached_tokens = add_measured(self.cached_tokens, cached)
+
+
+def _sanitized_validation_error(error: ValidationError) -> ValidationError:
+    """Rebuild ``error`` without the raw inputs Pydantic echoes into messages.
+
+    A model-level failure keeps the full constructor input as the offending
+    error's ``input``, so a rejected config would otherwise print the API key
+    and the configured headers through ``str``, ``json()`` and ``errors()``.
+    """
+    return ValidationError.from_exception_data(
+        error.title, cast("list[InitErrorDetails]", error.errors(include_input=False))
+    )
 
 
 class VisionOCRConfig(BaseModel):
-    """Resolved runtime configuration for :class:`VisionOCRClient`."""
+    """Resolved runtime configuration for :class:`VisionOCRClient`.
+
+    ``api_key`` and every header value are held as :class:`~pydantic.SecretStr`,
+    and every constructor/validation entry point raises a rebuilt
+    :class:`ValidationError` whose errors carry no raw input, so repr, dumps and
+    error messages never echo a credential.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     api_base: str
     model: str
-    api_key: str | None = None
+    api_key: SecretStr | None = None
     allowed_hosts: tuple[str, ...] = ()
-    headers: dict[str, str] = Field(default_factory=dict)
+    headers: dict[str, SecretStr] = Field(default_factory=dict)
     image_detail: Literal["low", "high", "auto"] = "high"
     temperature: float = 0.0
     max_tokens: int = 8000
@@ -143,6 +271,35 @@ class VisionOCRConfig(BaseModel):
     max_blocks_per_page: int = 400
     max_retries: int = 2
     timeout_seconds: float = 300.0
+
+    def __init__(self, **data: Any) -> None:
+        try:
+            super().__init__(**data)
+        except ValidationError as exc:
+            raise _sanitized_validation_error(exc) from None
+
+    @classmethod
+    def model_validate(cls, obj: Any, **kwargs: Any) -> VisionOCRConfig:
+        try:
+            return super().model_validate(obj, **kwargs)
+        except ValidationError as exc:
+            raise _sanitized_validation_error(exc) from None
+
+    @classmethod
+    def model_validate_json(
+        cls, json_data: str | bytes | bytearray, **kwargs: Any
+    ) -> VisionOCRConfig:
+        try:
+            return super().model_validate_json(json_data, **kwargs)
+        except ValidationError as exc:
+            raise _sanitized_validation_error(exc) from None
+
+    @classmethod
+    def model_validate_strings(cls, obj: Any, **kwargs: Any) -> VisionOCRConfig:
+        try:
+            return super().model_validate_strings(obj, **kwargs)
+        except ValidationError as exc:
+            raise _sanitized_validation_error(exc) from None
 
     @classmethod
     def from_settings(
@@ -153,15 +310,28 @@ class VisionOCRConfig(BaseModel):
         timeout_seconds: float,
     ) -> VisionOCRConfig:
         """Build the config from environment settings and per-run retry options."""
+        endpoint = urlparse(settings.VISION_API_BASE)
+        allowed = tuple(
+            host.strip().lower()
+            for host in settings.VISION_ALLOWED_HOSTS.split(",")
+            if host.strip()
+        )
+        if (
+            endpoint.scheme != "https"
+            or not endpoint.hostname
+            or endpoint.username is not None
+            or endpoint.password is not None
+            or endpoint.port not in (None, 443)
+            or endpoint.hostname.lower() not in allowed
+        ):
+            raise VisionOCRError(
+                "VISION_API_BASE must be an HTTPS endpoint on an allowlisted host"
+            )
         return cls(
             api_base=settings.VISION_API_BASE,
             model=settings.VISION_MODEL,
             api_key=settings.VISION_API_KEY,
-            allowed_hosts=tuple(
-                host.strip().lower()
-                for host in settings.VISION_ALLOWED_HOSTS.split(",")
-                if host.strip()
-            ),
+            allowed_hosts=allowed,
             headers=dict(settings.VISION_HEADERS),
             image_detail=settings.VISION_IMAGE_DETAIL,
             temperature=settings.VISION_TEMPERATURE,
@@ -178,11 +348,17 @@ class VisionOCRConfig(BaseModel):
         return (urlparse(self.api_base).hostname or "").lower()
 
     def model_post_init(self, __context: Any) -> None:
-        if not self.allowed_hosts:
-            logger.warning(
-                "VISION_ALLOWED_HOSTS is empty: VISION_API_KEY may be sent to any host",
-                endpoint_host=self.host,
-            )
+        endpoint = urlparse(self.api_base)
+        if (
+            endpoint.scheme != "https"
+            or endpoint.username is not None
+            or endpoint.password is not None
+        ):
+            raise ValueError("Vision endpoint must use HTTPS without embedded credentials")
+        if endpoint.port not in (None, 443):
+            raise ValueError("Vision endpoint must use the standard HTTPS port")
+        if not self.allowed_hosts or self.host not in self.allowed_hosts:
+            raise ValueError("Vision endpoint host must be explicitly allowlisted")
 
 
 class VisionOCRClient:
@@ -204,6 +380,8 @@ class VisionOCRClient:
         self._client = httpx.AsyncClient(
             transport=transport,
             timeout=httpx.Timeout(config.timeout_seconds),
+            trust_env=False,
+            follow_redirects=False,
         )
 
     @property
@@ -220,15 +398,24 @@ class VisionOCRClient:
         page_number: int,
         state: Mapping[str, Any],
     ) -> PageExtraction:
-        """Extract one page, retrying transient failures."""
+        """Extract one page, retrying transient failures.
+
+        A page the endpoint answered without usage is accepted with unknown
+        token counts. A response truncated at ``max_tokens`` is not retried at
+        all: the payload is rebuilt once and sent unchanged, so the retry would
+        buy the same truncated answer a second time.
+        """
         headers = self._auth_headers()
         payload = self._build_payload(png_bytes, page_number, state)
         max_attempts = self._config.max_retries + 1
+        billed = _BilledUsage()
         last_error: Exception | None = None
 
         for attempt in range(1, max_attempts + 1):
             try:
-                return await self._request(headers, payload, page_number, attempt)
+                return await self._request(headers, payload, page_number, attempt, billed)
+            except _PermanentAttemptError as exc:
+                raise self._page_error(page_number, exc, attempt, billed) from exc
             except _RetryableAttemptError as exc:
                 last_error = exc
                 logger.warning(
@@ -240,7 +427,23 @@ class VisionOCRClient:
                 if attempt < max_attempts:
                     await self._sleep(min(2 ** (attempt - 1), 30))
 
-        raise VisionOCRError(f"page {page_number}: {last_error} (after {max_attempts} attempt(s))")
+        raise self._page_error(page_number, last_error, max_attempts, billed)
+
+    def _page_error(
+        self,
+        page_number: int,
+        error: Exception | None,
+        attempts: int,
+        billed: _BilledUsage,
+    ) -> VisionOCRError:
+        """A page failure that reports what the page's requests were billed."""
+        return VisionOCRError(
+            f"page {page_number}: {error} (after {attempts} attempt(s))",
+            attempts=attempts,
+            prompt_tokens=billed.prompt_tokens,
+            completion_tokens=billed.completion_tokens,
+            cached_tokens=billed.cached_tokens,
+        )
 
     def _auth_headers(self) -> dict[str, str]:
         """Return request headers, refusing to leak the key to an unknown host."""
@@ -248,17 +451,21 @@ class VisionOCRClient:
         if not api_key:
             raise VisionOCRError("VISION_API_KEY is not configured")
         allowed = self._config.allowed_hosts
-        if allowed and self._config.host not in allowed:
+        if self._config.host not in allowed:
             raise VisionOCRError(
                 f"refusing to send VISION_API_KEY to host '{self._config.host}'; "
                 "set VISION_ALLOWED_HOSTS to allow it"
             )
         headers = {
-            key: value
+            key: value.get_secret_value()
             for key, value in self._config.headers.items()
             if key.lower() != "authorization"
         }
-        headers["Authorization"] = f"Bearer {api_key}"
+        if self._config.host == "opencode.ai" and not any(
+            name.lower() == "x-opencode-session" and value for name, value in headers.items()
+        ):
+            raise VisionOCRError("x-opencode-session is required for opencode.ai")
+        headers["Authorization"] = f"Bearer {api_key.get_secret_value()}"
         return headers
 
     def _build_payload(
@@ -303,6 +510,7 @@ class VisionOCRClient:
         payload: dict[str, Any],
         page_number: int,
         attempt: int,
+        billed: _BilledUsage,
     ) -> PageExtraction:
         try:
             response = await self._client.post(
@@ -313,36 +521,59 @@ class VisionOCRClient:
                 f"request timed out after {self._config.timeout_seconds}s"
             ) from exc
         except httpx.TransportError as exc:
-            raise _RetryableAttemptError(f"transport error: {exc}") from exc
+            raise _RetryableAttemptError("transport error") from exc
 
-        if response.status_code == 429 or response.status_code >= 500:
+        if response.status_code in (408, 429) or response.status_code >= 500:
             raise _RetryableAttemptError(f"HTTP {response.status_code}")
         if response.status_code != 200:
-            raise VisionOCRError(
-                f"page {page_number}: HTTP {response.status_code}: {_shorten(response.text)}"
-            )
+            raise self._page_error(page_number, f"HTTP {response.status_code}", attempt, billed)
 
+        # A 200 is billed whether or not its envelope can be read, so an
+        # attempt whose usage cannot be read stays on the page's bill with every
+        # count unknown: a sum that skipped it would present the remaining
+        # attempts as the page's total.
         try:
             body = response.json()
         except ValueError as exc:
-            raise _RetryableAttemptError(f"response body was not JSON: {exc}") from exc
+            billed.record(None)
+            raise _RetryableAttemptError("response body was not JSON") from exc
         if not isinstance(body, dict):
+            billed.record(None)
             raise _RetryableAttemptError("response body was not a JSON object")
 
+        # A 200 is billed whether or not the page inside it is usable, so what it
+        # reported is recorded before the page is judged: a rejected page that is
+        # retried still stays on the page's bill.
+        usage = body.get("usage")
+        billed.record(usage if isinstance(usage, dict) else None)
         page = self._parse_page(body, page_number)
-        usage = body.get("usage") or {}
         return PageExtraction(
             page=page,
             attempts=attempt,
-            prompt_tokens=int(usage.get("prompt_tokens") or 0),
-            completion_tokens=int(usage.get("completion_tokens") or 0),
+            prompt_tokens=billed.prompt_tokens,
+            completion_tokens=billed.completion_tokens,
+            cached_tokens=billed.cached_tokens,
         )
 
     def _parse_page(self, body: dict[str, Any], page_number: int) -> VisionPage:
-        choice = (body.get("choices") or [{}])[0]
+        choices = body.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            raise _RetryableAttemptError("invalid response choices")
+        choice = choices[0]
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            raise _RetryableAttemptError("invalid response message")
         finish_reason = choice.get("finish_reason")
-        content = (choice.get("message") or {}).get("content")
+        content = message.get("content")
 
+        if finish_reason == "length":
+            # The response was cut off at max_tokens. The payload is identical on
+            # every attempt, so a retry would be cut at the same place: it costs
+            # another billed request and cannot produce a complete page.
+            raise _PermanentAttemptError(
+                "response hit max_tokens (finish_reason=length); the same payload "
+                "would be truncated again"
+            )
         if finish_reason != "stop":
             raise _RetryableAttemptError(f"finish_reason={finish_reason!r}")
         if not isinstance(content, str) or not content.strip():
@@ -350,11 +581,16 @@ class VisionOCRClient:
 
         raw = _load_json_object(content)
         if not isinstance(raw, dict):
-            raise VisionOCRError(f"page {page_number}: response JSON was not an object")
+            # The endpoint answered, so the attempt is bought and paid for, but
+            # it is not repeated: the payload is rebuilt unchanged and the model
+            # is deterministic, so an identical retry would buy the same
+            # non-object answer again. Permanent, so the attempt loop stops here
+            # and reports the 200 that answered on the page's bill.
+            raise _PermanentAttemptError("response JSON was not an object")
         try:
             page = VisionPage.model_validate(raw)
         except ValidationError as exc:
-            raise _RetryableAttemptError(f"schema mismatch: {_shorten(str(exc))}") from exc
+            raise _RetryableAttemptError("schema mismatch") from exc
 
         if page.page != page_number:
             raise _RetryableAttemptError(f"page mismatch: expected {page_number}, got {page.page}")
@@ -370,24 +606,34 @@ def render_pdf_pages(
     *,
     dpi: int = 200,
     page_offset: int = 0,
+    page_indices: list[int] | None = None,
 ) -> Iterator[tuple[int, bytes]]:
-    """Yield ``(printed_page_number, png_bytes)`` one page at a time.
+    """Yield ``(request_page_number, png_bytes)`` one selected page at a time.
 
     Synchronous by design: rendering one page is short and peak memory stays at
     a single page bitmap instead of the whole document.
     """
     document = pypdfium2.PdfDocument(str(path))
     try:
-        for index in range(len(document)):
+        indices = range(len(document)) if page_indices is None else page_indices
+        if any(index < 0 or index >= len(document) for index in indices):
+            raise ValueError("page index outside PDF")
+        for index in indices:
             page = document[index]
-            bitmap = page.render(scale=dpi / 72)
-            image = bitmap.to_pil()
-            buffer = io.BytesIO()
-            image.save(buffer, format="PNG")
-            yield index + 1 + page_offset, buffer.getvalue()
-            image.close()
-            bitmap.close()
-            page.close()
+            try:
+                bitmap = page.render(scale=dpi / 72)
+                try:
+                    image = bitmap.to_pil()
+                    try:
+                        buffer = io.BytesIO()
+                        image.save(buffer, format="PNG")
+                        yield index + 1 + page_offset, buffer.getvalue()
+                    finally:
+                        image.close()
+                finally:
+                    bitmap.close()
+            finally:
+                page.close()
     finally:
         document.close()
 
@@ -401,9 +647,4 @@ def _load_json_object(content: str) -> Any:
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
-        raise _RetryableAttemptError(f"invalid JSON: {exc}") from exc
-
-
-def _shorten(value: str, limit: int = 300) -> str:
-    text = " ".join(value.split())
-    return text if len(text) <= limit else f"{text[:limit]}..."
+        raise _RetryableAttemptError("invalid JSON") from exc
