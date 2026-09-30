@@ -24,6 +24,12 @@ check: format lint test
 mypy:
 	mypy libs/ workflows/ --ignore-missing-imports
 
+# The libs under libs/ are first-party but ship no py.typed, so importing one is
+# reported as untyped. Only that code is off here: a missing module is still an
+# error, unlike in the root target above.
+mypy-ocr:
+	.venv/bin/mypy --follow-imports=skip --disable-error-code=import-untyped research/ocr_pipeline scripts/run_ocr_study.py
+
 up:
 	$(COMPOSE) up -d
 

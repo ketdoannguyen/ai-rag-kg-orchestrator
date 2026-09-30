@@ -123,6 +123,8 @@ data/ingest_web/*
 # Generated/large data files
 data/pdf/
 data/benchmark/
+data/research/
+/SGK-Vat-li-12-KNTT-0-10.json
 data/kg_health_check_results.json
 
 # Large binary/document files
